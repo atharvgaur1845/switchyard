@@ -4,3 +4,8 @@ node_modules/
 data/
 switchyard.yaml
 .plans/
+.env.*
+!.env.example
+switchyard.*.yaml
+!switchyard.example.yaml
+data.*/
