@@ -3,45 +3,15 @@
 // comes from outside the company, so every value is escaped before it
 // touches the page.
 
+import { diagram, left } from "./diagram.js";
+import { esc, icon, INLET_ICON, STEP_ICON } from "./icons.js";
+
 const token = new URLSearchParams(location.search).get("token");
 const api = (path) =>
   fetch(path + (token ? `?token=${encodeURIComponent(token)}` : "")).then((r) => {
     if (!r.ok) throw new Error(`${r.status}`);
     return r.json();
   });
-
-const esc = (v) =>
-  String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-
-// ---------- icons (Lucide paths, ISC licence) ----------
-
-const PATHS = {
-  bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>',
-  hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
-  send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
-  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
-  form: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>',
-  mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
-  webhook: '<path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"/><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06"/><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8"/>',
-  calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
-  message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
-  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
-  fork: '<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9M12 12v3"/>',
-  reroute: '<path d="m15 10 5 5-5 5"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/>',
-  check: '<path d="M20 6 9 17l-5-5"/>',
-  x: '<path d="M18 6 6 18M6 6l12 12"/>',
-  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/>',
-  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
-  yard: '<path d="M3 21V14c0-3 2-5 5-5h13"/><path d="M3 14V3"/><path d="M17 5l4 4-4 4"/>',
-  user: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
-  code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
-  doc: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
-};
-const icon = (name, cls = "") =>
-  `<svg class="ico ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name] ?? ""}</svg>`;
-
-const INLET_ICON = { form: "form", email: "mail", schedule: "calendar", webhook: "webhook", frontdesk: "message" };
-const STEP_ICON = { agent: "bot", parallel: "fork", gate: "hand", outlet: "send", wait: "clock", verify: "code" };
 
 // ---------- state ----------
 
@@ -61,8 +31,9 @@ const state = {
   vendors: {},
   filter: "all",
   query: "",
-  selected: location.hash.slice(1) || null,
+  selected: location.hash === "#flows" ? null : location.hash.slice(1) || null,
   view: "cases",
+  tab: "story",
   signature: "",
 };
 
@@ -102,11 +73,15 @@ function bucket(c) {
   return c.waiting?.kind === "person" ? "person" : "agent";
 }
 
-function statusPill(c) {
+function statusPill(c, compact = false) {
   const { label, tone } = c.outcome;
   const live = c.status === "open" && tone !== "neutral";
   let text = label;
-  if (c.waiting?.kind === "person" && c.waiting.approver) text = `${label} · ${c.waiting.approver}`;
+  if (c.waiting?.kind === "person" && c.waiting.approver) {
+    // In the list the colour already says "a person"; the row names who and how long.
+    text = compact ? c.waiting.approver : `${label} · ${c.waiting.approver}`;
+    if (c.waiting.deadlineAt && !c.waiting.escalated) text += ` · ${left(c.waiting.deadlineAt)}${compact ? "" : " left"}`;
+  }
   if (c.waiting?.kind === "agent") text = `${c.waiting.who}`;
   if (c.waiting?.kind === "wait") text = `Scheduled · ${new Date(c.waiting.until).toLocaleDateString()}`;
   return `<span class="pill ${tone}"><span class="dot${live ? " pulse" : ""}"></span>${esc(text)}</span>`;
@@ -172,7 +147,7 @@ function renderList() {
         <span class="glyph">${icon(INLET_ICON[inlet] ?? "form")}</span>
         <span class="row-main"><span class="t">${c.data.flagged ? icon("flag", "t-stop") : ""}${esc(c.title)}</span>
           <span class="s">${esc(flowOf(c.flow)?.description ?? c.flow)} · <span class="mono">${esc(c.id)}</span></span></span>
-        <span class="when">${statusPill(c)}<span class="mini-track" aria-hidden="true">${track}</span></span>
+        <span class="when">${statusPill(c, true)}<span class="mini-track" aria-hidden="true">${track}</span></span>
       </li>`;
     })
     .join("");
@@ -206,9 +181,13 @@ function renderDetail() {
     </div>
     ${c.excerpt ? `<blockquote class="excerpt">${esc(c.excerpt)}</blockquote>` : ""}
     ${banners(c)}
-    <div class="track" role="list" aria-label="Steps">${stationsHtml(c)}</div>
+    <div class="diagram" id="diagram">${flow ? diagram(flow, c, state.vendors) : ""}</div>
     ${receiptsHtml(c)}
-    <div class="grid2">
+    <div class="dtabs" role="tablist" aria-label="Case views">
+      <button role="tab" data-tab="story" aria-selected="${state.tab === "story"}">Story</button>
+      <button role="tab" data-tab="raw" aria-selected="${state.tab === "raw"}">Raw log <span class="n">${c.events.length}</span></button>
+    </div>
+    ${state.tab === "raw" ? rawLog(c) : `<div class="grid2">
       <section class="panel"><h3>What happened</h3><ol class="timeline">${timeline(c)}</ol></section>
       <section class="panel">
         <h3>From outside the company</h3>
@@ -218,7 +197,7 @@ function renderDetail() {
           <dl>${Object.entries(c.data).filter(([k]) => k !== "flagged" && k !== "flags").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${isMoneyField(k) ? money(v) : esc(Array.isArray(v) ? v.join(", ") : v)}</dd>`).join("")}</dl>
         </div>
       </section>
-    </div>`;
+    </div>`}`;
 }
 
 function banners(c) {
@@ -240,22 +219,6 @@ function banners(c) {
     out.push(`<div class="banner agent">${icon("reroute")}<span><b>${esc(e.from)}</b> ${vendorBadge(e.from)} → <b>${esc(e.to)}</b> ${vendorBadge(e.to)} on <b>${esc(e.step)}</b>: ${esc(e.reason)}.</span></div>`);
   }
   return out.join("");
-}
-
-function stationsHtml(c) {
-  return c.stations
-    .map((s) => {
-      const step = stepOf(c, s.id);
-      const label = { done: "done", skipped: "skipped", current: "in progress", todo: "not reached", stopped: "stopped here" }[s.status];
-      const who = step?.agents?.length > 1 ? step.agents.join(" + ") : (step?.who ?? "");
-      const node = s.status === "done" ? icon("check") : s.status === "stopped" ? icon("x") : icon(STEP_ICON[s.kind]);
-      return `<div class="station ${s.status} k-${s.kind}" role="listitem" title="${esc(s.id)}: ${label}">
-        <div class="node">${node}</div>
-        <div class="name">${esc(step?.label ?? s.id)}</div>
-        <div class="who">${esc(who)}${s.status === "skipped" ? " · skipped" : ""}</div>
-      </div>`;
-    })
-    .join("");
 }
 
 function timeline(c) {
@@ -291,9 +254,13 @@ function timeline(c) {
         }
         row("agent", esc(lastAgent ?? "agent"), initials(lastAgent ?? "ag"), `finished <b>${name}</b>`, result(e.value));
         break;
-      case "reply_rejected":
-        row("stop", esc(lastAgent ?? "agent"), initials(lastAgent ?? "ag"), `reply not accepted: ${esc(e.error)}`);
+      case "reply_rejected": {
+        // In a parallel step the error names the agent ("@checker: ...").
+        const who = /^(@[\w.-]+):\s*/.exec(e.error ?? "");
+        const agent = who?.[1] ?? lastAgent ?? "agent";
+        row("stop", esc(agent), initials(agent), `reply not accepted: ${esc(who ? e.error.slice(who[0].length) : e.error)}`);
         break;
+      }
       case "failed_over":
         row("stop", "@yard", icon("reroute"), `moved <b>${name}</b> from ${esc(e.from)} to <b>${esc(e.to)}</b> ${vendorBadge(e.to)} <span class="meta">(${esc(e.reason)})</span>`);
         break;
@@ -373,6 +340,35 @@ function valueHtml(key, v) {
   return `<span class="text">${esc(v)}</span>`;
 }
 
+// ---------- raw log: the events exactly as stored ----------
+
+// Every event of the case in storage order. `seq` is the log's own
+// autoincrement key, so gaps would show and order cannot be rewritten.
+function rawLog(c) {
+  const rows = c.events
+    .map((e) => {
+      const { seq, at_iso, type, step, ...rest } = e;
+      const json = JSON.stringify(rest);
+      const body = json === "{}" ? "" : json.length > 140 ? `<details><summary><code>${esc(json.slice(0, 140))}…</code></summary><pre>${esc(JSON.stringify(rest, null, 2))}</pre></details>` : `<code>${esc(json)}</code>`;
+      return `<tr><td class="num mono">${seq}</td><td class="mono">${esc(String(at_iso).replace("T", " ").replace(/\.\d+Z$/, "Z"))}</td><td><span class="evt t-${esc(type)}">${esc(type)}</span></td><td class="mono">${esc(step ?? "")}</td><td class="raw-body">${body}</td></tr>`;
+    })
+    .join("");
+  return `<section class="raw" aria-label="Raw event log">
+    <div class="raw-head"><p>The case's append-only log, as stored. Its state anywhere on this page is a fold of these rows.</p>
+      <button class="btn small" data-export="${esc(c.id)}">${icon("doc")} Export case-${esc(c.id)}.jsonl</button></div>
+    <div class="raw-scroll"><table class="rawtable"><thead><tr><th class="num">seq</th><th>recorded (UTC)</th><th>type</th><th>step</th><th>body</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </section>`;
+}
+
+function exportCase(id) {
+  const c = state.cases.find((x) => x.id === id);
+  if (!c) return;
+  const blob = new Blob([c.events.map((e) => JSON.stringify(e)).join("\n") + "\n"], { type: "application/x-ndjson" });
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `case-${id}.jsonl` });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 // ---------- receipts: what was approved, and what was done ----------
 
 function receiptsOf(c) {
@@ -445,11 +441,14 @@ function renderFlows() {
         .join("");
       const off = `<div class="setup"><span class="pill neutral">Not set up</span><code>npm run switchyard setup-local ${esc(f.flow)}</code></div>`;
       return `<article class="flow-card card${f.running ? "" : " off"}">
+        <div class="fc-meta">
         <div class="fc-head"><h2>${esc(f.description)}</h2>${f.running ? '<span class="pill act"><span class="dot"></span>Running</span>' : ""}</div>
         <div class="room"><span class="mono">${esc(f.flow)}</span> · #${esc(f.room)}${schedule?.next ? ` · next run ${new Date(schedule.next).toLocaleString()}` : ""}</div>
         <div class="inlets">${inletText}</div>
-        <ol class="steps">${steps}</ol>
+        <details class="step-list"><summary>Steps as a list</summary><ol class="steps">${steps}</ol></details>
         ${f.running ? `<div class="links"><a href="#" data-flow-filter="${esc(f.flow)}">${counts.open} open · ${counts.done} done · ${counts.stopped} stopped</a>${links}</div>` : off}
+        </div>
+        <div class="diagram">${diagram(f, null, state.vendors)}</div>
       </article>`;
     })
     .join("");
@@ -481,13 +480,21 @@ async function refresh() {
     if (signature === state.signature) return;
     state.signature = signature;
     Object.assign(state, { flows: overview.flows, schedules: overview.schedules, vendors: overview.vendors, people: overview.people, cases });
-    if (!state.selected && cases.length) state.selected = visibleCases()[0]?.id ?? null;
+    if (!state.selected && cases.length) state.selected = hero(cases) ?? visibleCases()[0]?.id ?? null;
     render();
   } catch (error) {
     live.className = "live off";
     document.getElementById("live-text").textContent = `Disconnected (${error.message}): showing the last data`;
     document.body.classList.add("offline");
   }
+}
+
+// The case a first-time visitor sees: the newest invoice that went through
+// the two-checker fork, since it shows the most of the engine at once.
+function hero(cases) {
+  return cases
+    .filter((c) => c.flow === "invoice-check" && c.events.some((e) => e.type === "fanned_out"))
+    .sort((a, b) => (b.openedAt ?? "").localeCompare(a.openedAt ?? ""))[0]?.id;
 }
 
 function select(id) {
@@ -503,6 +510,15 @@ document.getElementById("filters").addEventListener("click", (e) => {
   if (!chip) return;
   state.filter = chip.dataset.filter;
   render();
+});
+document.getElementById("detail").addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-tab]");
+  if (tab) {
+    state.tab = tab.dataset.tab;
+    renderDetail();
+  }
+  const exp = e.target.closest("[data-export]");
+  if (exp) exportCase(exp.dataset.export);
 });
 document.getElementById("search").addEventListener("input", (e) => {
   state.query = e.target.value;
@@ -532,6 +548,8 @@ document.getElementById("flow-grid").addEventListener("click", (e) => {
 
 function showView(view) {
   state.view = view;
+  if (view === "flows") history.replaceState(null, "", `#flows${location.search}`);
+  else if (location.hash === "#flows") history.replaceState(null, "", state.selected ? `#${state.selected}${location.search}` : location.pathname + location.search);
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
   document.getElementById("view-cases").hidden = view !== "cases";
   document.getElementById("view-flows").hidden = view !== "flows";
@@ -545,8 +563,18 @@ document.querySelector(".tabs").addEventListener("click", (e) => {
 // A link to #<case id> opens that case.
 window.addEventListener("hashchange", () => {
   const id = location.hash.slice(1);
-  if (id) select(id) || showView("cases");
+  if (id === "flows") showView("flows");
+  else if (id) select(id) || showView("cases");
 });
+
+if (location.hash === "#flows") showView("flows");
 
 refresh();
 setInterval(refresh, 2500);
+// The clocks move even when no event arrives: redraw just the diagram.
+setInterval(() => {
+  const c = state.cases.find((x) => x.id === state.selected);
+  const el = document.getElementById("diagram");
+  if (c?.status === "open" && el && flowOf(c.flow)) el.innerHTML = diagram(flowOf(c.flow), c, state.vendors);
+  if (state.view === "cases") renderList();
+}, 30_000);

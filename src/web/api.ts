@@ -39,6 +39,8 @@ export function flowSummaries(flows: Flow[], running: Set<string> = new Set(flow
       deadline: isGate(step) ? step.gate.deadline : undefined,
       approves: isGate(step) ? step.gate.approves : undefined,
       options: isGate(step) ? step.gate.options : undefined,
+      // The room document a code check reads, drawn above its station.
+      doc: isVerify(step) && typeof step.verify.doc === "string" ? step.verify.doc : undefined,
     })),
   }));
 }
@@ -140,7 +142,7 @@ function waitingOn(state: CaseState, flow: Flow | undefined) {
   const p = state.pending;
   if (!p) return null;
   const step = flow?.steps.find((s) => s.id === p.step);
-  if (p.kind === "wait") return { kind: "wait", step: p.step, until: p.until };
+  if (p.kind === "wait") return { kind: "wait", step: p.step, since: p.at, until: p.until };
   if (p.kind === "agent") {
     const sla = step && isAgent(step) && step.sla ? durationMs(step.sla) : undefined;
     return { kind: "agent", step: p.step, who: p.agent, since: p.at, slaAt: sla ? p.at + sla : undefined, bench: step && isAgent(step) ? step.bench : undefined };

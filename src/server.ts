@@ -17,6 +17,8 @@ const STATIC: Record<string, string> = {
   "theme.css": "text/css",
   "app.css": "text/css",
   "app.js": "text/javascript",
+  "diagram.js": "text/javascript",
+  "icons.js": "text/javascript",
   "logo.svg": "image/svg+xml",
 };
 
