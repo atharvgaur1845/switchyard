@@ -36,9 +36,11 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       const poAmount = toNumber(amountText);
       const invoiced = toNumber(args.amount);
       const claimed = String(args.supplier ?? "");
-      const supplierOk = norm(claimed) !== "" && norm(supplier) !== "" && (norm(supplier).includes(norm(claimed)) || norm(claimed).includes(norm(supplier)));
+      // The whole name: "Fabrikam" is a different supplier from "Fabrikam Print".
+      const supplierOk = sameName(supplier, claimed);
       const amountOk = poAmount !== undefined && invoiced !== undefined && Math.round(poAmount * 100) === Math.round(invoiced * 100);
-      const open = /open/i.test(status);
+      // Exactly "open": "not open" and "paid (was open)" are not.
+      const open = norm(status) === "open";
       const problems = [
         !supplierOk && `supplier is ${supplier}, not ${String(args.supplier)}`,
         !amountOk && `${po} is for ${fmt(poAmount)}, the invoice is ${fmt(invoiced)}`,
@@ -48,7 +50,11 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
         ok: problems.length === 0,
         found: true,
         rows: { [doc.name]: row[0] },
+        po: row[0],
+        supplier,
         po_amount: poAmount,
+        amount_text: amountText,
+        open,
         detail: problems.length === 0 ? `${po} (${supplier}, ${fmt(poAmount)}) matches the invoice` : problems.join("; "),
       };
     },
@@ -150,6 +156,7 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       return {
         ok: problems.length === 0,
         rows: { [String(args.doc)]: vendor.vendor },
+        vendor: vendor.vendor,
         iban: vendor.iban,
         recent,
         changed: vendor.changed,

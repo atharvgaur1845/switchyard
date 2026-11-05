@@ -178,7 +178,7 @@ describe("paying an invoice", () => {
     const id = await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0912", amount: 3150, po: "PO-1043" }, "webhook");
     await chat.deliver((m) => runner.onMessage(m));
 
-    const executed = store.events(id).find((e) => e.type === "executed");
+    const executed = store.events(id).find((e) => e.type === "executed" && e.step === "schedule_payment");
     expect(executed).toMatchObject({ readback: executed?.type === "executed" ? executed.hash : "" });
     expect(executed?.type === "executed" && executed.receipt).toMatch(/paid 3150 EUR to Fabrikam Print \(sandbox bank SBX-\d+\)/);
     const held = JSON.parse(readFileSync(ledger, "utf8")).find((p: { key: string }) => p.key === `${id}/schedule_payment`);
@@ -194,7 +194,7 @@ describe("paying an invoice", () => {
     expect(chat.cards[0].detail).toMatch(/Checked against room documents: purchase-orders \(PO-1043's row\) \w+, vendor-master \(Fabrikam Print's row\) \w+/);
 
     await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "pay", answeredBy: "mx:@controller" });
-    expect(store.events(id).find((e) => e.type === "executed")).toMatchObject({ payload: { pay: { to: FABRIKAM } } });
+    expect(store.events(id).find((e) => e.type === "executed" && e.step === "schedule_payment")).toMatchObject({ payload: { pay: { to: FABRIKAM } } });
   });
 
   it("does not pay on an approval given before the vendor master changed", async () => {

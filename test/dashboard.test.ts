@@ -108,7 +108,7 @@ describe("the diagram", () => {
 
     await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "pay", answeredBy: "mx:@controller" });
     svg = draw();
-    expect(outlets.executed).toHaveLength(1);
+    expect(outlets.payments).toHaveLength(1);
     expect(svg).toContain(`${hash.slice(0, 8)} = executed`);
     expect(svg).toContain('class="bind ok"');
   });

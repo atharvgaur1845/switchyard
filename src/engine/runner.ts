@@ -812,7 +812,7 @@ export function combine(step: ParallelStep, answers: Record<string, unknown>): R
 // What `when:` conditions and `{placeholders}` can see: the case data under
 // `case`, and each finished step's result under its id.
 export function scopeOf(state: CaseState): Scope {
-  return { case: state.data, ...state.results, by: state.deciders };
+  return { case: state.data, ...state.results, by: state.deciders, this: { id: state.id } };
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {

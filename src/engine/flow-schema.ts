@@ -196,7 +196,7 @@ export function lint(flow: Flow): string[] {
     }
     if (isOutlet(step) && known) {
       for (const name of placeholderNames(step.outlet)) {
-        if (name !== "case" && name !== "by" && seen.has(name) && !known.has(name)) {
+        if (!ROOTS.has(name) && seen.has(name) && !known.has(name)) {
           problems.push(`outlet "${step.id}" uses "${name}", which runs after its approval card, so the approver never saw it`);
         }
       }
@@ -210,8 +210,8 @@ export function lint(flow: Flow): string[] {
     }
 
     for (const name of referencedNames(step)) {
-      if (name !== "case" && name !== "by" && !seen.has(name)) {
-        problems.push(`step "${step.id}" refers to "${name}", which is not "case" or an earlier step`);
+      if (!ROOTS.has(name) && !seen.has(name)) {
+        problems.push(`step "${step.id}" refers to "${name}", which is not "case", "this" or an earlier step`);
       }
     }
 
@@ -221,6 +221,9 @@ export function lint(flow: Flow): string[] {
 }
 
 const WORDS = new Set(["and", "or", "not", "true", "false", "null"]);
+// Names every step may read besides earlier steps: the case's data, who
+// answered each gate, and the case itself ({this.id}).
+const ROOTS = new Set(["case", "by", "this"]);
 
 // The first path segment of every name a step reads, from its conditions and
 // from `{placeholders}` in its text, so a typo fails lint instead of

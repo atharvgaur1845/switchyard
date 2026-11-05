@@ -43,6 +43,7 @@ class Paying implements Outlets {
     this.live = () => new LiveOutlets({ dataDir: tmpdir(), bankUrl, smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, chat, new Store());
   }
   async execute(outlet: Outlet, key: string): Promise<OutletResult> {
+    if (!("pay" in outlet)) return this.live().execute(outlet, key);
     if (this.failNext) {
       this.failNext = false;
       throw new Error("connection reset");
@@ -120,7 +121,11 @@ describe("starting and repeating cases", () => {
     const other = await open(fabrikam("FP-78"));
     expect(again).toBe(first);
     expect(other).not.toBe(first);
-    expect(outlets.paid).toHaveLength(2);
+    // A new invoice number on the same PO is a new case, but never a second
+    // automatic payment: the first case marked the PO as invoiced.
+    expect(outlets.paid).toHaveLength(1);
+    expect(store.load(other).pending?.kind).toBe("gate");
+    expect(store.load(other).results.po_check).toMatchObject({ ok: false, detail: expect.stringContaining(`PO-1043 is invoiced FP-77 (case ${first})`) });
     expect(chat.said(`it is case ${first} already, so it was not opened twice`)).toBe(true);
     expect(store.caseIds()).toHaveLength(2);
   });
@@ -197,7 +202,7 @@ describe("in doubt", () => {
     expect(store.load(id).pending?.kind).toBe("in_doubt");
 
     await runner.onApproval({ requestId: chat.cards.at(-1)!.requestId, answer: "send it again", answeredBy: "mx:@controller" });
-    const executed = store.events(id).find((e) => e.type === "executed");
+    const executed = store.events(id).find((e) => e.type === "executed" && e.step === "schedule_payment");
     expect(executed?.type === "executed" && executed.receipt).toMatch(/^paid 3150 EUR to Fabrikam Print \(sandbox bank SBX-\d+\) \(resent by @controller\)$/);
     expect(executed).toMatchObject({ readback: executed?.type === "executed" ? executed.hash : "" });
     expect(store.load(id).status).toBe("done");

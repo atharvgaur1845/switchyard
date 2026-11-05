@@ -35,7 +35,7 @@ describe("parallel checkers", () => {
 
     expect(store.load(id).results.match).toMatchObject({ agreed: true, checker: { result: "match" } });
     expect(chat.cards).toHaveLength(0);
-    expect(outlets.executed).toHaveLength(1);
+    expect(outlets.payments).toHaveLength(1);
   });
 
   it("sends a disagreement to the controller instead of paying", async () => {
@@ -60,7 +60,7 @@ describe("parallel checkers", () => {
 
     const asked = store.events(id).filter((e) => e.type === "asked").map((e) => e.type === "asked" && e.agent);
     expect(asked).toEqual(["@checker", "@checker-backup", "@checker-backup"]);
-    expect(outlets.executed).toHaveLength(1);
+    expect(outlets.payments).toHaveLength(1);
   });
 
   it("sends the case to the controller, not to failure, when a checker misses the SLA", async () => {

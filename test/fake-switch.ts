@@ -70,6 +70,9 @@ export class FakeSwitch implements Chat {
 
 export class RecordingOutlets implements Outlets {
   readonly executed: { outlet: Outlet; key: string }[] = [];
+  get payments() {
+    return this.executed.filter((e) => "pay" in e.outlet);
+  }
 
   async execute(outlet: Outlet, key: string): Promise<string> {
     this.executed.push({ outlet, key });

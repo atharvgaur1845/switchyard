@@ -91,7 +91,7 @@ describe("invoices: the models check, code decides", () => {
 
   it("pays by the rule only when the models agree and the code check passes", async () => {
     const { outlets } = await run({ supplier: "Northwind Paper", number: "NW-1", amount: 1240, po: "PO-1041" }, { ...match, po_amount: 1240 });
-    expect(outlets.executed).toHaveLength(1);
+    expect(outlets.payments).toHaveLength(1);
   });
 
   it("sends the case to the controller when the room has no purchase orders", async () => {
