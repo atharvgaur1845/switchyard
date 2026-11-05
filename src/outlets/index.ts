@@ -1,6 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import type { Outlet } from "../engine/flow-schema.ts";
-import type { Chat, OutletResult, Outlets } from "../engine/ports.ts";
+import { type Chat, type OutletResult, type Outlets, RefusedError } from "../engine/ports.ts";
 import { setTableRow } from "../engine/verifiers.ts";
 import { hashOutlet } from "./payload.ts";
 import type { Store } from "../engine/store.ts";
@@ -87,7 +87,8 @@ export class LiveOutlets implements Outlets {
       headers: { "Content-Type": "application/json", "Idempotency-Key": key },
       body: JSON.stringify(pay),
     });
-    if (!sent.ok) throw new Error(`the bank refused the payment: ${sent.status} ${await sent.text()}`);
+    if (sent.status >= 400 && sent.status < 500) throw new RefusedError(`the bank refused the payment: ${sent.status} ${await sent.text()}`);
+    if (!sent.ok) throw new Error(`the bank answered ${sent.status} ${await sent.text()}`);
     const back = await fetch(`${bank}/payments/${encodeURIComponent(key)}`);
     if (!back.ok) throw new Error(`the bank cannot find payment ${key} after accepting it (${back.status})`);
     const held = (await back.json()) as Record<string, string>;

@@ -91,18 +91,32 @@ describe("cards from before a rewind", () => {
 });
 
 describe("starting and repeating cases", () => {
-  it("does not let someone without a role start a case that can pay automatically", async () => {
+  it("does not let anyone start a paying case from chat, even someone who holds a role", async () => {
     const { store, chat, runner } = setup();
     const commands = new Commands(runner, store, chat, [invoice], { "@controller": ["@priya"] });
-    await commands.handle({ room: "finance", messageId: "u1", sender: "@intern", body: "@yard start invoice-check supplier=Fabrikam number=FP-1 amount=3150 po=PO-1043", fromPerson: true });
+    for (const sender of ["@intern", "@priya"]) {
+      await commands.handle({ room: "finance", messageId: "u1", sender, body: "@yard start invoice-check supplier=Fabrikam number=FP-1 amount=3150 po=PO-1043", fromPerson: true });
+    }
     expect(store.caseIds()).toHaveLength(0);
-    expect(chat.posts.at(-1)!.body).toMatch(/@intern cannot start or change a `invoice-check` case/);
+    expect(chat.posts.at(-1)!.body).toMatch(/`invoice-check` cases only come in through its own inlet \(webhook\), never from chat/);
+  });
+
+  it("does not let anyone start any case from chat until roles are mapped", async () => {
+    const expense = loadFlow(readFileSync("flows/expense.flow.yaml", "utf8"));
+    const store = new Store();
+    const chat = new FakeSwitch();
+    const commands = new Commands(new Runner(store, chat, new Paying(chat), [expense]), store, chat, [expense], {});
+    await commands.handle({ room: "ops-requests", messageId: "u1", sender: "@anyone", body: "@yard start expense name=A amount=10", fromPerson: true });
+    expect(store.caseIds()).toHaveLength(0);
+    expect(chat.posts.at(-1)!.body).toMatch(/until switchyard.yaml maps roles to people/);
   });
 
   it("pays one invoice once, however many times it arrives", async () => {
     const { store, chat, outlets, open } = setup();
     const first = await open(fabrikam("FP-77"));
     const again = await open({ ...fabrikam("FP-77"), amount: 3150.0 });
+    // The same invoice, written a little differently, is still the same invoice.
+    expect(await open({ ...fabrikam("FP 77"), supplier: "Fabrikam-Print" })).toBe(first);
     const other = await open(fabrikam("FP-78"));
     expect(again).toBe(first);
     expect(other).not.toBe(first);
@@ -122,6 +136,9 @@ describe("names in any script", () => {
     expect(CHECKS.vendor_bank.run({ doc: "vendor-master", vendor: "Άλφα ΑΕ" }, docs).detail).toMatch(/not in vendor-master/);
     expect(CHECKS.vendor_bank.run({ doc: "vendor-master", vendor: "" }, docs).ok).toBe(false);
     expect(CHECKS.vendor_bank.run({ doc: "vendor-master", vendor: "δέλτα αε" }, docs).ok).toBe(true);
+    // A vowel sign is a combining mark, not punctuation: कमल is not कमला.
+    const hindi = [{ id: "3", name: "vm", content: master.replace("Δέλτα ΑΕ", "कमला") }];
+    expect(CHECKS.vendor_bank.run({ doc: "vm", vendor: "कमल" }, hindi).ok).toBe(false);
     const po = [{ id: "2", name: "po", content: "| PO | supplier | amount | status |\n|---|---|---|---|\n| PO-1 | Δέλτα ΑΕ | 10.00 | open |" }];
     expect(CHECKS.po_lookup.run({ doc: "po", po: "PO-1", supplier: "Άλφα ΑΕ", amount: 10 }, po).ok).toBe(false);
   });
@@ -136,6 +153,8 @@ describe("the vendor master's own columns", () => {
   });
   it("treats a change date it cannot read as recent, so a person approves", () => {
     expect(CHECKS.vendor_bank.run({ doc: "vm", vendor: "Acme" }, row("callback", "05.11.2026"))).toMatchObject({ recent: true });
+    expect(CHECKS.vendor_bank.run({ doc: "vm", vendor: "Acme" }, row("callback", "2025-02-30"))).toMatchObject({ recent: true });
+    expect(CHECKS.vendor_bank.run({ doc: "vm", vendor: "Acme" }, row("callback", "2025-02-28"))).toMatchObject({ recent: false });
   });
 });
 
@@ -190,5 +209,34 @@ describe("conditions", () => {
     expect(compile("x.y != null")({ x: {} })).toBe(false);
     expect(compile("x.y == null")({ x: {} })).toBe(true);
     expect(compile("x.y != null")({ x: { y: "a" } })).toBe(true);
+  });
+});
+
+describe("smaller checks", () => {
+  it("refuses a bank change when no domain is on file to compare with", () => {
+    const docs = [{ id: "1", name: "vm", content: "| v | d | i |\n|---|---|---|\n| Acme |  | DE89370400440532013000 |" }];
+    expect(CHECKS.bank_change.run({ doc: "vm", vendor: "Acme", sender: "x@", iban: "DE29100500000190183746" }, docs).detail).toMatch(/no domain on file/);
+  });
+
+  it("never overwrites the header row", () => {
+    const out = setTableRow(MASTER, ["vendor", "evil.test", "DE89370400440532013000"]);
+    expect(out.split("\n")[0]).toBe(MASTER.split("\n")[0]);
+    expect(out).toContain("| vendor | evil.test | DE89370400440532013000 |");
+  });
+
+  it("checks an IBAN's length for its country", async () => {
+    const { ibanValid } = await import("../src/engine/verifiers.ts");
+    expect(ibanValid("DE543704004405320130001")).toBe(false); // check digits fine, 23 characters
+    expect(ibanValid("GB82WEST12345698765432")).toBe(true);
+  });
+
+  it("stops, and says nothing was paid, when the bank refuses outright", async () => {
+    const bad = MASTER.replace("DE29100500000190183746", "DE543704004405320130001");
+    const { store, chat, open, runner } = setup({ master: bad });
+    const id = await open(fabrikam("FP-55"));
+    await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "pay", answeredBy: "mx:@controller" });
+    expect(store.load(id).status).toBe("failed");
+    expect(chat.said("the bank refused the payment: 422")).toBe(true);
+    expect(store.events(id).some((e) => e.type === "in_doubt")).toBe(false);
   });
 });

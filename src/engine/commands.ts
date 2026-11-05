@@ -65,8 +65,16 @@ export class Commands {
           await reply(`No flow \`${args[0] ?? ""}\` here. \`@yard flows\` lists them.`);
           break;
         }
-        // A case started by hand can end in an automatic payment.
-        const may = this.mayAct(message.sender, flow);
+        // A flow that pays or rewrites the room's records only takes work from
+        // its signed inlet: a case typed into chat skips the signature.
+        if (flow.steps.some((s) => "outlet" in s && ("pay" in s.outlet || "document" in s.outlet))) {
+          await reply(`\`${flow.flow}\` cases only come in through its own inlet (${Object.keys(flow.inlet ?? {}).join(", ") || "none"}), never from chat: it pays or changes the room's records.`);
+          break;
+        }
+        // Anything else started by hand still needs someone who holds a role.
+        const may = Object.keys(this.people).length === 0
+          ? "No one can start cases from chat until switchyard.yaml maps roles to people (people:)."
+          : this.mayAct(message.sender, flow);
         if (may) {
           await reply(may);
           break;
@@ -197,7 +205,9 @@ export class Commands {
 
   private mayAct(sender: string, flow: Flow, what = `a \`${flow.flow}\` case`): string | undefined {
     if (Object.keys(this.people).length === 0) return undefined;
-    const roles = new Set(flow.steps.flatMap((s) => ("gate" in s ? [s.gate.approver, ...(s.gate.backup ? [s.gate.backup] : [])] : [])));
+    // A flow with no gates names no roles: anyone who holds one may act.
+    const named = flow.steps.flatMap((s) => ("gate" in s ? [s.gate.approver, ...(s.gate.backup ? [s.gate.backup] : [])] : []));
+    const roles = new Set(named.length ? named : Object.keys(this.people));
     return [...roles].some((role) => fills(this.people, role, sender)) ? undefined : `${sender} cannot start or change ${what}: only ${[...roles].join(" or ")} can.`;
   }
 }

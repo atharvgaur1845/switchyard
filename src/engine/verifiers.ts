@@ -95,6 +95,7 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       if (!vendor) return { ok: false, detail: `${String(args.vendor || "(no vendor)")} is not in ${String(args.doc)}` };
       const sender = String(args.sender ?? "").toLowerCase();
       const senderDomain = sender.split("@")[1]?.replace(/>$/, "") ?? "";
+      if (!vendor.domain) return { ok: false, detail: `${vendor.vendor} has no domain on file, so the sender cannot be checked` };
       const distance = editDistance(senderDomain, vendor.domain);
       const iban = compactIban(String(args.iban ?? ""));
       const problems = [
@@ -135,7 +136,10 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       if (!vendor) return { ok: false, detail: `${String(args.vendor || "(no vendor)")} is not in ${String(args.doc)}` };
       const printed = compactIban(String(args.iban ?? ""));
       // Only an ISO date (2026-11-05) is read; Date.parse would guess at others.
-      const changed = /^\d{4}-\d{2}-\d{2}$/.test(vendor.changed.trim()) ? Date.parse(vendor.changed.trim()) : Number.NaN;
+      const day = vendor.changed.trim();
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(day) : Number.NaN;
+      // 2026-02-30 parses as 2 March; only a date that reads back the same counts.
+      const changed = Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === day ? parsed : Number.NaN;
       // A date that cannot be read could be yesterday: treat it as recent.
       const recent = !Number.isFinite(changed) || now - changed < 30 * DAY;
       const problems = [
@@ -192,11 +196,19 @@ export function compactIban(iban: string): string {
 export function ibanValid(iban: string): boolean {
   const s = compactIban(iban);
   if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(s)) return false;
+  const length = IBAN_LENGTH[s.slice(0, 2)];
+  if (length && s.length !== length) return false;
   const digits = (s.slice(4) + s.slice(0, 4)).replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
   let rest = 0;
   for (const d of digits) rest = (rest * 10 + Number(d)) % 97;
   return rest === 1;
 }
+
+// Lengths from the SWIFT IBAN registry, for the countries most often seen.
+const IBAN_LENGTH: Record<string, number> = {
+  AT: 20, BE: 16, CH: 21, CZ: 24, DE: 22, DK: 18, ES: 24, FI: 18, FR: 27, GB: 22, IE: 22,
+  IT: 27, LU: 20, NL: 18, NO: 15, PL: 28, PT: 25, SE: 24,
+};
 
 const maskIban = (iban: string) => (iban.length > 8 ? `${iban.slice(0, 4)}…${iban.slice(-4)}` : iban || "?");
 
@@ -220,7 +232,8 @@ export function editDistance(a: string, b: string): number {
 export function setTableRow(markdown: string, row: string[]): string {
   const lines = markdown.replace(/\n+$/, "").split("\n");
   const line = `| ${row.join(" | ")} |`;
-  const at = lines.findIndex((l) => l.trim().startsWith("|") && sameName(l.trim().replace(/^\|/, "").split("|")[0] ?? "", row[0]));
+  const header = lines.findIndex((l) => l.trim().startsWith("|"));
+  const at = lines.findIndex((l, i) => i !== header && l.trim().startsWith("|") && !/^\|[\s:|-]+\|?$/.test(l.trim()) && sameName(l.trim().replace(/^\|/, "").split("|")[0] ?? "", row[0]));
   if (at >= 0) lines[at] = line;
   else {
     const last = lines.map((l, i) => (l.trim().startsWith("|") ? i : -1)).filter((i) => i >= 0).at(-1);
@@ -251,8 +264,11 @@ function toNumber(value: unknown): number | undefined {
   return value.trim() === "" || !Number.isFinite(n) ? undefined : n;
 }
 
-// Letters and digits in any script, so "Άλφα ΑΕ" and "Δέλτα ΑΕ" stay different.
-const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+// Letters, combining marks and digits in any script, so "Άλφα ΑΕ" and
+// "Δέλτα ΑΕ" stay different, and so do "कमल" and "कमला".
+const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, "");
+// For keys and comparisons outside this file: the same rule as names.
+export const normalizeName = norm;
 const sameName = (a: string, b: string) => norm(a) !== "" && norm(a) === norm(b);
 
 // The version of what a result rests on: the rows named by `key`, or the

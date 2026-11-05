@@ -40,6 +40,12 @@ export interface ApprovalCard {
 // system now holds it, read back after acting, when that system can say.
 export type OutletResult = string | { receipt: string; readback?: string };
 
+// Thrown by an outlet when the other side certainly did not act (a payment
+// the bank refused with a 4xx), so there is nothing to be in doubt about.
+export class RefusedError extends Error {
+  readonly refused = true;
+}
+
 export interface Outlets {
   execute(outlet: Outlet, key: string): Promise<OutletResult>;
 }

@@ -64,7 +64,7 @@ describe("@yard commands", () => {
     store = new Store();
     chat = new FakeSwitch();
     runner = new Runner(store, chat, new RecordingOutlets(), [quotes]);
-    commands = new Commands(runner, store, chat, [quotes]);
+    commands = new Commands(runner, store, chat, [quotes], { "@owner": ["@asha"] });
   });
 
   it("ignores agents and non-commands", async () => {

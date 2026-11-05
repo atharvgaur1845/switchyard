@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, lookup, render, type Scope } from "./expr.ts";
-import { basisHash, CHECKS, docHash } from "./verifiers.ts";
+import { basisHash, CHECKS, docHash, normalizeName } from "./verifiers.ts";
 import {
   type AgentStep,
   type Flow,
@@ -230,9 +230,16 @@ export class Runner {
         this.store.append(state.id, { type: "executing", step: step.id, hash, payload });
         result = await withTimeout(this.outlets.execute(payload, key), this.outletTimeoutMs, "the action did not finish in time");
       } catch (error) {
+        this.inFlight.delete(key);
+        if (error instanceof Error && "refused" in error) {
+          // Certainly not done: say so, and stop for a person.
+          const reason = `${error.message}; nothing was sent`;
+          this.store.append(state.id, { type: "failed", step: step.id, reason });
+          await this.say(state, `Stopped at "${step.id}": ${reason}.`);
+          return true;
+        }
         // A failed send may still have reached the other side (a timeout
         // after the server accepted it), so a person checks, as after a crash.
-        this.inFlight.delete(key);
         await this.openDoubt(this.store.load(state.id), step, hash, payload, (error as Error).message);
         return true;
       }
@@ -821,7 +828,8 @@ function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<
 // is missing (an empty key would make unrelated cases duplicates).
 function onceKey(flow: Flow, data: Record<string, unknown>): string | undefined {
   if (!flow.once_per?.length) return undefined;
-  const values = flow.once_per.map((f) => String(data[f.slice(5)] ?? "").normalize("NFKC").trim().toLowerCase());
+  // "FP-0912" and "FP 0912", "Fabrikam-Print" and "Fabrikam Print" are one invoice.
+  const values = flow.once_per.map((f) => normalizeName(String(data[f.slice(5)] ?? "")));
   return values.every((v) => v !== "") ? JSON.stringify(values) : undefined;
 }
 

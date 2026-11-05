@@ -64,7 +64,7 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 
 - **Money goes only to the account on file.** The `pay` outlet's account comes from the `vendor_bank` check on the vendor master, never from the invoice. Tests: "pays the account on file even when the invoice prints another one, after a person decides".
 - **Look-alike domains are caught by code**, using edit distance against the domain on file. The warning goes to the contact on file, never to the sender. Tests: "refuses a change from a look-alike domain and says why", "from a look-alike domain is blocked, and the real supplier is warned at the address on file".
-- **One insider can't redirect a payment from chat.** `@yard edit` refuses documents that code checks read, so from chat the only way to change a bank account is a bank-change case. Starting a case by hand needs a role in its flow, and an invoice is opened once per supplier and invoice number, however it arrives. Tests: "cannot be edited from chat, even by someone who holds a role", "does not let someone without a role start a case that can pay automatically", "pays one invoice once, however many times it arrives". Anyone with direct write access to the room's documents in Switch is outside this: Switch has no per-document permissions to use.
+- **One insider can't redirect a payment from chat.** `@yard edit` refuses documents that code checks read, so from chat the only way to change a bank account is a bank-change case. Payment and bank-change cases come in only through their own signed inlet, never from `@yard start`. Other cases started by hand need a role. An invoice is opened once per supplier and invoice number (compared like names, so `FP-0912` and `FP 0912` are one invoice), however it arrives. Tests: "cannot be edited from chat, even by someone who holds a role", "does not let anyone start a paying case from chat, even someone who holds a role", "pays one invoice once, however many times it arrives". Anyone with direct write access to the room's documents in Switch is outside this: Switch has no per-document permissions to use.
 - **Four eyes.** A gate with `not_same_as: [callback]` refuses the person who made the call and re-opens the card. Test: "needs a callback and a second person, then changes exactly one row".
 - **An approval on old facts never pays.** Every check records the hash of each room document it read. Before any action, Switchyard re-reads those documents. If one changed, it sends nothing, re-runs the checks from that point on the new version, and opens a new card. Tests: "does not pay on an approval given before the vendor master changed", "is not written if the vendor master changed after the checks read it".
 - **What was approved is what is sent, and what the bank holds.** The card shows the rendered action and its hash. The outlet refuses if the action no longer hashes the same. The bank's copy is read back and must hash the same too. Tests: "pays the account on file by rule, and the bank's copy hashes to the approved action", "refuses to act when the flow file changed the action after approval".
@@ -121,6 +121,12 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
   - The suppliers, their `.test` domains and IBANs. They are fictitious, with valid check digits.
 - **One person.** The live run had one Slack user holding every role. There, four eyes shows as the refusal. The approval by a second person is shown in `demo:offline` and in the tests.
 
+## Known limits
+
+- **The sender check reads the email's `From` address.** It does not verify SPF or DKIM, so a forged `From` on the right domain passes the domain check. That is why a passing change still needs a callback to the number on file and a second approver.
+- **A re-check re-runs the code checks and the gates after them.** It does not re-ask agent steps that ran before the check.
+- **One slow action holds the engine's queue** for up to its timeout (60 s), because calls into the engine run one at a time.
+
 ## The same engine runs other flows
 
 Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
@@ -146,7 +152,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 214 tests
+npm test             # 219 tests
 npm run typecheck
 npm run lint         # every flow in flows/
 npm run demo:offline
