@@ -99,7 +99,7 @@ describe("commands that change a case", () => {
     const { store, chat, id, say } = await setup();
     await say(`@yard cancel ${id}`, "@intern");
     expect(store.load(id).status).toBe("open");
-    expect(chat.posts.at(-1)!.body).toMatch(/@intern cannot change case/);
+    expect(chat.posts.at(-1)!.body).toMatch(/@intern cannot start or change case/);
 
     await say(`@yard cancel ${id}`, "@priya");
     expect(store.load(id).status).toBe("cancelled");

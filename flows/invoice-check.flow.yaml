@@ -1,6 +1,7 @@
 flow: invoice-check
 room: finance
 description: Supplier invoice check
+once_per: [case.supplier, case.number]
 inlet:
   webhook:
     secret_env: INVOICE_HOOK_SECRET

@@ -138,9 +138,9 @@ export function lookup(scope: unknown, path: string[]): unknown {
 function compare(op: string, a: unknown, b: unknown): boolean {
   switch (op) {
     case "==":
-      return a === b;
+      return (a ?? null) === (b ?? null);
     case "!=":
-      return a !== b;
+      return (a ?? null) !== (b ?? null);
   }
   if (typeof a !== "number" || typeof b !== "number") return false;
   switch (op) {

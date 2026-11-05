@@ -9,7 +9,7 @@ import type { Outlets, OutletResult } from "../src/engine/ports.ts";
 import { Commands } from "../src/engine/commands.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
-import { CHECKS, docHash, editDistance, ibanValid, setTableRow } from "../src/engine/verifiers.ts";
+import { basisHash, CHECKS, editDistance, ibanValid, setTableRow } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
 import { startBank } from "../src/sandbox/bank.ts";
@@ -191,7 +191,7 @@ describe("paying an invoice", () => {
     await chat.deliver((m) => runner.onMessage(m));
     expect(chat.cards[0].detail).toMatch(/✗ checked by code \(vendor_bank\): the invoice asks for payment to DE63…2871, but DE29…3746 is on file/);
     expect(chat.cards[0].detail).toContain(`Account: ${FABRIKAM}`);
-    expect(chat.cards[0].detail).toMatch(/Checked against room documents: purchase-orders \w+, vendor-master \w+/);
+    expect(chat.cards[0].detail).toMatch(/Checked against room documents: purchase-orders \(PO-1043's row\) \w+, vendor-master \(Fabrikam Print's row\) \w+/);
 
     await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "pay", answeredBy: "mx:@controller" });
     expect(store.events(id).find((e) => e.type === "executed")).toMatchObject({ payload: { pay: { to: FABRIKAM } } });
@@ -201,7 +201,7 @@ describe("paying an invoice", () => {
     const { store, chat, runner } = setup(matched);
     const id = await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0914", amount: 3150, po: "PO-1043", iban: NEW_IBAN }, "webhook");
     await chat.deliver((m) => runner.onMessage(m));
-    const before = docHash(MASTER);
+    const before = basisHash(MASTER, "Fabrikam Print");
     // A bank-change case (or an insider) rewrites Fabrikam's row while the card is open.
     chat.docs.get("finance")![1].content = setTableRow(MASTER, ["Fabrikam Print", "fabrikam.test", NEW_IBAN, "accounts@fabrikam.test", "+49 30 5550 1003", "2026-11-05", "callback by @clerk"]);
     await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "pay", answeredBy: "mx:@controller" });

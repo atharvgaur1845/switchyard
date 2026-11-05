@@ -2,7 +2,15 @@
 
 **Supplier payments a fraudster cannot redirect, run by agents and people in [Switch](https://github.com/sandbox-quantum/switch) rooms.**
 
-> Nothing leaves the company unless a named person approved that exact action on a Switch card, and nothing is paid on facts that changed after the checks ran.
+> Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is paid on facts that changed after the checks ran.
+
+The one rule in the payment flow pays automatically only when all of these hold:
+- the two checkers agree;
+- code finds the PO matches to the cent;
+- the account on file was verified by a callback and has not changed in 30 days;
+- the amount is at most 10,000.
+
+Anything else goes to the controller's card.
 
 A supplier emails: *"We changed banks. Please pay all open invoices to our new account today."* If accounts payable updates the record and pays, the money is usually gone for good. Switchyard is the back office that sits between that email and the payment:
 
@@ -24,7 +32,7 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 1. **A "we changed banks" email from `fabrikarn.test`.** Code finds it is 2 characters away from `fabrikam.test` on file, the controller blocks it, and the real supplier is warned *at the address on file*.
 2. **A Fabrikam invoice that prints a different account.** The two checkers agree it matches PO-1043, but code finds the account differs from the vendor master. The card shows the payment going to the account *on file*, and it waits for the controller.
 3. **Meanwhile, a genuine change from Fabrikam's own domain.** A callback card goes to the AP clerk, who confirms. The clerk then tries to approve the change too and is refused (four eyes). The controller approves, and Switchyard writes the new account into the vendor master.
-4. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to pay, because the vendor master changed after the checks read it. It re-runs the checks on the new version and replaces the card. Once approved, it pays the new account through the bank and reads the payment back, and all three hashes match: the approved one, the one sent and the bank's copy.
+4. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to pay, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it pays the new account through the bank and reads the payment back, and all three hashes match: the approved one, the one sent and the bank's copy.
 
 The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person.
 
@@ -56,7 +64,7 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 
 - **Money goes only to the account on file.** The `pay` outlet's account comes from the `vendor_bank` check on the vendor master, never from the invoice. Tests: "pays the account on file even when the invoice prints another one, after a person decides".
 - **Look-alike domains are caught by code**, using edit distance against the domain on file. The warning goes to the contact on file, never to the sender. Tests: "refuses a change from a look-alike domain and says why", "from a look-alike domain is blocked, and the real supplier is warned at the address on file".
-- **One insider can't redirect a payment from chat.** `@yard edit` refuses documents that code checks read, so the only way to change a bank account is a bank-change case. Test: "cannot be edited from chat, even by someone who holds a role".
+- **One insider can't redirect a payment from chat.** `@yard edit` refuses documents that code checks read, so from chat the only way to change a bank account is a bank-change case. Starting a case by hand needs a role in its flow, and an invoice is opened once per supplier and invoice number, however it arrives. Tests: "cannot be edited from chat, even by someone who holds a role", "does not let someone without a role start a case that can pay automatically", "pays one invoice once, however many times it arrives". Anyone with direct write access to the room's documents in Switch is outside this: Switch has no per-document permissions to use.
 - **Four eyes.** A gate with `not_same_as: [callback]` refuses the person who made the call and re-opens the card. Test: "needs a callback and a second person, then changes exactly one row".
 - **An approval on old facts never pays.** Every check records the hash of each room document it read. Before any action, Switchyard re-reads those documents. If one changed, it sends nothing, re-runs the checks from that point on the new version, and opens a new card. Tests: "does not pay on an approval given before the vendor master changed", "is not written if the vendor master changed after the checks read it".
 - **What was approved is what is sent, and what the bank holds.** The card shows the rendered action and its hash. The outlet refuses if the action no longer hashes the same. The bank's copy is read back and must hash the same too. Tests: "pays the account on file by rule, and the bank's copy hashes to the approved action", "refuses to act when the flow file changed the action after approval".
@@ -64,10 +72,12 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 - **Further guards:**
   - a redelivered webhook opens no second case ("opens one case and says the second delivery was a duplicate");
   - the same answer arriving twice records one decision ("records one decision when the same answer arrives twice at once");
-  - a send that dies midway goes to a person as *in doubt* and is never blindly retried ("never loses an action: every approved case ends executed or with a person").
+  - a send that dies midway goes to a person as *in doubt* if repeating it could do it twice (an email, a webhook): "never loses an action: every approved case ends executed or with a person";
+  - actions that are safe to repeat (a keyed payment, a keyed row, setting a document row) are repeated, unless the documents they rest on changed while they were in flight, and then a person decides;
+  - a card from before a re-check cannot be answered into a payment ("cannot pay: an escalation card shown before the vendor master changed is ignored").
 - **Outside text is data, not instructions.** Emails, invoices and forms reach agents only inside a fence with a random tag per request. Tests: "fences outside data off from instructions", "cannot be closed from inside the data".
 - **Agents cannot act.** Every agent CLI is started with its tools, MCP servers and settings switched off, and Switchyard refuses to start one it cannot lock down. Test: "refuses a CLI it cannot lock down".
-- **Two vendors, so one outage doesn't stop the room.** The two invoice checkers run on different vendors (Claude and Gemini), and every agent step has a backup on another vendor. On case `94221172` the Claude checker hit its real usage limit mid-run, and the case still went to a person with the evidence it had.
+- **Two vendors, so one outage doesn't stop the room.** The two invoice checkers run on different vendors (Claude and Gemini). The bank-change agent and most other agent steps have a backup agent on another vendor; the weekly report's review step has none. On case `94221172` the Claude checker hit its real usage limit mid-run, and the case still went to a person with the evidence it had.
 
 ## Run it live on Switch and Slack
 
@@ -94,7 +104,7 @@ npm run switchyard demo send bank-change-real   # the genuine change
 npm run switchyard demo send fabrikam-invoice   # an invoice printing another account
 ```
 
-Answer the cards in Slack: click the button, or reply `A1 block` in the case thread. The dashboard at `http://localhost:4100` (localhost only) draws each case from its event log. It shows the checkers on their two vendors, the code checks with the document versions they read, the approval arcs with their hashes, and the receipts. The sandbox bank's ledger is at `http://localhost:4300`.
+Answer the cards in Slack: click the button, or reply `A1 block` in the case thread (Switch's own typed-answer form). The dashboard at `http://localhost:4100` (localhost only) draws each case from its event log. It shows the checkers on their two vendors, the code checks with the document versions they read, the approval arcs with their hashes, and the receipts. The sandbox bank's ledger is at `http://localhost:4300`.
 
 In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel`, `reassign`, `resume`, and `edit <document> "old" "new"`. `edit` is for people who hold a role, and the room is told the old and new versions. It is refused for any document a code check reads, such as `vendor-master` and `purchase-orders`: those decide payments by themselves, so they change only through a flow with its own checks and four eyes.
 
@@ -135,7 +145,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 200 tests
+npm test             # 211 tests
 npm run typecheck
 npm run lint         # every flow in flows/
 npm run demo:offline

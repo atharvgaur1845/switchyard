@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 export type CaseEvent =
   // `key` identifies the delivery that opened it (e.g. a webhook body's
   // hash), so the same delivery sent twice opens one case.
-  | { type: "opened"; flow: string; room: string; data: Record<string, unknown>; source?: string; key?: string }
+  | { type: "opened"; flow: string; room: string; data: Record<string, unknown>; source?: string; key?: string; once?: string }
   | { type: "thread"; threadId: string }
   | { type: "skipped"; step: string }
   // `attempt` counts every request for the step (it makes tokens unique);
@@ -25,7 +25,7 @@ export type CaseEvent =
       // which version of the rules a verdict was based on.
       docs?: Record<string, string>;
     }
-  | { type: "verified"; step: string; check: string; value: unknown; docs?: Record<string, string> }
+  | { type: "verified"; step: string; check: string; value: unknown; docs?: Record<string, string>; rows?: Record<string, string> }
   | { type: "fanned_out"; step: string; agents: string[]; at: number }
   | { type: "partial"; step: string; agent: string; value: unknown }
   | { type: "failed_over"; step: string; from: string; to: string; reason: string }
@@ -93,13 +93,13 @@ export interface CaseState {
   data: Record<string, unknown>;
   results: Record<string, unknown>;
   // Outlet step id -> the payload hash a human approved for it.
-  approved: Record<string, { hash: string; by: string }>;
+  approved: Record<string, { hash: string; by: string; gate: string }>;
   finished: Set<string>;
   // Outlets that started and never recorded finishing (see `executing`).
   executing: Record<string, { hash: string; payload: unknown }>;
   // Room document -> the version a check read, and which check: what every
   // later decision in the case rests on.
-  basis: Record<string, { hash: string; step: string }>;
+  basis: Record<string, { hash: string; step: string; row?: string }>;
   // Room documents this case itself changed (a document outlet ran).
   wrote: Set<string>;
   // Gate id -> who answered it, for {by.<gate>} in later steps.
@@ -144,14 +144,16 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
       case "verified":
         state.results[event.step] = event.value;
         state.finished.add(event.step);
-        for (const [doc, hash] of Object.entries(event.docs ?? {})) state.basis[doc] = { hash, step: event.step };
+        for (const [doc, hash] of Object.entries(event.docs ?? {})) state.basis[doc] = { hash, step: event.step, row: event.rows?.[doc] };
         break;
       case "rewound":
         for (const step of event.steps) {
           state.finished.delete(step);
           delete state.results[step];
-          delete state.approved[step];
+          delete state.deciders[step];
         }
+        // Approvals are kept by outlet; drop every one a rewound gate gave.
+        for (const [outlet, a] of Object.entries(state.approved)) if (event.steps.includes(a.gate)) delete state.approved[outlet];
         for (const [doc, b] of Object.entries(state.basis)) if (event.steps.includes(b.step)) delete state.basis[doc];
         state.pending = undefined;
         break;
@@ -202,7 +204,7 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         const gate = state.pending;
         if (event.approved && gate?.kind === "gate") {
           for (const [outlet, hash] of Object.entries(gate.hashes)) {
-            state.approved[outlet] = { hash, by: event.answeredBy };
+            state.approved[outlet] = { hash, by: event.answeredBy, gate: event.step };
           }
         }
         state.pending = undefined;
@@ -302,6 +304,15 @@ export class Store {
       .prepare("SELECT case_id FROM events GROUP BY case_id ORDER BY MIN(seq)")
       .all()
       .map((row) => row.case_id as string);
+  }
+
+  caseWithOnce(flow: string, once: string): string | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT case_id FROM events WHERE json_extract(body, '$.type') = 'opened' AND json_extract(body, '$.flow') = ? AND json_extract(body, '$.once') = ? LIMIT 1",
+      )
+      .get(flow, once);
+    return row ? (row.case_id as string) : undefined;
   }
 
   caseWithKey(flow: string, key: string): string | undefined {

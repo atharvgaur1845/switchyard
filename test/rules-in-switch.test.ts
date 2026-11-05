@@ -5,7 +5,7 @@ import { Commands } from "../src/engine/commands.ts";
 import { loadFlow } from "../src/engine/flow-schema.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
-import { CHECKS, docHash, tableRows } from "../src/engine/verifiers.ts";
+import { basisHash, CHECKS, docHash, tableRows } from "../src/engine/verifiers.ts";
 import { seedDocuments } from "../src/switch/seed-docs.ts";
 import { FakeSwitch, RecordingOutlets, replyWith } from "./fake-switch.ts";
 
@@ -120,7 +120,8 @@ describe("invoices: the models check, code decides", () => {
   it("records which version of the rules each check used", async () => {
     const { store, id } = await run({ supplier: "Northwind Paper", number: "NW-1", amount: 1240, po: "PO-1041" }, { ...match, po_amount: 1240 });
     const events = store.events(id);
-    expect(events.find((e) => e.type === "verified")).toMatchObject({ docs: { "purchase-orders": docHash(POS) } });
+    // A check watches the row it relied on; an agent is told the whole document's version.
+    expect(events.find((e) => e.type === "verified")).toMatchObject({ docs: { "purchase-orders": basisHash(POS, "PO-1041") }, rows: { "purchase-orders": "PO-1041" } });
     expect(events.find((e) => e.type === "asked")).toMatchObject({ docs: { "purchase-orders": docHash(POS) } });
   });
 });

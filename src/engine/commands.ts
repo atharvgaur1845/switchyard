@@ -65,6 +65,12 @@ export class Commands {
           await reply(`No flow \`${args[0] ?? ""}\` here. \`@yard flows\` lists them.`);
           break;
         }
+        // A case started by hand can end in an automatic payment.
+        const may = this.mayAct(message.sender, flow);
+        if (may) {
+          await reply(may);
+          break;
+        }
         const data = Object.fromEntries(
           args.slice(1).map((pair) => {
             const [key, ...rest] = pair.split("=");
@@ -184,10 +190,15 @@ export class Commands {
   // when switchyard.yaml names people, only someone who fills a role the
   // case's flow uses may do it.
   private refuse(sender: string, state: CaseState | undefined): string | undefined {
-    if (!state || Object.keys(this.people).length === 0) return undefined;
+    if (!state) return undefined;
     const flow = this.flows.find((f) => f.flow === state.flow);
-    const roles = new Set(flow?.steps.flatMap((s) => ("gate" in s ? [s.gate.approver, ...(s.gate.backup ? [s.gate.backup] : [])] : [])) ?? []);
-    return [...roles].some((role) => fills(this.people, role, sender)) ? undefined : `${sender} cannot change case \`${state.id}\`: only ${[...roles].join(" or ")} can.`;
+    return flow ? this.mayAct(sender, flow, `case \`${state.id}\``) : undefined;
+  }
+
+  private mayAct(sender: string, flow: Flow, what = `a \`${flow.flow}\` case`): string | undefined {
+    if (Object.keys(this.people).length === 0) return undefined;
+    const roles = new Set(flow.steps.flatMap((s) => ("gate" in s ? [s.gate.approver, ...(s.gate.backup ? [s.gate.backup] : [])] : [])));
+    return [...roles].some((role) => fills(this.people, role, sender)) ? undefined : `${sender} cannot start or change ${what}: only ${[...roles].join(" or ")} can.`;
   }
 }
 

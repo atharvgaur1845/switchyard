@@ -95,8 +95,9 @@ export function startServer(opts: {
       // identifies a delivery, so a retry gets the case it already opened.
       const delivery = req.headers["x-switchyard-delivery"];
       const key = typeof delivery === "string" && delivery ? `delivery:${delivery}` : `body:${createHash("sha256").update(raw).digest("hex")}`;
-      const known = opts.store.caseWithKey(flow.flow, key);
+      const before = new Set(opts.store.caseIds());
       const id = await opts.runner.open(flow.flow, mapPayload(inlet, payload), "webhook", key);
+      const known = before.has(id);
       return send(res, known ? 200 : 202, "application/json", JSON.stringify(known ? { case: id, duplicate: true } : { case: id }));
     }
 

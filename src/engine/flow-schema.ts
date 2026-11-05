@@ -103,6 +103,10 @@ export const Flow = z.object({
   room: z.string(),
   description: z.string().optional(),
   inlet: z.record(z.string(), z.unknown()).optional(),
+  // Case fields that identify one business item (an invoice: supplier and
+  // number). A second case for the same item is never opened, whichever way
+  // it arrives.
+  once_per: z.array(z.string().regex(/^case\.[a-z0-9_]+$/, "a case field like case.number")).optional(),
   steps: z.array(Step).min(1),
 });
 export type Flow = z.infer<typeof Flow>;

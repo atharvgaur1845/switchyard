@@ -239,7 +239,7 @@ function timeline(c) {
         if (!e.parallel || e.attempt > 1) row("", "@yard", icon("yard"), `asked <b>${esc(e.agent)}</b> ${vendorBadge(e.agent)} for <b>${name}</b>${e.tries > 1 ? ` <span class="pill neutral">retry ${e.tries}</span>` : ""}`, docRefs(e.docs));
         break;
       case "verified":
-        row(e.value?.ok ? "act" : "stop", "code", icon("code"), `checked <b>${name}</b> (${esc(e.check)}): ${esc(e.value?.detail ?? "")}${e.docs ? ` ${Object.entries(e.docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)} <code>${esc(h)}</code></span>`).join(" ")}` : ""}`);
+        row(e.value?.ok ? "act" : "stop", "code", icon("code"), `checked <b>${name}</b> (${esc(e.check)}): ${esc(e.value?.detail ?? "")}${e.docs ? ` ${Object.entries(e.docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)}${e.rows?.[d] ? ` (${esc(e.rows[d])}'s row)` : ""} <code>${esc(String(h).replace(/^row:/, ""))}</code></span>`).join(" ")}` : ""}`);
         break;
       case "fanned_out":
         row("", "@yard", icon("fork"), `asked ${e.agents.map((a) => `<b>${esc(a)}</b> ${vendorBadge(a)}`).join(" and ")} to do <b>${name}</b> independently`);
@@ -283,7 +283,7 @@ function timeline(c) {
         row(e.approved ? "act" : "stop", asRole(e.answeredBy, step?.who), initials(e.answeredBy), `chose <b>${esc(e.answer)}</b> for <b>${name}</b>`);
         break;
       case "rewound":
-        row("stop", "@yard", icon("reroute"), `would not act on <b>${name}</b>: ${Object.entries(e.docs ?? {}).map(([d, [was, now]]) => `<b>${esc(d)}</b> changed <code>${esc(was)}</code> → <code>${esc(now)}</code>`).join(", ")} after the checks read it, so the checks run again and any earlier approval no longer counts`);
+        row("stop", "@yard", icon("reroute"), `would not act on <b>${name}</b>: ${Object.entries(e.docs ?? {}).map(([d, [was, now]]) => `<b>${esc(d)}</b> changed <code>${esc(String(was).replace(/^row:/, ""))}</code> → <code>${esc(String(now).replace(/^row:/, ""))}</code>`).join(", ")} after the checks read it, so the checks run again and any earlier approval no longer counts`);
         break;
       case "executing":
         break;

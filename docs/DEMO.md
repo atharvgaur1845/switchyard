@@ -1,6 +1,6 @@
 # Demo script (about 3 min 40 s)
 
-**Opening line:** "Nothing leaves the company unless a named person approved that exact action on a Switch card."
+**Opening line:** "Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule in the flow allows it after the code checks pass."
 
 Screen: Slack (`#finance`) on the left, the dashboard (`localhost:4100`) on the right. Keep Mailpit (`localhost:8025`) and the sandbox bank (`localhost:4300`) in tabs. A terminal is needed for the last scene.
 
@@ -42,7 +42,7 @@ npm run switchyard demo send bank-change
   - The Claude agent extracts the request and lists the red flags itself. On the recorded run it found seven, including the phone trick and a PO the email names that does not exist.
   - Then the code check:
     > ✗ the request came from fabrikarn.test, 2 characters away from fabrikam.test on file: a look-alike domain
-- **The card:** "block this bank-detail change request?" It shows the exact warning email, which goes to `accounts@fabrikam.test` (the contact *on file*, not the sender), and its hash. Click **block**.
+- **The card:** "block this bank-detail change request (the request came from fabrikarn.test, 2 characters away from fabrikam.test on file: a look-alike domain)?" It shows the exact warning email, which goes to `accounts@fabrikam.test` (the contact *on file*, not the sender), and its hash. Click **block**.
 - **Mailpit:** the warning arrives at the real supplier's address.
 
 > "The model read the email. Code decided the facts. A person decided what to do, on a card."
@@ -57,7 +57,9 @@ npm run switchyard demo send fabrikam-invoice
   - the purchase-order check passing;
   - the vendor check failing: "the invoice asks for payment to DE88…6303, but DE29…3746 is on file";
   - the two document chips with their version hashes.
-- **Slack card:** "pay Fabrikam Print invoice FP-0912?" Its account is the one **on file**, and it names the vendor-master version it was checked against. Leave it open.
+- **Slack card:** "pay Fabrikam Print invoice FP-0912 for 3150?" Its account is the one **on file**, and it names the rows it was checked against ("vendor-master (Fabrikam Print's row)"). Click **pay**.
+- **Dashboard:** the receipt shows three equal hashes: approved, sent, and read back from the bank.
+- **Bank tab** (`localhost:4300`): the payment, to the account on file, with its idempotency key. (Recorded as SBX-000001 on case `60c4c081`.)
 
 ## 2:00 – Four eyes, live (30 s)
 
@@ -66,8 +68,8 @@ npm run switchyard demo send bank-change-real
 ```
 
 - From `fabrikam.test` this time, so the code check passes.
-- The callback card says: "call Fabrikam on +49 30 5550 1003 (the number on file, not one from the email) and confirm the account ends in 2871". Click **confirmed**.
-- On the next card, "change Fabrikam's bank account to DE63…?", click **approve** yourself.
+- The callback card says: "call Fabrikam Print on +49 30 5550 1003 (the number on file, not one from the email) and confirm their new account ends in 2871". Click **confirmed**.
+- On the next card, "change Fabrikam Print's bank account to DE63120300001064532871?", click **approve** yourself.
 - Switchyard refuses:
   > @f20241501 answered "callback", so a different person must decide "approve".
 
@@ -85,7 +87,6 @@ Say on screen: "The second approver, offline: the same engine with scripted clic
 
    The hashes differ from day to day, because the new vendor-master row carries the date.
 
-Then the bank tab at `localhost:4300`: one payment, with its idempotency key.
 
 ## 3:20 – Close (20 s)
 

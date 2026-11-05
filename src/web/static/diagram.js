@@ -179,12 +179,13 @@ export function diagram(flow, c = null, vendors = {}, now = Date.now()) {
 
     // A code check reads a room document; show which, and which version.
     if (step.kind === "verify" && step.doc) {
-      const hash = v?.docs?.[step.doc];
+      const hash = v?.docs?.[step.doc]?.replace(/^row:/, "");
+      const row = v?.rows?.[step.doc];
       above.push(`<g class="doc-chip"><path class="doc-link" d="M${x},${MAIN - 16} L${x},${MAIN - 38}"/>
         <rect x="${x - 57}" y="${MAIN - 70}" width="114" height="${hash ? 32 : 22}" rx="6"/>${glyph("doc", x - 46, MAIN - 59, 11)}
         <text x="${x - 38}" y="${MAIN - 55}" class="sub">${esc(trunc(step.doc, 15))}</text>
         ${hash ? `<text x="${x - 38}" y="${MAIN - 43}" class="hashtext">${esc(hash)}</text>` : ""}
-        <title>${esc(hash ? `${step.doc}, version ${hash}: the exact text this check read, from the Switch room` : `${step.doc}: a document in the Switch room`)}</title></g>`);
+        <title>${esc(hash ? `${step.doc}${row ? `, ${row}'s row` : ""}, version ${hash}: the exact text this check read, from the Switch room` : `${step.doc}: a document in the Switch room`)}</title></g>`);
       top = Math.min(top, MAIN - 74);
     }
     prevRight = x + R;

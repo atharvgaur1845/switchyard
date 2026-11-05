@@ -10,6 +10,9 @@ export interface VerifyResult {
   ok: boolean;
   // One line a person can read on the approval card.
   detail: string;
+  // Document -> the first cell of the row the result rests on. Only that row
+  // is then watched for changes, not the whole document.
+  rows?: Record<string, string>;
   [field: string]: unknown;
 }
 
@@ -32,7 +35,8 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       const [, supplier = "", amountText = "", status = ""] = row;
       const poAmount = toNumber(amountText);
       const invoiced = toNumber(args.amount);
-      const supplierOk = norm(supplier).includes(norm(String(args.supplier ?? ""))) || norm(String(args.supplier ?? "")).includes(norm(supplier));
+      const claimed = String(args.supplier ?? "");
+      const supplierOk = norm(claimed) !== "" && norm(supplier) !== "" && (norm(supplier).includes(norm(claimed)) || norm(claimed).includes(norm(supplier)));
       const amountOk = poAmount !== undefined && invoiced !== undefined && Math.round(poAmount * 100) === Math.round(invoiced * 100);
       const open = /open/i.test(status);
       const problems = [
@@ -43,6 +47,7 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       return {
         ok: problems.length === 0,
         found: true,
+        rows: { [doc.name]: row[0] },
         po_amount: poAmount,
         detail: problems.length === 0 ? `${po} (${supplier}, ${fmt(poAmount)}) matches the invoice` : problems.join("; "),
       };
@@ -102,6 +107,7 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       ].filter(Boolean);
       return {
         ok: problems.length === 0,
+        rows: { [String(args.doc)]: vendor.vendor },
         vendor: vendor.vendor,
         domain: vendor.domain,
         sender_domain: senderDomain,
@@ -128,8 +134,10 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       const vendor = master.find(String(args.vendor ?? ""));
       if (!vendor) return { ok: false, detail: `${String(args.vendor || "(no vendor)")} is not in ${String(args.doc)}` };
       const printed = compactIban(String(args.iban ?? ""));
-      const changed = Date.parse(vendor.changed);
-      const recent = Number.isFinite(changed) && now - changed < 30 * DAY;
+      // Only an ISO date (2026-11-05) is read; Date.parse would guess at others.
+      const changed = /^\d{4}-\d{2}-\d{2}$/.test(vendor.changed.trim()) ? Date.parse(vendor.changed.trim()) : Number.NaN;
+      // A date that cannot be read could be yesterday: treat it as recent.
+      const recent = !Number.isFinite(changed) || now - changed < 30 * DAY;
       const problems = [
         printed && printed !== vendor.iban && `the invoice asks for payment to ${maskIban(printed)}, but ${maskIban(vendor.iban)} is on file`,
         !ibanValid(vendor.iban) && `the account on file is not a valid IBAN`,
@@ -137,6 +145,7 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       ].filter(Boolean);
       return {
         ok: problems.length === 0,
+        rows: { [String(args.doc)]: vendor.vendor },
         iban: vendor.iban,
         recent,
         changed: vendor.changed,
@@ -169,9 +178,9 @@ function vendorMaster(docs: RoomDocument[], name: unknown): { error: string } | 
     contact,
     phone,
     changed,
-    verified: /^(no|none|-|)$/i.test(verified.trim()) ? "" : verified,
+    verified: /^(callback|verified)\b/i.test(verified.trim()) && !/\bnot\b/i.test(verified) ? verified : "",
   }));
-  return { find: (vendor) => rows.find((r) => norm(r.vendor) === norm(vendor)) };
+  return { find: (vendor) => rows.find((r) => sameName(r.vendor, vendor)) };
 }
 
 export function compactIban(iban: string): string {
@@ -211,7 +220,7 @@ export function editDistance(a: string, b: string): number {
 export function setTableRow(markdown: string, row: string[]): string {
   const lines = markdown.replace(/\n+$/, "").split("\n");
   const line = `| ${row.join(" | ")} |`;
-  const at = lines.findIndex((l) => l.trim().startsWith("|") && norm(l.trim().replace(/^\|/, "").split("|")[0] ?? "") === norm(row[0]));
+  const at = lines.findIndex((l) => l.trim().startsWith("|") && sameName(l.trim().replace(/^\|/, "").split("|")[0] ?? "", row[0]));
   if (at >= 0) lines[at] = line;
   else {
     const last = lines.map((l, i) => (l.trim().startsWith("|") ? i : -1)).filter((i) => i >= 0).at(-1);
@@ -242,5 +251,15 @@ function toNumber(value: unknown): number | undefined {
   return value.trim() === "" || !Number.isFinite(n) ? undefined : n;
 }
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+// Letters and digits in any script, so "Άλφα ΑΕ" and "Δέλτα ΑΕ" stay different.
+const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const sameName = (a: string, b: string) => norm(a) !== "" && norm(a) === norm(b);
+
+// The version of what a result rests on: the rows named by `key`, or the
+// whole document when the result named no row.
+export function basisHash(content: string, key?: string): string {
+  if (key === undefined) return docHash(content);
+  const lines = content.split("\n").filter((l) => l.trim().startsWith("|") && sameName(l.trim().replace(/^\|/, "").split("|")[0] ?? "", key));
+  return `row:${docHash(lines.join("\n"))}`;
+}
 const fmt = (n: number | undefined) => (n === undefined ? "?" : n.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));

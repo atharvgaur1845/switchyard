@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { loadFlow } from "../src/engine/flow-schema.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
-import { docHash } from "../src/engine/verifiers.ts";
+import { basisHash } from "../src/engine/verifiers.ts";
 import { caseSummaries, flowSummaries } from "../src/web/api.ts";
 import { diagram, left } from "../src/web/static/diagram.js";
 import { FakeSwitch, RecordingOutlets, replyWith } from "./fake-switch.ts";
@@ -14,6 +15,8 @@ const flows = readdirSync("flows").map((f) => loadFlow(readFileSync(`flows/${f}`
 const flow = (name: string) => flows.find((f) => f.flow === name)!;
 const summary = (name: string) => flowSummaries([flow(name)])[0];
 const MIN = 60_000;
+const VENDOR_MASTER = (parse(readFileSync("templates/invoice-check.template.yaml", "utf8")).room.docs as { name: string; content: string }[])
+  .find((d) => d.name === "vendor-master")!.content;
 
 // The ring's filled length as a fraction of its circumference.
 const ringFraction = (svg: string) => {
@@ -88,7 +91,7 @@ describe("the diagram", () => {
     const POS = "| PO | supplier | amount | status |\n|---|---|---|---|\n| PO-1043 | Fabrikam Print | 3,150.00 | open |";
     const store = new Store();
     const verdict = { result: "mismatch", po_amount: 3150, reasons: ["over the PO"] };
-    const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict)).doc("finance", "purchase-orders", POS);
+    const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict)).doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", VENDOR_MASTER);
     const outlets = new RecordingOutlets();
     const runner = new Runner(store, chat, outlets, [flow("invoice-check")]);
     await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-1", amount: 3150.5, po: "PO-1043" }, "webhook");
@@ -99,7 +102,7 @@ describe("the diagram", () => {
     const hash = gate?.type === "gate_opened" ? gate.hashes.schedule_payment : "";
     let svg = draw();
     expect(svg).toContain('class="junction ok"');
-    expect(svg).toContain(docHash(POS));
+    expect(svg).toContain(basisHash(POS, "PO-1043").replace(/^row:/, ""));
     expect(svg).toContain(`${hash.slice(0, 8)} · on the card`);
     expect(svg).toMatch(/class="vt v-google"/);
 
