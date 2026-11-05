@@ -37,7 +37,7 @@ steps:
       title: "send {brief.client} a quote of {quote.total} {quote.currency}?"
       options: [send, hold]
       deadline: 8h
-      approves: [send_quote]
+      approves: [send_quote, follow_up]
 
   - id: send_quote
     when: owner == "send"
@@ -46,3 +46,15 @@ steps:
         to: "{case.from}"
         subject: "Re: {case.subject} (quote {quote.total} {quote.currency})"
         body: "{quote.email_body}"
+
+  - id: three_days
+    when: owner == "send"
+    wait: 3d
+
+  - id: follow_up
+    when: owner == "send"
+    outlet:
+      email:
+        to: "{case.from}"
+        subject: "Re: {case.subject} (following up on our quote)"
+        body: "Hi {case.from_name}, just checking you received our quote of {quote.total} {quote.currency}. Happy to walk through it or adjust the scope. It is valid for 30 days."

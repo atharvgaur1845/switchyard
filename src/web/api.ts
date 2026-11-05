@@ -1,5 +1,5 @@
 import type { Flow } from "../engine/flow-schema.ts";
-import { isAgent, isGate } from "../engine/flow-schema.ts";
+import { isAgent, isGate, isParallel, isWait } from "../engine/flow-schema.ts";
 import type { CaseState, Store } from "../engine/store.ts";
 import { nextRuns } from "../inlets/schedule.ts";
 
@@ -14,8 +14,8 @@ export function flowSummaries(flows: Flow[], running: Set<string> = new Set(flow
     inlets: Object.entries(flow.inlet ?? {}).map(([kind, spec]) => ({ kind, spec })),
     steps: flow.steps.map((step) => ({
       id: step.id,
-      kind: isAgent(step) ? "agent" : isGate(step) ? "gate" : "outlet",
-      who: isAgent(step) ? step.agent : isGate(step) ? step.gate.approver : outletKind(step),
+      kind: isAgent(step) || isParallel(step) ? "agent" : isGate(step) ? "gate" : isWait(step) ? "wait" : "outlet",
+      who: isAgent(step) ? step.agent : isParallel(step) ? step.parallel.join(" + ") : isGate(step) ? step.gate.approver : isWait(step) ? step.wait : outletKind(step),
       backup: isAgent(step) ? step.bench : isGate(step) ? step.gate.backup : undefined,
       conditional: step.when !== undefined,
       auto: "auto_approve" in step && step.auto_approve !== false,
@@ -66,7 +66,11 @@ function waitingOn(state: CaseState) {
   if (!p) return null;
   return p.kind === "agent"
     ? { kind: "agent", step: p.step, who: p.agent, since: p.at }
-    : { kind: "person", step: p.step, since: p.at, escalated: p.escalated };
+    : p.kind === "wait"
+      ? { kind: "wait", step: p.step, until: p.until }
+      : p.kind === "parallel"
+        ? { kind: "agent", step: p.step, who: Object.keys(p.agents).filter((a) => p.agents[a].value === undefined).join(" + "), since: p.at }
+        : { kind: "person", step: p.step, since: p.at, escalated: p.escalated };
 }
 
 // Each flow step as a station on the case's track.
@@ -78,7 +82,7 @@ function stations(state: CaseState, flow: Flow | undefined) {
     else if (state.finished.has(step.id)) status = step.id in state.results ? "done" : "skipped";
     return {
       id: step.id,
-      kind: isAgent(step) ? "agent" : isGate(step) ? "gate" : "outlet",
+      kind: isAgent(step) || isParallel(step) ? "agent" : isGate(step) ? "gate" : isWait(step) ? "wait" : "outlet",
       status,
     };
   }).map((station, i, all) => {

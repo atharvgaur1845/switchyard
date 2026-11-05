@@ -10,7 +10,9 @@ export type CaseEvent =
   | { type: "skipped"; step: string }
   // `attempt` counts every request for the step (it makes tokens unique);
   // `tries` counts this agent's requests, so a bench agent starts fresh.
-  | { type: "asked"; step: string; agent: string; token: string; attempt: number; tries?: number; at: number }
+  | { type: "asked"; step: string; agent: string; token: string; attempt: number; tries?: number; at: number; parallel?: boolean }
+  | { type: "fanned_out"; step: string; agents: string[]; at: number }
+  | { type: "partial"; step: string; agent: string; value: unknown }
   | { type: "failed_over"; step: string; from: string; to: string; reason: string }
   | { type: "reply_rejected"; step: string; error: string }
   | { type: "answered"; step: string; value: unknown }
@@ -22,11 +24,21 @@ export type CaseEvent =
   | { type: "executed"; step: string; hash: string; receipt: string }
   | { type: "failed"; step: string; reason: string }
   | { type: "cancelled"; by: string }
+  | { type: "waiting"; step: string; until: number }
+  | { type: "waited"; step: string; by?: string }
   | { type: "done" };
 
 // What a case is waiting on. `at` is when the wait began (epoch ms), which the
 // deadline timers measure from.
 export type Pending =
+  | {
+      kind: "parallel";
+      step: string;
+      at: number;
+      // Each agent's outstanding request, and its answer once it is in.
+      agents: Record<string, { token: string; attempt: number; tries: number; value?: unknown }>;
+    }
+  | { kind: "wait"; step: string; until: number; at: number }
   | { kind: "agent"; step: string; agent: string; token: string; attempt: number; tries: number; at: number }
   | {
       kind: "gate";
@@ -76,7 +88,19 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         state.finished.add(event.step);
         break;
       case "asked":
-        state.pending = { kind: "agent", ...event, tries: event.tries ?? event.attempt };
+        if (event.parallel && state.pending?.kind === "parallel") {
+          state.pending.agents[event.agent] = { token: event.token, attempt: event.attempt, tries: event.tries ?? 1 };
+        } else {
+          state.pending = { kind: "agent", ...event, tries: event.tries ?? event.attempt };
+        }
+        break;
+      case "fanned_out":
+        state.pending = { kind: "parallel", step: event.step, at: event.at, agents: {} };
+        break;
+      case "partial":
+        if (state.pending?.kind === "parallel" && state.pending.agents[event.agent]) {
+          state.pending.agents[event.agent].value = event.value;
+        }
         break;
       case "failed_over":
         break;
@@ -128,6 +152,13 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         break;
       case "failed":
         state.status = "failed";
+        state.pending = undefined;
+        break;
+      case "waiting":
+        state.pending = { kind: "wait", step: event.step, until: event.until, at: event.until };
+        break;
+      case "waited":
+        state.finished.add(event.step);
         state.pending = undefined;
         break;
       case "done":

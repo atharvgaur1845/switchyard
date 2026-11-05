@@ -55,11 +55,28 @@ const OutletStep = z.object({
   auto_approve: z.union([z.boolean(), z.string()]).default(false),
 });
 
-export const Step = z.union([AgentStep, GateStep, OutletStep]);
+// Several agents do the same step independently. The result holds each
+// agent's answer under its name, plus `agreed`: whether every answer gave the
+// same value for each enum field (e.g. both said "accurate").
+const ParallelStep = z.object({
+  ...base,
+  parallel: z.array(Handle).min(2),
+  ask: z.string(),
+  expect: z.record(z.string(), FieldType),
+  sla: Duration.optional(),
+});
+
+// Pauses the case, e.g. three days before a follow-up. A person can end it
+// early with `@yard resume <case>`.
+const WaitStep = z.object({ ...base, wait: Duration });
+
+export const Step = z.union([AgentStep, ParallelStep, GateStep, OutletStep, WaitStep]);
 export type Step = z.infer<typeof Step>;
 export type AgentStep = z.infer<typeof AgentStep>;
 export type GateStep = z.infer<typeof GateStep>;
 export type OutletStep = z.infer<typeof OutletStep>;
+export type WaitStep = z.infer<typeof WaitStep>;
+export type ParallelStep = z.infer<typeof ParallelStep>;
 export type Outlet = OutletStep["outlet"];
 
 export const Flow = z.object({
@@ -74,6 +91,8 @@ export type Flow = z.infer<typeof Flow>;
 export const isAgent = (step: Step): step is AgentStep => "agent" in step;
 export const isGate = (step: Step): step is GateStep => "gate" in step;
 export const isOutlet = (step: Step): step is OutletStep => "outlet" in step;
+export const isParallel = (step: Step): step is ParallelStep => "parallel" in step;
+export const isWait = (step: Step): step is WaitStep => "wait" in step;
 
 export class FlowError extends Error {
   readonly problems: string[];
@@ -149,7 +168,7 @@ function referencedNames(step: Step): Set<string> {
       if (!WORDS.has(word)) names.add(word.split(".")[0]);
     }
   }
-  const text = JSON.stringify(isAgent(step) ? step.ask : isGate(step) ? step.gate.title : isOutlet(step) ? step.outlet : "");
+  const text = JSON.stringify(isAgent(step) || isParallel(step) ? step.ask : isGate(step) ? step.gate.title : isOutlet(step) ? step.outlet : "");
   for (const [, path] of text.matchAll(/\{([A-Za-z_][A-Za-z0-9_.-]*)\}/g)) names.add(path.split(".")[0]);
   return names;
 }

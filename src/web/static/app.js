@@ -21,7 +21,7 @@ const FILTERS = [
 ];
 
 const INLET_ICON = { form: "▤", email: "✉", schedule: "◷", webhook: "⇄", frontdesk: "☏" };
-const STEP_ICON = { agent: "✦", gate: "✋", outlet: "↗" };
+const STEP_ICON = { agent: "✦", gate: "✋", outlet: "↗", wait: "◷" };
 
 const state = { flows: [], cases: [], filter: "all", query: "", selected: location.hash.slice(1) || null, view: "cases" };
 
@@ -49,6 +49,7 @@ function statusPill(c) {
   if (b === "done") return `<span class="pill act"><span class="dot"></span>Done</span>`;
   if (b === "stopped") return `<span class="pill stop"><span class="dot"></span>${c.status === "cancelled" ? "Cancelled" : "Stopped"}</span>`;
   if (b === "person") return `<span class="pill person"><span class="dot pulse"></span>${c.waiting?.escalated ? "Escalated" : "Needs a person"}</span>`;
+  if (c.waiting?.kind === "wait") return `<span class="pill"><span class="dot"></span>Waiting until ${esc(new Date(c.waiting.until).toLocaleDateString())}</span>`;
   return `<span class="pill agent"><span class="dot pulse"></span>${esc(c.waiting?.who ?? "Working")}</span>`;
 }
 
@@ -186,7 +187,17 @@ function timeline(c) {
         lastAgent = e.agent;
         row("", "@yard", "Y", `asked <b>${esc(e.agent)}</b> for <b>${esc(e.step)}</b>${e.attempt > 1 ? ` <span class="pill">attempt ${e.attempt}</span>` : ""}`);
         break;
+      case "fanned_out":
+        row("", "@yard", "Y", `asked ${e.agents.map((a) => `<b>${esc(a)}</b>`).join(" and ")} to do <b>${esc(e.step)}</b> independently`);
+        break;
+      case "partial":
+        row("agent", esc(e.agent), initials(e.agent), `answered <b>${esc(e.step)}</b>`, result(e.value));
+        break;
       case "answered":
+        if (e.value && "agreed" in e.value) {
+          row(e.value.agreed ? "act" : "stop", "@yard", "Y", e.value.agreed ? `all agents <b>agreed</b> on ${esc(e.step)}` : `the agents <b>disagreed</b> on ${esc(e.step)}`);
+          break;
+        }
         row("agent", esc(lastAgent ?? "agent"), initials(lastAgent ?? "ag"), `finished <b>${esc(e.step)}</b>`, result(e.value));
         break;
       case "reply_rejected":
@@ -218,6 +229,12 @@ function timeline(c) {
         break;
       case "cancelled":
         row("stop", esc(e.by), initials(e.by), "cancelled the case");
+        break;
+      case "waiting":
+        row("", "@yard", "◷", `waiting until ${esc(new Date(e.until).toLocaleString())} before the next step`);
+        break;
+      case "waited":
+        row("", e.by ? esc(e.by) : "@yard", e.by ? initials(e.by) : "◷", e.by ? "ended the wait early" : "the wait is over");
         break;
       case "done":
         row("act", "@yard", "✓", "closed the case");

@@ -9,7 +9,8 @@ const HELP = `I run this room's flows. Ask me:
 - \`@yard status <case>\`: where a case is
 - \`@yard start <flow> key=value ...\`: open a case by hand
 - \`@yard cancel <case>\`: stop a case
-- \`@yard reassign <case> @agent\`: give a waiting step to another agent`;
+- \`@yard reassign <case> @agent\`: give a waiting step to another agent
+- \`@yard resume <case>\`: end a wait step early`;
 
 // People talk to @yard in the room. Agents can't: a command changes what
 // runs, so it has to come from a person.
@@ -89,6 +90,13 @@ export class Commands {
         break;
       }
 
+      case "resume": {
+        const state = this.find(args[0]);
+        const problem = state ? await this.runner.resume(state.id, message.sender) : `no case \`${args[0] ?? ""}\``;
+        if (problem) await reply(`Can't resume: ${problem}.`);
+        break;
+      }
+
       default:
         await reply(HELP);
     }
@@ -104,6 +112,8 @@ export class Commands {
 function waitingOn(state: CaseState): string {
   const pending = state.pending;
   if (!pending) return state.status;
+  if (pending.kind === "parallel") return `waiting on ${Object.keys(pending.agents).join(" and ")} for "${pending.step}"`;
+  if (pending.kind === "wait") return `waiting until ${new Date(pending.until).toUTCString()}`;
   return pending.kind === "agent" ? `waiting on ${pending.agent} for "${pending.step}"` : `waiting on approval "${pending.step}"`;
 }
 

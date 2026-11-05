@@ -10,6 +10,9 @@ import {
   isAgent,
   isGate,
   isOutlet,
+  isParallel,
+  isWait,
+  type ParallelStep,
 } from "./flow-schema.ts";
 import { isApproval, mayAnswer, mention, type People } from "./gates.ts";
 import type { ApprovalCard, ApprovalOutcome, Chat, InboundMessage, Outlets } from "./ports.ts";
@@ -99,6 +102,17 @@ export class Runner {
       await this.openGate(state, step);
       return true;
     }
+    if (isParallel(step)) {
+      this.store.append(state.id, { type: "fanned_out", step: step.id, agents: step.parallel, at: this.now() });
+      for (const agent of step.parallel) await this.ask(state, step, agent, 1, 1);
+      return true;
+    }
+    if (isWait(step)) {
+      const until = this.now() + durationMs(step.wait);
+      this.store.append(state.id, { type: "waiting", step: step.id, until });
+      await this.say(state, `Waiting ${step.wait} before the next step (until ${new Date(until).toUTCString()}).`);
+      return true;
+    }
     if (isOutlet(step)) {
       const payload = renderOutlet(step.outlet, scopeOf(state));
       const hash = hashOutlet(payload);
@@ -124,9 +138,18 @@ export class Runner {
     return false;
   }
 
-  private async ask(state: CaseState, step: AgentStep, agent: string, attempt: number, tries: number, correction?: string) {
-    const token = stepToken(state.id, step.id, attempt);
-    this.store.append(state.id, { type: "asked", step: step.id, agent, token, attempt, tries, at: this.now() });
+  private async ask(
+    state: CaseState,
+    step: AgentStep | ParallelStep,
+    agent: string,
+    attempt: number,
+    tries: number,
+    correction?: string,
+  ) {
+    const parallel = isParallel(step);
+    // Agents working the same step in parallel each get their own token.
+    const token = stepToken(state.id, parallel ? `${step.id}.${agent.slice(1)}` : step.id, attempt);
+    this.store.append(state.id, { type: "asked", step: step.id, agent, token, attempt, tries, at: this.now(), parallel });
     const body = stepRequest({
       ask: render(step.ask, scopeOf(state)),
       expect: step.expect,
@@ -183,6 +206,10 @@ export class Runner {
       .openCases()
       .find((c) => c.threadId !== undefined && c.threadId === message.threadId);
     const pending = state?.pending;
+    if (state && pending?.kind === "parallel") {
+      await this.onParallelReply(state, message);
+      return;
+    }
     if (!state || pending?.kind !== "agent" || message.sender !== pending.agent) return;
 
     const step = this.stepOf(state, pending.step);
@@ -210,6 +237,35 @@ export class Runner {
     if (await this.failOver(state, step, `its replies did not match the step's contract (${reply.error})`)) return;
     this.store.append(state.id, { type: "failed", step: step.id, reason: reply.error });
     await this.say(state, `${pending.agent} could not finish "${step.id}" (${reply.error}). A person needs to take this case.`);
+  }
+
+  private async onParallelReply(state: CaseState, message: InboundMessage): Promise<void> {
+    const pending = state.pending;
+    if (pending?.kind !== "parallel") return;
+    const mine = pending.agents[message.sender];
+    const step = this.stepOf(state, pending.step);
+    if (!mine || mine.value !== undefined || !step || !isParallel(step)) return;
+
+    const reply = readReply(message.body, step.expect);
+    if (reply.token !== undefined && reply.token !== mine.token) return;
+
+    if (!reply.ok) {
+      this.store.append(state.id, { type: "reply_rejected", step: step.id, error: `${message.sender}: ${reply.error}` });
+      if (mine.tries < MAX_TRIES) {
+        await this.ask(state, step, message.sender, mine.attempt + 1, mine.tries + 1, reply.error);
+        return;
+      }
+      this.store.append(state.id, { type: "failed", step: step.id, reason: `${message.sender}: ${reply.error}` });
+      await this.say(state, `${message.sender} could not finish "${step.id}" (${reply.error}). A person needs to take this case.`);
+      return;
+    }
+
+    this.store.append(state.id, { type: "partial", step: step.id, agent: message.sender, value: reply.value });
+    const answers = { ...Object.fromEntries(Object.entries(pending.agents).map(([a, s]) => [a, s.value])), [message.sender]: reply.value };
+    if (Object.values(answers).some((value) => value === undefined)) return;
+
+    this.store.append(state.id, { type: "answered", step: step.id, value: combine(step, answers) });
+    await this.advance(state.id);
   }
 
   // Hands an agent step to its bench agent. Returns false when there is no
@@ -267,6 +323,16 @@ export class Runner {
     return true;
   }
 
+  // Ends a wait step early, on a person's word.
+  async resume(caseId: string, by: string): Promise<string | undefined> {
+    const state = this.store.load(caseId);
+    if (state.status !== "open" || state.pending?.kind !== "wait") return "that case is not waiting";
+    this.store.append(caseId, { type: "waited", step: state.pending.step, by });
+    await this.say(state, `${by} ended the wait early.`);
+    await this.advance(caseId);
+    return undefined;
+  }
+
   // Moves a waiting agent step to another agent, on a person's word.
   async reassign(caseId: string, to: string, by: string): Promise<string | undefined> {
     const state = this.store.load(caseId);
@@ -290,6 +356,24 @@ export class Runner {
       const pending = state.pending;
       if (!pending) continue;
       const step = this.stepOf(state, pending.step);
+
+      if (pending.kind === "wait") {
+        if (now >= pending.until) {
+          this.store.append(state.id, { type: "waited", step: pending.step });
+          await this.advance(state.id);
+        }
+        continue;
+      }
+
+      if (pending.kind === "parallel" && step && isParallel(step) && step.sla) {
+        if (now - pending.at >= durationMs(step.sla)) {
+          const missing = Object.entries(pending.agents).filter(([, s]) => s.value === undefined).map(([a]) => a);
+          const reason = `no answer from ${missing.join(", ")} within ${step.sla}`;
+          this.store.append(state.id, { type: "failed", step: step.id, reason });
+          await this.say(state, `"${step.id}" stopped: ${reason}. A person needs to take this case.`);
+        }
+        continue;
+      }
 
       if (pending.kind === "agent" && step && isAgent(step) && step.sla) {
         if (now - pending.at >= durationMs(step.sla)) {
@@ -335,6 +419,19 @@ export class Runner {
   private async say(state: CaseState, body: string): Promise<void> {
     await this.chat.post(state.room, body, state.threadId);
   }
+}
+
+// One result from several agents: each answer under the agent's name (so
+// `review.rev-claude.verdict` works), and `agreed` when every agent gave the
+// same value for every enum field.
+export function combine(step: ParallelStep, answers: Record<string, unknown>): Record<string, unknown> {
+  const enums = Object.entries(step.expect).filter(([, type]) => Array.isArray(type)).map(([name]) => name);
+  const values = Object.values(answers) as Record<string, unknown>[];
+  const agreed = enums.every((field) => values.every((v) => v[field] === values[0][field]));
+  return {
+    ...Object.fromEntries(Object.entries(answers).map(([agent, value]) => [agent.slice(1), value])),
+    agreed,
+  };
 }
 
 // What `when:` conditions and `{placeholders}` can see: the case data under

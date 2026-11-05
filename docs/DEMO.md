@@ -29,13 +29,14 @@ Show: the dashboard Flows tab, with six flows.
 3. A card appears for you: *"send Globex Bakeries a quote of 7720 USD?"*, showing the exact email and its approval hash. Click **send**.
 4. Mailpit: the email is in Dana's inbox.
 5. Dashboard: the receipt panel shows **Approved `376c2aa6…` = Executed `376c2aa6…`**.
+6. The case now waits 3 days for the follow-up. Type `@yard resume <case>` in the thread to skip ahead: the follow-up email goes out under the same approval.
 
 > "Nothing left the company until a person approved that exact email, and what went out is byte-for-byte what was approved."
 
 ## 1:20 – Finance: invoices from a webhook (50 s)
 
 1. Send two signed webhooks: one from Northwind Paper matching PO-1041, one from Fabrikam billing 3,980 against PO-1043 (3,150).
-2. Northwind: `@checker` finds the match, and the flow's rule pays it automatically. The payables row appears, and no card is needed.
+2. Northwind: `@checker` (Claude) and `@checker-backup` (Gemini) check it **independently**. Both say match, so the rule pays it automatically. The payables row appears, and no card is needed.
 3. Fabrikam: `@checker` reports a **mismatch of 830**, and the controller gets a card. Choose **dispute**: nothing is paid.
 4. Show the unsigned webhook being refused: `{"error":"bad signature"}`.
 
@@ -86,4 +87,6 @@ Show the dashboard KPIs and the Flows tab.
 | weekly-report | `e5d7a3fb` | Started from chat; totals 159,330 / +6.1% correct; Gemini reviewer agreed; posted to #leadership and emailed |
 | front-desk | clean question | Answered from the FAQ and sent automatically |
 | front-desk | `e8950ce1` | Injection: 3 screen flags; Claude refused; held for staff |
+| client-quote + wait | `ea7cbd64` | Quote sent; waited; `@yard resume` from chat; follow-up email sent under the same approval |
+| invoice-check (parallel) | `514d1d98` | Claude and Gemini independently matched PO-1042 (8,900); `agreed: true`; paid by rule |
 | expense (outage) | `2917be4d` | Claude down → Gemini backup took over and correctly rejected the over-limit meal |

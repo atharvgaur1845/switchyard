@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { isAgent, loadFlow } from "../src/engine/flow-schema.ts";
+import { isAgent, isParallel, loadFlow } from "../src/engine/flow-schema.ts";
 
 const flows = readdirSync("flows").map((file) => loadFlow(readFileSync(`flows/${file}`, "utf8")));
 
@@ -15,7 +15,9 @@ describe.each(flows)("starter flow $flow", (flow) => {
   });
 
   it("names only agents its template creates and puts in the room", () => {
-    const named = flow.steps.filter(isAgent).flatMap((s) => [s.agent, ...(s.bench ? [s.bench] : [])]);
+    const named = flow.steps.flatMap((s) =>
+      isAgent(s) ? [s.agent, ...(s.bench ? [s.bench] : [])] : isParallel(s) ? s.parallel : [],
+    );
     for (const handle of named) {
       expect(created, `${handle} in ${flow.flow}`).toContain(handle);
       expect(template.room.agents).toContain(handle.slice(1));

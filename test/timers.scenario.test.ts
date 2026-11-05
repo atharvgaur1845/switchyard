@@ -153,3 +153,58 @@ describe("bench agents get their own tries", () => {
     expect(store.load(id).status).toBe("failed");
   });
 });
+
+describe("wait steps", () => {
+  const followUp = loadFlow(`
+flow: quote
+room: sales
+steps:
+  - id: owner
+    gate: { approver: "@owner", title: send?, options: [send, hold], approves: [send_quote, follow_up] }
+  - id: send_quote
+    when: owner == "send"
+    outlet: { email: { to: "{case.from}", subject: Quote, body: "Here it is." } }
+  - id: three_days
+    when: owner == "send"
+    wait: 3d
+  - id: follow_up
+    when: owner == "send"
+    outlet: { email: { to: "{case.from}", subject: Following up, body: "Did you get it?" } }
+`);
+
+  it("sends the follow-up after the wait, under the same approval", async () => {
+    let clock = 0;
+    const store = new Store();
+    const chat = new FakeSwitch();
+    const outlets = new RecordingOutlets();
+    const runner = new Runner(store, chat, outlets, [followUp], { now: () => clock });
+    const id = await runner.open("quote", { from: "dana@globex.test" }, "email");
+    await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "send", answeredBy: "mx:@owner" });
+    expect(outlets.executed.map((e) => e.key)).toEqual([`${id}/send_quote`]);
+
+    clock = 3 * 86_400_000 - 1;
+    await runner.tick();
+    expect(outlets.executed).toHaveLength(1);
+
+    clock = 3 * 86_400_000;
+    await runner.tick();
+    expect(outlets.executed.map((e) => e.key)).toEqual([`${id}/send_quote`, `${id}/follow_up`]);
+    expect(store.load(id).status).toBe("done");
+  });
+
+  it("lets a person end the wait early, and survives a restart while waiting", async () => {
+    const store = new Store();
+    const chat = new FakeSwitch();
+    const outlets = new RecordingOutlets();
+    const runner = new Runner(store, chat, outlets, [followUp], { now: () => 0 });
+    const id = await runner.open("quote", { from: "dana@globex.test" }, "email");
+    await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "send", answeredBy: "mx:@owner" });
+    expect(store.load(id).pending?.kind).toBe("wait");
+
+    const restarted = new Runner(store, chat, outlets, [followUp], { now: () => 0 });
+    expect(await restarted.resume(id, "@atharv")).toBeUndefined();
+    expect(outlets.executed).toHaveLength(2);
+    expect(chat.said("@atharv ended the wait early")).toBe(true);
+    expect(await restarted.resume(id, "@atharv")).toMatch(/not waiting/);
+  });
+});

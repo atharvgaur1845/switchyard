@@ -53,11 +53,11 @@ What happens when someone submits the form:
 | Flow | Comes in by | People decide | Switchyard does |
 |---|---|---|---|
 | `expense` | web form | manager, escalating to finance | ledger row |
-| `client-quote` | email to `quotes@` | owner approves the price | emails the client the approved quote |
+| `client-quote` | email to `quotes@` | owner approves the price | emails the approved quote, and a follow-up 3 days later |
 | `weekly-report` | every Monday 09:00 | manager publishes | posts to `#leadership` and emails it |
 | `front-desk` | chat widget on your site | support reviews anything flagged | replies to the visitor |
 | `onboarding` | web form | manager signs off | welcome email and access-request rows |
-| `invoice-check` | signed webhook from accounting | controller, escalating to the CFO | payables row (auto when it matches the PO and is under 10k) |
+| `invoice-check` | signed webhook from accounting | controller, escalating to the CFO | payables row (auto only when **two checkers on different vendors** both find a PO match under 10k) |
 
 Each flow comes with a **Switch template** in `templates/`. A template creates the room, the agents and the room documents (policy, rate sheet, FAQ, purchase orders), in one step from Switch Console. Every agent has a **backup agent on a different vendor**, so if Claude hits a usage limit, Codex picks up the step.
 
@@ -124,7 +124,7 @@ npm run switchyard up
 - Email: anything sent to `quotes@acme.test` through Mailpit's SMTP (`localhost:1025`)
 - Dashboard (localhost only): `http://localhost:4100/`
 
-In the room, `@yard help` lists the chat commands: `flows`, `cases`, `status <case>`, `start <flow> key=value`, `cancel <case>`, `reassign <case> @agent`.
+In the room, `@yard help` lists the chat commands: `flows`, `cases`, `status <case>`, `start <flow> key=value`, `cancel <case>`, `reassign <case> @agent`, `resume <case>`.
 
 ## Verified live
 

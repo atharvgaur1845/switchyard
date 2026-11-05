@@ -6,8 +6,10 @@ inlet:
     secret_env: INVOICE_HOOK_SECRET
     map: { supplier: invoice.supplier, number: invoice.number, amount: invoice.total, po: invoice.po_number }
 steps:
+  # Two checkers on different vendors work independently: four eyes, no
+  # shared blind spot. A payment is automatic only when both say "match".
   - id: match
-    agent: "@checker"
+    parallel: ["@checker", "@checker-backup"]
     ask: >-
       Match this invoice against the purchase orders document in this room.
       Say whether the PO exists, whether the amount matches it, and why not.
@@ -16,10 +18,9 @@ steps:
       po_amount: number?
       reasons: list
     sla: 10m
-    bench: "@checker-backup"
 
   - id: finance
-    when: match.result != "match" or case.amount > 10000
+    when: match.agreed == false or match.checker.result != "match" or case.amount > 10000
     gate:
       approver: "@controller"
       backup: "@cfo"
@@ -30,6 +31,6 @@ steps:
 
   - id: schedule_payment
     when: finance != "dispute"
-    auto_approve: match.result == "match" and case.amount <= 10000
+    auto_approve: match.agreed == true and match.checker.result == "match" and case.amount <= 10000
     outlet:
       csv: { file: payables.csv, row: ["{case.supplier}", "{case.number}", "{case.amount}", "{case.po}"] }

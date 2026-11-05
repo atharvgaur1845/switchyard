@@ -39,6 +39,25 @@ Every step has an `id` (lower case, `_` allowed) and an optional `when:` conditi
   bench: "@policy-backup"          # optional: the agent that takes over
 ```
 
+**Parallel.** Several agents do the same step independently, ideally on different vendors.
+
+```yaml
+- id: match
+  parallel: ["@checker", "@checker-backup"]
+  ask: Match this invoice against the purchase orders.
+  expect: { result: [match, mismatch, no_po], reasons: list }
+  sla: 10m                         # a missing answer by then -> a person
+```
+
+The result holds each agent's answer under its name (`match.checker.result`), plus `match.agreed`. That is true when every agent gave the same value for every enum field. A typical rule: `when: match.agreed == false` sends the case to a person.
+
+**Wait.** Pauses the case, e.g. before a follow-up. A person can end it early with `@yard resume <case>`.
+
+```yaml
+- id: three_days
+  wait: 3d
+```
+
 **Gate.** A person decides, on an approval card in the room.
 
 ```yaml
@@ -70,7 +89,8 @@ Every step has an `id` (lower case, `_` allowed) and an optional `when:` conditi
 - `case.<field>` is the case data from the inlet.
 - `<step id>` is that step's result:
   - for an agent step, its JSON fields (`check.verdict`);
-  - for a gate, the chosen option (`manager == "reject"`).
+  - for a gate, the chosen option (`manager == "reject"`);
+  - for a parallel step, each agent's answer by name plus `agreed`.
 - A name may only point at `case` or at a step **above** it. Lint rejects anything else.
 
 Placeholders `{like.this}` work in `ask`, gate titles and outlet fields. Conditions use `==`, `!=`, `>`, `>=`, `<`, `<=`, `and`, `or`, `not`, parentheses, numbers and quoted strings.
