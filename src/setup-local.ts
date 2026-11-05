@@ -18,6 +18,8 @@ interface Options {
   agentCommand: string[];
   // For agents the template puts on `{backup_provider}`: another vendor.
   backupCommand: string[];
+  // The chat app to create rooms on; the server's default when omitted.
+  bridgeId?: string;
 }
 
 export async function setupLocal(options: Options): Promise<void> {
@@ -57,6 +59,10 @@ export async function setupLocal(options: Options): Promise<void> {
         instructions: room === flow.room ? template.room.instructions : undefined,
         agent_ids: room === flow.room ? agentIds : [yardId],
         user_names: [options.chatUser],
+        // Public, so you can find and join the channel even if Switch could
+        // not match --user to your chat account and invite you.
+        channel_type: "channel_public",
+        ...(options.bridgeId ? { bridge_id: options.bridgeId } : {}),
       });
       config.rooms[room] = created.id;
       console.log(`Created room #${room} (${created.id})`);

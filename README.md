@@ -91,7 +91,7 @@ SWITCH_ADMIN_EMAIL=... SWITCH_ADMIN_PASSWORD=... \
 npm run switchyard up
 ```
 
-`setup-local` signs in as the local admin and mints an API key. It then registers `@yard` and the flow's agents, creates `#ops-requests` in Mattermost with you in it, and writes `switchyard.yaml`. Each agent's instructions and its room documents are taken from the same template Console would install. In `switchyard.yaml`, set a backup agent to another CLI (for example `pi -p`) so it runs on a different vendor.
+Add `--bridge <id>` to create the rooms on a specific chat app instead of the server's default. For example, Slack on a Switch Console server that also runs its own Mattermost. `setup-local` signs in as the local admin and mints an API key. It then registers `@yard` and the flow's agents, creates `#ops-requests` in Mattermost with you in it, and writes `switchyard.yaml`. Each agent's instructions and its room documents are taken from the same template Console would install. In `switchyard.yaml`, set a backup agent to another CLI (for example `pi -p`) so it runs on a different vendor.
 
 Open `http://localhost:4100/f/expense`, submit an expense over 500, and answer the card in Mattermost. Click the button, or reply `A1 yes` in the thread.
 

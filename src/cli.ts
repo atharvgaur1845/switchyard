@@ -20,7 +20,7 @@ const USAGE = `switchyard <command>
   lint [file...]   check flow files (default: every flow in the flows folder)
   register         register @yard with Switch (needs SWITCH_REGISTRATION_TOKEN)
   up               run the engine, forms, webhooks and timers
-  setup-local <flow...> [--user <chat user>] [--agent "<command>"] [--backup-agent "<command>"]
+  setup-local <flow...> [--user <chat user>] [--agent "<command>"] [--backup-agent "<command>"] [--bridge <bridge id>]
                    against a local Switch: register @yard and the flows'
                    agents, create their rooms, write switchyard.yaml`;
 
@@ -51,6 +51,7 @@ switch (command) {
       chatUser: flags.user ?? "user",
       agentCommand: (flags.agent ?? "claude -p --model haiku").split(" "),
       backupCommand: (flags.backup ?? flags.agent ?? "claude -p --model haiku").split(" "),
+      bridgeId: flags.bridge,
     });
     break;
   }
@@ -170,12 +171,13 @@ async function up(): Promise<void> {
   console.log(`Switchyard is up: ${flows.length} flows, forms at http://localhost:${config.port}/f/<flow>`);
 }
 
-function parseFlags(args: string[]): { rest: string[]; user?: string; agent?: string; backup?: string } {
-  const result: { rest: string[]; user?: string; agent?: string; backup?: string } = { rest: [] };
+function parseFlags(args: string[]): { rest: string[]; user?: string; agent?: string; backup?: string; bridge?: string } {
+  const result: { rest: string[]; user?: string; agent?: string; backup?: string; bridge?: string } = { rest: [] };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--user") result.user = args[++i];
     else if (args[i] === "--agent") result.agent = args[++i];
     else if (args[i] === "--backup-agent") result.backup = args[++i];
+    else if (args[i] === "--bridge") result.bridge = args[++i];
     else result.rest.push(args[i]);
   }
   return result;
