@@ -24,7 +24,10 @@ export class UnsafeAgentError extends Error {}
 
 export function lockedCommand(command: string[]): string[] {
   // Absolute, because agents run in an empty temporary working folder.
-  if (isFixtureAgent(command)) return [command[0], FIXTURE_AGENT, ...command.slice(2)];
+  if (isFixtureAgent(command)) {
+    const fixtures = command[2] === "--fixtures" ? ["--fixtures", resolve(command[3])] : [];
+    return [command[0], FIXTURE_AGENT, ...fixtures];
+  }
 
   const [binary, ...args] = command;
   const name = binary.split("/").at(-1)!;
@@ -55,7 +58,8 @@ export function lockedCommand(command: string[]): string[] {
 // Exactly `node <this repo's fixture agent> [--fixtures <dir>]`, nothing else.
 function isFixtureAgent(command: string[]): boolean {
   const [binary, script, ...rest] = command;
-  if (!binary || !script || binary.split("/").at(-1) !== "node" || resolve(script) !== FIXTURE_AGENT) return false;
+  // `node` from PATH, or this very Node binary: never just any file named node.
+  if (!binary || !script || (binary !== "node" && binary !== process.execPath) || resolve(script) !== FIXTURE_AGENT) return false;
   return rest.length === 0 || (rest.length === 2 && rest[0] === "--fixtures");
 }
 

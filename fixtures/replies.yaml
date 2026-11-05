@@ -2,7 +2,9 @@
 #
 # The fixture agent (src/agents/fixture-agent.ts) answers each step with the
 # first rule whose `when` matches the case data (a case-insensitive substring
-# per field), else the step's `default`. Rules are written for the inputs that
+# per field), else the step's `default`. Write rules that match exactly the
+# inputs they answer for, so a canned "match" is never given to an invoice it
+# was not written for. Rules are written for the inputs that
 # `switchyard demo send ...` sends, so a judge sees the same decisions the
 # live models made in the recorded runs.
 
@@ -56,11 +58,16 @@ match:
       result: mismatch
       po_amount: 3150
       reasons: ["PO-1043 is for 3,150.00; the invoice is 3,980.00, which is 830.00 more."]
-  - when: { po: PO-104 }
+  - when: { po: PO-1041, amount: "1240" }
     reply:
       result: match
-      po_amount: "{case.amount}"
-      reasons: ["The PO exists, is open, and its amount equals the invoice."]
+      po_amount: 1240
+      reasons: ["PO-1041 (Northwind Paper) exists, is open, and is for 1,240.00, the invoice amount."]
+  - when: { po: PO-1042, amount: "8900" }
+    reply:
+      result: match
+      po_amount: 8900
+      reasons: ["PO-1042 (Contoso Cloud) exists, is open, and is for 8,900.00, the invoice amount."]
   - default:
       result: no_po
       reasons: ["No open purchase order with that number."]

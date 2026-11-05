@@ -92,8 +92,10 @@ export async function demoSend(what: string, config: Config): Promise<void> {
 export async function demoOffline(root = process.cwd()): Promise<void> {
   const flows = readdirSync(join(root, "flows")).map((f) => loadFlow(readFileSync(join(root, "flows", f), "utf8")));
   const replies = parse(readFileSync(join(root, "fixtures", "replies.yaml"), "utf8"));
-  const dim = (t: string) => `\x1b[2m${t}\x1b[0m`;
-  const bold = (t: string) => `\x1b[1m${t}\x1b[0m`;
+  const color = process.stdout.isTTY && !process.env.NO_COLOR;
+  const dim = (t: string) => (color ? `\x1b[2m${t}\x1b[0m` : t);
+  const bold = (t: string) => (color ? `\x1b[1m${t}\x1b[0m` : t);
+  console.log(dim("Offline demo: agents are the fixture agent (canned replies, no model), cards are clicked by this script, and outlets only print."));
 
   const inbox: InboundMessage[] = [];
   const cards: ApprovalCard[] = [];
@@ -107,7 +109,7 @@ export async function demoOffline(root = process.cwd()): Promise<void> {
       console.log(`${dim(`#${room} › thread`)}  ${bold("@yard")}  asks ${handle}: ${body.split("\n")[0]}`);
       const reply = fixtureReply(body, replies);
       const json = /```json\n([\s\S]*?)```/.exec(reply)?.[1] ?? "";
-      console.log(`${dim(`#${room} › thread`)}  ${bold(handle)}  ${json.replace(/\s+/g, " ").slice(0, 140)}`);
+      console.log(`${dim(`#${room} › thread`)}  ${bold(handle)} ${dim("(fixture)")}  ${json.replace(/\s+/g, " ").slice(0, 140)}`);
       inbox.push({ room, threadId, sender: handle, body: reply, messageId: `m${next++}`, fromPerson: false });
     },
     async openApproval(card) {

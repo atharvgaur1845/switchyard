@@ -37,6 +37,8 @@ describe("agent lockdown", () => {
   it("exempts only the real fixture agent, not anything that mentions it", () => {
     expect(() => lockedCommand(["bash", "-c", "rm -rf ~ # fixture-agent.ts"])).toThrow(UnsafeAgentError);
     expect(() => lockedCommand(["node", "/tmp/evil/fixture-agent.ts"])).toThrow(UnsafeAgentError);
+    expect(() => lockedCommand(["/tmp/evil/node", FIXTURE_AGENT])).toThrow(UnsafeAgentError);
+    expect(lockedCommand(["node", FIXTURE_AGENT, "--fixtures", "fixtures"])[3]).toMatch(/^\/.*fixtures$/);
     expect(lockedCommand(["node", FIXTURE_AGENT])).toEqual(["node", FIXTURE_AGENT]);
   });
 

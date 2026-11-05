@@ -15,7 +15,9 @@ type Rule = { when?: Record<string, string>; reply?: Record<string, unknown>; de
 export function fixtureReply(request: string, replies: Record<string, Rule[]>): string {
   // The last token in the request is the one in the reply format block; data
   // inside the fence has its quotes escaped, so it cannot supply a token.
-  const token = [...request.matchAll(/"token": "(sy:[^"]+)"/g)].at(-1)?.[1];
+  // The token in the reply-format block: the last ```json block of the request.
+  const format = request.slice(request.lastIndexOf("```json"));
+  const token = /"token": "(sy:[^"]+)"/.exec(format)?.[1];
   if (!token) return "I can only answer Switchyard step requests.";
   const step = token.split("/")[1].split(".")[0];
 
@@ -24,10 +26,11 @@ export function fixtureReply(request: string, replies: Record<string, Rule[]>): 
 
   const rules = replies[step];
   if (!rules) return `No fixture for step "${step}".`;
-  const rule = rules.find((r) => r.default || matches(r.when ?? {}, data))!;
+  const rule = rules.find((r) => r.default || matches(r.when ?? {}, data));
+  if (!rule) return `No fixture rule matched for "${step}".`;
   const fields = fill(rule.reply ?? rule.default ?? {}, { case: data }) as Record<string, unknown>;
 
-  return `(fixture agent: canned reply for "${step}")\n\n\`\`\`json\n${JSON.stringify({ token, ...fields }, null, 2)}\n\`\`\``;
+  return `(fixture agent, no model: canned reply for "${step}")\n\n\`\`\`json\n${JSON.stringify({ token, ...fields }, null, 2)}\n\`\`\``;
 }
 
 function matches(when: Record<string, string>, data: Record<string, unknown>): boolean {
@@ -37,11 +40,15 @@ function matches(when: Record<string, string>, data: Record<string, unknown>): b
 }
 
 // Fills `{case.x}`. A value that is only a placeholder keeps the type of what
-// it names, so `po_amount: "{case.amount}"` stays a number.
+// it names, and a numeric string becomes a number, so `po_amount:
+// "{case.amount}"` is a number whether the case holds 1240 or "1240".
 function fill(value: unknown, scope: Record<string, unknown>): unknown {
   if (typeof value === "string") {
     const whole = /^\{([A-Za-z_][\w.-]*)\}$/.exec(value);
-    if (whole) return lookup(scope, whole[1].split("."));
+    if (whole) {
+      const found = lookup(scope, whole[1].split("."));
+      return typeof found === "string" && found.trim() !== "" && Number.isFinite(Number(found)) ? Number(found) : found;
+    }
     return value.replace(/\{([A-Za-z_][\w.-]*)\}/g, (_, path: string) => String(lookup(scope, path.split(".")) ?? ""));
   }
   if (Array.isArray(value)) return value.map((v) => fill(v, scope));
