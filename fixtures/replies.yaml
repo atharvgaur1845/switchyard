@@ -1,0 +1,100 @@
+# Canned agent replies for running Switchyard without any model account.
+#
+# The fixture agent (src/agents/fixture-agent.ts) answers each step with the
+# first rule whose `when` matches the case data (a case-insensitive substring
+# per field), else the step's `default`. Rules are written for the inputs that
+# `switchyard demo send ...` sends, so a judge sees the same decisions the
+# live models made in the recorded runs.
+
+check:
+  - when: { reason: "2 people" }
+    reply:
+      verdict: reject
+      reasons: ["Meals are reimbursed up to 60 per person per day; 180 for 2 people is 90 per person."]
+  - when: { category: travel }
+    reply:
+      verdict: needs_review
+      reasons: ["Travel is reimbursable.", "Over 500 needs the manager's approval."]
+  - default:
+      verdict: ok
+      reasons: ["Within the expense policy."]
+
+brief:
+  - default:
+      client: Globex Bakeries
+      summary: "New website before a spring launch: home, menu, locations and about pages, with copy, starting with a one-day workshop. Budget about 6,000 USD."
+      deliverables: ["Discovery workshop", "4 page designs", "4 page builds", "Copy for 4 pages"]
+      questions: ["Which month in spring is the launch?"]
+
+quote:
+  - default:
+      total: 7720
+      currency: USD
+      lines:
+        - { item: "Discovery workshop (1 day)", qty: 1, unit: 1200, amount: 1200 }
+        - { item: "Website design, per page template", qty: 4, unit: 650, amount: 2600 }
+        - { item: "Website build, per page template", qty: 4, unit: 800, amount: 3200 }
+        - { item: "Copywriting, per page", qty: 4, unit: 180, amount: 720 }
+      email_body: |
+        Hi Dana,
+
+        Thanks for thinking of us for the Globex Bakeries website. Here is our quote:
+
+        - Discovery workshop (1 day): 1,200
+        - Design, 4 page templates: 2,600
+        - Build, 4 page templates: 3,200
+        - Copywriting, 4 pages: 720
+
+        Total: 7,720 USD. The quote is valid for 30 days.
+
+        Best,
+        Acme Studio
+
+match:
+  - when: { supplier: Fabrikam }
+    reply:
+      result: mismatch
+      po_amount: 3150
+      reasons: ["PO-1043 is for 3,150.00; the invoice is 3,980.00, which is 830.00 more."]
+  - when: { po: PO-104 }
+    reply:
+      result: match
+      po_amount: "{case.amount}"
+      reasons: ["The PO exists, is open, and its amount equals the invoice."]
+  - default:
+      result: no_po
+      reasons: ["No open purchase order with that number."]
+
+answer:
+  - when: { flagged: "true" }
+    reply:
+      reply: "I can't help with refunds or account changes in this chat. Our team handles billing by email, and a person will follow up with you."
+      kind: needs_staff
+      suspicious: true
+  - default:
+      reply: "A typical website project takes 4 to 8 weeks. We send a written quote within 2 working days: write to quotes@acme.test."
+      kind: answered
+      suspicious: false
+
+plan:
+  - default:
+      accounts: ["Email", "Slack", "HR portal", "Password manager", "Figma", "Brand shared drive"]
+      first_week: "Day 1 setup and team lunch; days 2-3 shadowing the design team; day 4 a first small task; day 5 a check-in with the manager."
+      welcome_email: |
+        Hi {case.name},
+
+        Welcome to Acme! Your accounts will be ready on your first day, {case.start_date}.
+        Day one starts with setup and a team lunch.
+
+        See you soon,
+        People Ops
+
+draft:
+  - default:
+      headline: "Sales up 6.1% to 159,330; South down 14.7% after losing Hartley"
+      report: "Total sales last week were 159,330, up 9,130 (+6.1%) from 150,200. North 48,200 (+15.0%); South 31,050 (-14.7%, the Hartley account was lost); West 22,780 (+3.1%); Online 57,300 (+15.1%, during a 10% promotion). Risk: Online's lift may fade when the promotion ends."
+
+review:
+  - default:
+      verdict: accurate
+      report: "Total sales last week were 159,330, up 9,130 (+6.1%) from 150,200. North 48,200 (+15.0%); South 31,050 (-14.7%, the Hartley account was lost); West 22,780 (+3.1%); Online 57,300 (+15.1%, during a 10% promotion). Risk: Online's lift may fade when the promotion ends."

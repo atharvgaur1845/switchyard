@@ -13,6 +13,7 @@ import { CliAgent } from "./agents/cli-agent.ts";
 import { vendorOf } from "./agents/lockdown.ts";
 import { vendorProblems } from "./agents/vendors.ts";
 import { envKey, setupLocal } from "./setup-local.ts";
+import { DEMO_INPUTS, demoOffline, demoSend } from "./demo.ts";
 import { startServer } from "./server.ts";
 import { parse as parseYaml } from "yaml";
 import { SwitchClient } from "./switch/client.ts";
@@ -22,6 +23,9 @@ const USAGE = `switchyard <command>
   lint [file...]   check flow files (default: every flow in the flows folder)
   register         register @yard with Switch (needs SWITCH_REGISTRATION_TOKEN)
   up               run the engine, forms, webhooks and timers
+  demo offline     run three flows in this process: no Switch, no model, no account
+  demo send <what> send a recorded demo input to a running Switchyard
+                   (${DEMO_INPUTS.join(", ")})
   setup-local <flow...> [--user <chat user>] [--agent "<command>"] [--backup-agent "<command>"] [--bridge <bridge id>]
                    against a local Switch: register @yard and the flows'
                    agents, create their rooms, write switchyard.yaml`;
@@ -45,6 +49,12 @@ switch (command) {
   case "up":
     await up();
     break;
+  case "demo": {
+    if (args[0] === "offline") await demoOffline();
+    else if (args[0] === "send" && args[1]) await demoSend(args[1], config);
+    else throw new Error(`usage: switchyard demo offline | demo send <${DEMO_INPUTS.join("|")}>`);
+    break;
+  }
   case "setup-local": {
     const flags = parseFlags(args);
     await setupLocal({

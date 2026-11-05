@@ -11,7 +11,10 @@
     "test": "vitest run --maxWorkers=4",
     "typecheck": "tsc --noEmit",
     "switchyard": "node --disable-warning=ExperimentalWarning src/cli.ts",
-    "lint": "node --disable-warning=ExperimentalWarning src/cli.ts lint"
+    "lint": "node --disable-warning=ExperimentalWarning src/cli.ts lint",
+    "preswitchyard": "node scripts/check-node.mjs",
+    "pretest": "node scripts/check-node.mjs",
+    "demo:offline": "node scripts/check-node.mjs && node --disable-warning=ExperimentalWarning src/cli.ts demo offline"
   },
   "dependencies": {
     "croner": "^11.0.0",

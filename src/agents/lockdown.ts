@@ -23,7 +23,8 @@ export const FIXTURE_AGENT = resolve(import.meta.dirname, "fixture-agent.ts");
 export class UnsafeAgentError extends Error {}
 
 export function lockedCommand(command: string[]): string[] {
-  if (isFixtureAgent(command)) return command;
+  // Absolute, because agents run in an empty temporary working folder.
+  if (isFixtureAgent(command)) return [command[0], FIXTURE_AGENT, ...command.slice(2)];
 
   const [binary, ...args] = command;
   const name = binary.split("/").at(-1)!;
