@@ -146,12 +146,9 @@ export class SwitchClient implements Chat {
   // from their username the way core does it (collaboration_core.py), so the
   // room's participant list maps it back to the @handle a flow names.
   async handleOf(answeredBy: string): Promise<string | undefined> {
-    const localpart = /^@(switch-[^:]+):/.exec(answeredBy)?.[1];
     for (const connection of this.connections.values()) {
       const participants = await connection.op<Participant[]>("list_participants", {});
-      const match = participants.find(
-        (p) => p.type === "user" && (answeredBy === `user:${p.id}` || (localpart !== undefined && personIdMatches(localpart, p.name))),
-      );
+      const match = whoAnswered(answeredBy, participants);
       if (match) return `@${match.name.toLowerCase()}`;
     }
     return undefined;
@@ -162,12 +159,15 @@ export class SwitchClient implements Chat {
       const outcomes = await this.request<ApprovalView[]>("GET", "/agent-sessions/approvals/outcomes");
       for (const view of outcomes) {
         if (view.sessionId !== this.sessionId || view.answer == null || !view.answeredBy) continue;
+        // Handled first, acknowledged second: if Switchyard stops in between,
+        // Switch offers the answer again, and the engine ignores answers to
+        // cards that are no longer open.
+        const outcome = { requestId: view.requestId, answer: view.answer, answeredBy: view.answeredBy };
+        for (const listener of this.approvalListeners) await listener(outcome);
         await this.request(
           "POST",
           `/agent-sessions/${view.sessionId}/approvals/${view.requestId}/delivered`,
         );
-        const outcome = { requestId: view.requestId, answer: view.answer, answeredBy: view.answeredBy };
-        for (const listener of this.approvalListeners) await listener(outcome);
       }
     } catch (error) {
       console.warn(`[switchyard] polling approvals failed: ${(error as Error).message}`);
@@ -237,6 +237,15 @@ export class SwitchClient implements Chat {
 function stableUuid(input: string): string {
   const hex = createHash("sha256").update(input).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+// The id ends in a sanitized username, so "x-bob" also ends in "-bob": the
+// longest matching name is the one that answered.
+export function whoAnswered<P extends { id: string; name: string; type: string }>(answeredBy: string, participants: P[]): P | undefined {
+  const localpart = /^@(switch-[^:]+):/.exec(answeredBy)?.[1];
+  return participants
+    .filter((p) => p.type === "user" && (answeredBy === `user:${p.id}` || (localpart !== undefined && personIdMatches(localpart, p.name))))
+    .sort((a, b) => b.name.length - a.name.length)[0];
 }
 
 export function personIdMatches(localpart: string, username: string): boolean {

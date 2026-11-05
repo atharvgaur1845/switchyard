@@ -119,7 +119,7 @@ describe("an action interrupted by a crash", () => {
     const store = new Store();
     const chat = new FakeSwitch();
     const outlets = new CrashingOutlets();
-    const runner = new Runner(store, chat, outlets, [email]);
+    const runner = new Runner(store, chat, outlets, [email], { outletTimeoutMs: 30 });
     const id = await runner.open("send", { to: "dana@globex.test" }, "test");
     outlets.crashNext = true; // the send hangs
     void runner.onApproval({ requestId: chat.cards[0].requestId, answer: "send", answeredBy: "mx:@owner" });
@@ -127,6 +127,8 @@ describe("an action interrupted by a crash", () => {
     await runner.advance(id);
     await runner.resumeAll();
     expect(outlets.sent).toHaveLength(1);
+    // A send that never returns is not retried: a person is asked.
+    expect(store.load(id).pending?.kind).toBe("in_doubt");
   });
 
   it("is finished on restart when repeating it is harmless (a keyed ledger row)", async () => {

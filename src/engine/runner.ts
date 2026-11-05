@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, lookup, render, type Scope } from "./expr.ts";
@@ -35,6 +36,9 @@ const PROVIDER_FAILURE =
 
 export interface RunnerOptions {
   now?: () => number;
+  // How long an outlet may take. Past it, nobody knows whether the action
+  // happened, so the case goes to a person as in doubt (default 60 s).
+  outletTimeoutMs?: number;
   people?: People;
   // Agent handle -> model vendor, shown on approval cards as evidence.
   vendors?: Record<string, string>;
@@ -53,6 +57,7 @@ export class Runner {
   private readonly vendors: Record<string, string>;
   // Outlets running right now in this process: not in doubt, just slow.
   private readonly inFlight = new Set<string>();
+  private readonly outletTimeoutMs: number;
 
   constructor(store: Store, chat: Chat, outlets: Outlets, flows: Flow[], options: RunnerOptions = {}) {
     this.store = store;
@@ -62,18 +67,44 @@ export class Runner {
     this.now = options.now ?? Date.now;
     this.people = options.people ?? {};
     this.vendors = options.vendors ?? {};
+    this.outletTimeoutMs = options.outletTimeoutMs ?? 60_000;
+
+    // Every way into the engine runs one call at a time. A reply, an approval
+    // and the timer can arrive together; each must see the state the previous
+    // one left, or two of them act on the same snapshot (two answers to one
+    // card, a failover on a step that has just been answered).
+    for (const name of ["open", "onMessage", "onApproval", "cancel", "resumeAll", "resume", "reassign", "tick"] as const) {
+      const run = (this[name] as (...args: unknown[]) => Promise<unknown>).bind(this);
+      (this as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => this.serial(() => run(...args));
+    }
+  }
+
+  private queue: Promise<unknown> = Promise.resolve();
+  private readonly inside = new AsyncLocalStorage<true>();
+
+  // A call made from inside a running call (an adapter that delivers a reply
+  // before returning) runs at once instead of waiting on itself.
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.inside.getStore()) return fn();
+    const result = this.queue.then(() => this.inside.run(true, fn));
+    this.queue = result.catch(() => undefined);
+    return result;
   }
 
   flowNames(): string[] {
     return [...this.flows.keys()];
   }
 
-  async open(flowName: string, data: Record<string, unknown>, source: string): Promise<string> {
+  // With a `key`, a delivery that was already seen returns its case instead
+  // of opening another (a redelivered webhook must not pay an invoice twice).
+  async open(flowName: string, data: Record<string, unknown>, source: string, key?: string): Promise<string> {
     const flow = this.flows.get(flowName);
     if (!flow) throw new Error(`no flow named "${flowName}"`);
+    const seen = key ? this.store.caseWithKey(flow.flow, key) : undefined;
+    if (seen) return seen;
 
     const id = randomUUID().slice(0, 8);
-    this.store.append(id, { type: "opened", flow: flow.flow, room: flow.room, data, source });
+    this.store.append(id, { type: "opened", flow: flow.flow, room: flow.room, data, source, ...(key ? { key } : {}) });
     const threadId = await this.chat.post(flow.room, `Case ${id} opened by ${source}: ${flow.description ?? flow.flow}`);
     this.store.append(id, { type: "thread", threadId });
     await this.advance(id);
@@ -160,7 +191,7 @@ export class Runner {
       let receipt: string;
       try {
         this.store.append(state.id, { type: "executing", step: step.id, hash, payload });
-        receipt = await this.outlets.execute(payload, key);
+        receipt = await withTimeout(this.outlets.execute(payload, key), this.outletTimeoutMs, "the action did not finish in time");
       } catch (error) {
         // A failed send may still have reached the other side (a timeout
         // after the server accepted it), so a person checks, as after a crash.
@@ -664,4 +695,13 @@ export function combine(step: ParallelStep, answers: Record<string, unknown>): R
 // `case`, and each finished step's result under its id.
 export function scopeOf(state: CaseState): Scope {
   return { case: state.data, ...state.results };
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+    timer.unref();
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }

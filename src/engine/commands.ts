@@ -1,5 +1,5 @@
 import type { Flow } from "./flow-schema.ts";
-import type { People } from "./gates.ts";
+import { fills, type People } from "./gates.ts";
 import type { Chat, InboundMessage } from "./ports.ts";
 import { docHash } from "./verifiers.ts";
 import type { Runner } from "./runner.ts";
@@ -54,7 +54,7 @@ export class Commands {
       }
 
       case "status": {
-        const state = this.find(args[0]);
+        const state = this.find(args[0], message.room);
         await reply(state ? describe(state, this.store) : `I have no case \`${args[0] ?? ""}\`.`);
         break;
       }
@@ -78,14 +78,24 @@ export class Commands {
       }
 
       case "cancel": {
-        const state = this.find(args[0]);
+        const state = this.find(args[0], message.room);
+        const refused = this.refuse(message.sender, state);
+        if (refused) {
+          await reply(refused);
+          break;
+        }
         const done = state ? await this.runner.cancel(state.id, message.sender) : false;
         if (!done) await reply(`Case \`${args[0] ?? ""}\` is not open.`);
         break;
       }
 
       case "reassign": {
-        const state = this.find(args[0]);
+        const state = this.find(args[0], message.room);
+        const refused = this.refuse(message.sender, state);
+        if (refused) {
+          await reply(refused);
+          break;
+        }
         const to = args[1]?.toLowerCase();
         if (!state || !to?.startsWith("@")) {
           await reply("Use `@yard reassign <case> @agent`.");
@@ -97,7 +107,12 @@ export class Commands {
       }
 
       case "resume": {
-        const state = this.find(args[0]);
+        const state = this.find(args[0], message.room);
+        const refused = this.refuse(message.sender, state);
+        if (refused) {
+          await reply(refused);
+          break;
+        }
         const problem = state ? await this.runner.resume(state.id, message.sender) : `no case \`${args[0] ?? ""}\``;
         if (problem) await reply(`Can't resume: ${problem}.`);
         break;
@@ -147,9 +162,22 @@ export class Commands {
     return `${message.sender} (${roles.join(", ")}) changed \`${name}\`: "${oldText}" → "${newText}". Version \`${docHash(doc.content)}\` → \`${docHash(content)}\`; cases asked from now on use the new version.`;
   }
 
-  private find(id: string | undefined): CaseState | undefined {
-    if (!id) return undefined;
-    return this.store.caseIds().includes(id) ? this.store.load(id) : undefined;
+  // A case is only reachable from its own room: someone in #sales cannot
+  // cancel a payment waiting in #finance.
+  private find(id: string | undefined, room: string): CaseState | undefined {
+    if (!id || !this.store.caseIds().includes(id)) return undefined;
+    const state = this.store.load(id);
+    return state.room === room ? state : undefined;
+  }
+
+  // Cancelling, reassigning or resuming changes what happens to a case, so
+  // when switchyard.yaml names people, only someone who fills a role the
+  // case's flow uses may do it.
+  private refuse(sender: string, state: CaseState | undefined): string | undefined {
+    if (!state || Object.keys(this.people).length === 0) return undefined;
+    const flow = this.flows.find((f) => f.flow === state.flow);
+    const roles = new Set(flow?.steps.flatMap((s) => ("gate" in s ? [s.gate.approver, ...(s.gate.backup ? [s.gate.backup] : [])] : [])) ?? []);
+    return [...roles].some((role) => fills(this.people, role, sender)) ? undefined : `${sender} cannot change case \`${state.id}\`: only ${[...roles].join(" or ")} can.`;
   }
 }
 

@@ -5,7 +5,9 @@ import { DatabaseSync } from "node:sqlite";
 // after a crash the engine knows exactly what it had done and what it hadn't.
 
 export type CaseEvent =
-  | { type: "opened"; flow: string; room: string; data: Record<string, unknown>; source?: string }
+  // `key` identifies the delivery that opened it (e.g. a webhook body's
+  // hash), so the same delivery sent twice opens one case.
+  | { type: "opened"; flow: string; room: string; data: Record<string, unknown>; source?: string; key?: string }
   | { type: "thread"; threadId: string }
   | { type: "skipped"; step: string }
   // `attempt` counts every request for the step (it makes tokens unique);
@@ -273,6 +275,15 @@ export class Store {
       .prepare("SELECT case_id FROM events GROUP BY case_id ORDER BY MIN(seq)")
       .all()
       .map((row) => row.case_id as string);
+  }
+
+  caseWithKey(flow: string, key: string): string | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT case_id FROM events WHERE json_extract(body, '$.type') = 'opened' AND json_extract(body, '$.flow') = ? AND json_extract(body, '$.key') = ? LIMIT 1",
+      )
+      .get(flow, key);
+    return row ? (row.case_id as string) : undefined;
   }
 
   openCases(): CaseState[] {

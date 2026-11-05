@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import type { Flow } from "./engine/flow-schema.ts";
 import type { Runner } from "./engine/runner.ts";
 import type { Store } from "./engine/store.ts";
@@ -90,8 +91,13 @@ export function startServer(opts: {
       } catch {
         return send(res, 400, "application/json", JSON.stringify({ error: "body is not JSON" }));
       }
-      const id = await opts.runner.open(flow.flow, mapPayload(inlet, payload), "webhook");
-      return send(res, 202, "application/json", JSON.stringify({ case: id }));
+      // Senders retry. The delivery id they send, or else the exact body,
+      // identifies a delivery, so a retry gets the case it already opened.
+      const delivery = req.headers["x-switchyard-delivery"];
+      const key = typeof delivery === "string" && delivery ? `delivery:${delivery}` : `body:${createHash("sha256").update(raw).digest("hex")}`;
+      const known = opts.store.caseWithKey(flow.flow, key);
+      const id = await opts.runner.open(flow.flow, mapPayload(inlet, payload), "webhook", key);
+      return send(res, known ? 200 : 202, "application/json", JSON.stringify(known ? { case: id, duplicate: true } : { case: id }));
     }
 
     if (kind === "chat" && frontDesk) {
