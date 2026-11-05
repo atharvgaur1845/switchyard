@@ -49,12 +49,15 @@ export type CaseEvent =
   // after. One without the other means the process stopped in between, and
   // nobody knows whether the action happened: the case is "in doubt".
   | { type: "executing"; step: string; hash: string; payload: unknown }
-  | { type: "executed"; step: string; hash: string; receipt: string; payload?: unknown }
+  | { type: "executed"; step: string; hash: string; receipt: string; payload?: unknown; readback?: string }
+  // A room document a check read changed before an action ran. The listed
+  // steps are run again, from the check on, with the new version.
+  | { type: "rewound"; step: string; steps: string[]; docs: Record<string, [string, string]> }
   | { type: "in_doubt"; step: string; requestId: string; hash: string; at: number }
   | { type: "doubt_resolved"; step: string; answer: string; answeredBy: string }
   | { type: "failed"; step: string; reason: string }
   | { type: "cancelled"; by: string }
-  | { type: "waiting"; step: string; until: number }
+  | { type: "waiting"; step: string; until: number; at?: number }
   | { type: "waited"; step: string; by?: string }
   | { type: "done" };
 
@@ -94,6 +97,13 @@ export interface CaseState {
   finished: Set<string>;
   // Outlets that started and never recorded finishing (see `executing`).
   executing: Record<string, { hash: string; payload: unknown }>;
+  // Room document -> the version a check read, and which check: what every
+  // later decision in the case rests on.
+  basis: Record<string, { hash: string; step: string }>;
+  // Room documents this case itself changed (a document outlet ran).
+  wrote: Set<string>;
+  // Gate id -> who answered it, for {by.<gate>} in later steps.
+  deciders: Record<string, string>;
   pending?: Pending;
   status: "open" | "done" | "failed" | "cancelled";
 }
@@ -108,6 +118,9 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
     approved: {},
     finished: new Set(),
     executing: {},
+    basis: {},
+    wrote: new Set(),
+    deciders: {},
     status: "open",
   };
   for (const event of events) {
@@ -131,6 +144,16 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
       case "verified":
         state.results[event.step] = event.value;
         state.finished.add(event.step);
+        for (const [doc, hash] of Object.entries(event.docs ?? {})) state.basis[doc] = { hash, step: event.step };
+        break;
+      case "rewound":
+        for (const step of event.steps) {
+          state.finished.delete(step);
+          delete state.results[step];
+          delete state.approved[step];
+        }
+        for (const [doc, b] of Object.entries(state.basis)) if (event.steps.includes(b.step)) delete state.basis[doc];
+        state.pending = undefined;
         break;
       case "fanned_out":
         state.pending = { kind: "parallel", step: event.step, at: event.at, agents: {} };
@@ -174,6 +197,7 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         break;
       case "gate_answered": {
         state.results[event.step] = event.answer;
+        state.deciders[event.step] = event.answeredBy;
         state.finished.add(event.step);
         const gate = state.pending;
         if (event.approved && gate?.kind === "gate") {
@@ -192,6 +216,9 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         state.finished.add(event.step);
         delete state.executing[event.step];
         state.pending = undefined;
+        if (event.payload && typeof event.payload === "object" && "document" in event.payload) {
+          state.wrote.add((event.payload as { document: { name: string } }).document.name);
+        }
         break;
       case "in_doubt":
         state.pending = { kind: "in_doubt", step: event.step, requestIds: [event.requestId], hash: event.hash, at: event.at };
@@ -204,7 +231,7 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         state.pending = undefined;
         break;
       case "waiting":
-        state.pending = { kind: "wait", step: event.step, until: event.until, at: event.until };
+        state.pending = { kind: "wait", step: event.step, until: event.until, at: event.at ?? event.until };
         break;
       case "waited":
         state.finished.add(event.step);

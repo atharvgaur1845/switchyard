@@ -1,3 +1,4 @@
+import { parse as parseYaml } from "yaml";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { Commands } from "../src/engine/commands.ts";
@@ -7,6 +8,10 @@ import { Store } from "../src/engine/store.ts";
 import { CHECKS, docHash, tableRows } from "../src/engine/verifiers.ts";
 import { seedDocuments } from "../src/switch/seed-docs.ts";
 import { FakeSwitch, RecordingOutlets, replyWith } from "./fake-switch.ts";
+
+// The finance room's vendor master, as its template seeds it.
+const VENDOR_MASTER = (parseYaml(readFileSync("templates/invoice-check.template.yaml", "utf8")).room.docs as { name: string; content: string }[])
+  .find((d) => d.name === "vendor-master")!.content;
 
 const POS = `| PO | supplier | amount | status |
 |---|---|---|---|
@@ -57,7 +62,7 @@ describe("invoices: the models check, code decides", () => {
   const run = async (invoice: Record<string, unknown>, verdict: Record<string, unknown>, withDocs = true) => {
     const store = new Store();
     const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict));
-    if (withDocs) chat.doc("finance", "purchase-orders", POS);
+    if (withDocs) chat.doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", VENDOR_MASTER);
     const outlets = new RecordingOutlets();
     const runner = new Runner(store, chat, outlets, [flow], { vendors: { "@checker": "anthropic", "@checker-backup": "google" } });
     const id = await runner.open("invoice-check", invoice, "webhook");

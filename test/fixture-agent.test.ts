@@ -17,6 +17,7 @@ const demoData: Record<string, Record<string, unknown>> = {
   onboarding: { name: "Kiran Rao", role: "Product designer", start_date: "2026-11-16" },
   "front-desk": { question: "How long does a website take?", ...screen("How long does a website take?") },
   "weekly-report": { period: "last week" },
+  "bank-change": { from: "accounts@fabrikarn.test", subject: "URGENT: updated bank details", body: "..." },
 };
 
 const ask = (stepId: string, expect: Parameters<typeof stepRequest>[0]["expect"], data: Record<string, unknown>, agent = "") =>

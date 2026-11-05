@@ -36,8 +36,12 @@ export interface ApprovalCard {
 }
 
 // Carries out an approved action outside Switch and returns a receipt line.
+// What an outlet reports. `readback` is a hash of the action as the other
+// system now holds it, read back after acting, when that system can say.
+export type OutletResult = string | { receipt: string; readback?: string };
+
 export interface Outlets {
-  execute(outlet: Outlet, key: string): Promise<string>;
+  execute(outlet: Outlet, key: string): Promise<OutletResult>;
 }
 
 export interface InboundMessage {

@@ -18,6 +18,7 @@ import { DEMO_INPUTS, demoOffline, demoSend } from "./demo.ts";
 import { startServer } from "./server.ts";
 import { parse as parseYaml } from "yaml";
 import { SwitchClient } from "./switch/client.ts";
+import { startBank } from "./sandbox/bank.ts";
 
 const USAGE = `switchyard <command>
 
@@ -25,7 +26,8 @@ const USAGE = `switchyard <command>
   register         register @yard with Switch (needs SWITCH_REGISTRATION_TOKEN)
   up               run the engine, forms, webhooks and timers
   cancel <case>    cancel a case from the command line (e.g. one stuck in a removed room)
-  demo offline     run three flows in this process: no Switch, no model, no account
+  bank             run the sandbox bank (a separate process with its own ledger)
+  demo offline     run the flows in this process: no Switch, no model, no account
   demo send <what> send a recorded demo input to a running Switchyard
                    (${DEMO_INPUTS.join(", ")})
   setup-local <flow...> [--user <chat user>] [--agent "<command>"] [--backup-agent "<command>"] [--bridge <bridge id>]
@@ -55,6 +57,13 @@ switch (command) {
     if (args[0] === "offline") await demoOffline();
     else if (args[0] === "send" && args[1]) await demoSend(args[1], config);
     else throw new Error(`usage: switchyard demo offline | demo send <${DEMO_INPUTS.join("|")}>`);
+    break;
+  }
+  case "bank": {
+    // A local test bank, not a real one; see src/sandbox/bank.ts.
+    const port = Number(new URL(config.bank.url).port || 4300);
+    startBank({ port, ledger: join(config.data, "sandbox-bank.json") });
+    console.log(`Sandbox bank (not a real bank) on ${config.bank.url}; ledger in ${join(config.data, "sandbox-bank.json")}`);
     break;
   }
   case "cancel": {
@@ -163,6 +172,7 @@ async function up(): Promise<void> {
   const outlets = new LiveOutlets(
     {
       dataDir: config.data,
+      bankUrl: config.bank.url,
       smtp: { ...config.smtp, user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
     },
     client,

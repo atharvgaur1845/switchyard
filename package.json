@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "switchyard": "node --disable-warning=ExperimentalWarning src/cli.ts",
     "lint": "node --disable-warning=ExperimentalWarning src/cli.ts lint",
+    "bank": "node --disable-warning=ExperimentalWarning src/cli.ts bank",
     "preswitchyard": "node scripts/check-node.mjs",
     "pretest": "node scripts/check-node.mjs",
     "demo:offline": "node scripts/check-node.mjs && node --disable-warning=ExperimentalWarning src/cli.ts demo offline"

@@ -155,7 +155,7 @@ export class Runner {
     }
     if (isWait(step)) {
       const until = this.now() + durationMs(step.wait);
-      this.store.append(state.id, { type: "waiting", step: step.id, until });
+      this.store.append(state.id, { type: "waiting", step: step.id, until, at: this.now() });
       await this.say(state, `Waiting ${step.wait} before the next step (until ${new Date(until).toUTCString()}).`);
       return true;
     }
@@ -179,6 +179,23 @@ export class Runner {
       const key = `${state.id}/${step.id}`;
       // Already running in this process (a second advance arrived mid-send).
       if (this.inFlight.has(key)) return true;
+
+      // The approval (or the rule) rested on the room documents the checks
+      // read. If one changed since, nothing is sent on the old facts: the
+      // checks run again on the new version, and so does every later step.
+      if (!state.executing[step.id]) {
+        const drift = await this.basisDrift(state);
+        if (drift === "unreadable") {
+          const reason = "could not re-read the room's documents before acting";
+          this.store.append(state.id, { type: "failed", step: step.id, reason });
+          await this.say(state, `Stopped before "${step.id}": ${reason}. Nothing was sent.`);
+          return true;
+        }
+        if (drift) {
+          await this.rewind(state, step, drift);
+          return false;
+        }
+      }
       if (state.executing[step.id] && !safeToRepeat(payload)) {
         // A previous run started this action and stopped before recording the
         // result. Repeating it could send the email twice; skipping it could
@@ -188,10 +205,10 @@ export class Runner {
       }
 
       this.inFlight.add(key);
-      let receipt: string;
+      let result: Awaited<ReturnType<Outlets["execute"]>>;
       try {
         this.store.append(state.id, { type: "executing", step: step.id, hash, payload });
-        receipt = await withTimeout(this.outlets.execute(payload, key), this.outletTimeoutMs, "the action did not finish in time");
+        result = await withTimeout(this.outlets.execute(payload, key), this.outletTimeoutMs, "the action did not finish in time");
       } catch (error) {
         // A failed send may still have reached the other side (a timeout
         // after the server accepted it), so a person checks, as after a crash.
@@ -199,7 +216,15 @@ export class Runner {
         await this.openDoubt(this.store.load(state.id), step, hash, payload, (error as Error).message);
         return true;
       }
-      this.store.append(state.id, { type: "executed", step: step.id, hash, receipt, payload });
+      const receipt = typeof result === "string" ? result : result.receipt;
+      const readback = typeof result === "string" ? undefined : result.readback;
+      if (readback !== undefined && readback !== hash) {
+        // The other system holds something other than what was approved.
+        this.inFlight.delete(key);
+        await this.openDoubt(this.store.load(state.id), step, hash, payload, `read back ${readback}, approved ${hash}`);
+        return true;
+      }
+      this.store.append(state.id, { type: "executed", step: step.id, hash, receipt, payload, ...(readback ? { readback } : {}) });
       this.inFlight.delete(key);
       const by = autoApproved ? `rule "${rule === true ? "always" : rule}"` : state.approved[step.id].by;
       await this.say(state, `Done: ${receipt} (approved by ${by}, ${hash})`);
@@ -262,7 +287,7 @@ export class Runner {
       }
     }
     const args = renderArgs(rawArgs, scopeOf(state));
-    const value = spec.run(args, docs);
+    const value = spec.run(args, docs, this.now());
     const used = typeof args.doc === "string" ? docs.filter((d) => d.name === args.doc) : [];
     this.store.append(state.id, {
       type: "verified",
@@ -284,7 +309,9 @@ export class Runner {
       payloads[target] = renderOutlet(outlet.outlet, scope);
       hashes[target] = hashOutlet(payloads[target] as Outlet);
     }
-    const requestId = `${state.id}-${step.id}`;
+    // A gate opened again after a rewind needs a new card id (Switch keeps one answer per card).
+    const before = this.store.events(state.id).filter((e) => e.type === "gate_opened" && e.step === step.id).length;
+    const requestId = before ? `${state.id}-${step.id}-v${before + 1}` : `${state.id}-${step.id}`;
     this.store.append(state.id, {
       type: "gate_opened",
       step: step.id,
@@ -332,7 +359,40 @@ export class Runner {
         lines.push(`${value.agreed ? "✓" : "✗"} ${who} ${value.agreed ? "agreed" : "did not agree"} on ${step.id}`);
       }
     }
+    const versions = Object.entries(state.basis).map(([doc, b]) => `${doc} ${b.hash}`);
+    if (versions.length) lines.push(`Checked against room documents: ${versions.join(", ")}. If one changes before anything is released, the checks run again and this card is replaced.`);
     return lines.length ? `Evidence:\n${lines.join("\n")}` : "";
+  }
+
+  // Which documents changed since the checks read them, re-read from Switch.
+  private async basisDrift(state: CaseState): Promise<Record<string, [string, string]> | "unreadable" | undefined> {
+    const basis = Object.entries(state.basis);
+    if (basis.length === 0) return undefined;
+    let docs: RoomDocument[];
+    try {
+      if (!this.chat.documents) throw new Error("no documents");
+      docs = await this.chat.documents(state.room);
+    } catch {
+      return "unreadable";
+    }
+    const drift: Record<string, [string, string]> = {};
+    for (const [name, b] of basis) {
+      // This case's own approved write moved it on purpose.
+      if (state.wrote.has(name)) continue;
+      const doc = docs.find((d) => d.name === name);
+      const now = doc ? docHash(doc.content) : "(deleted)";
+      if (now !== b.hash) drift[name] = [b.hash, now];
+    }
+    return Object.keys(drift).length ? drift : undefined;
+  }
+
+  private async rewind(state: CaseState, at: OutletStep, drift: Record<string, [string, string]>): Promise<void> {
+    const order = this.flowOf(state).steps.map((s) => s.id);
+    const first = Math.min(...Object.keys(drift).map((doc) => order.indexOf(state.basis[doc].step)));
+    const steps = order.slice(first).filter((id) => state.finished.has(id));
+    this.store.append(state.id, { type: "rewound", step: at.id, steps, docs: drift });
+    const what = Object.entries(drift).map(([doc, [was, now]]) => `${doc} ${was} → ${now}`).join(", ");
+    await this.say(state, `Not sending "${at.id}": a document the checks read changed after they ran (${what}). Checking again on the new version; any approval given on the old one no longer counts.`);
   }
 
   private timing(step: GateStep): string {
@@ -453,6 +513,16 @@ export class Runner {
     if (!step || !isGate(step)) return;
 
     const answerer = await this.chat.handleOf(outcome.answeredBy);
+    const sameAs = step.gate.not_same_as
+      .map((other) => this.store.events(state.id).findLast((e) => e.type === "gate_answered" && e.step === other))
+      .find((e) => e?.type === "gate_answered" && e.answeredBy === answerer);
+    if (sameAs && sameAs.type === "gate_answered") {
+      await this.say(state, `${answerer} answered "${sameAs.step}", so a different person must decide "${step.id}".`);
+      const requestId = `${state.id}-${step.id}-r${pending.requestIds.length}`;
+      this.store.append(state.id, { type: "card_reopened", step: step.id, requestId });
+      await this.chat.openApproval(this.gateCard(state, step, requestId, step.gate.approver, `Re-opened: ${answerer} answered "${sameAs.step}"; four eyes means someone else decides this.`));
+      return;
+    }
     if (!mayAnswer(step.gate, answerer, pending.escalated, this.people)) {
       const deciders = pending.escalated && step.gate.backup
         ? `${step.gate.approver} or ${step.gate.backup}`
@@ -525,7 +595,7 @@ export class Runner {
 
     const answerer = await this.chat.handleOf(outcome.answeredBy);
     const approver = this.approverOf(state, step.id);
-    const allowed = answerer !== undefined && (!approver || mayAnswer({ approver, title: "", options: ["x", "y"], approves: [] }, answerer, false, this.people));
+    const allowed = answerer !== undefined && (!approver || mayAnswer({ approver, title: "", options: ["x", "y"], approves: [], not_same_as: [] }, answerer, false, this.people));
     if (!allowed) {
       await this.say(state, `${answerer ?? "That answer"} cannot decide this; it is for ${approver}.`);
       // Switch keeps one answer per card, so asking again needs a new card.
@@ -654,8 +724,11 @@ const DOUBT_RESEND = "send it again";
 
 // Outlets whose receiver ignores a repeat with the same key, so finishing an
 // interrupted one is safe: ledger rows carry the key, visitor replies too.
+// Repeating these cannot do the action twice: csv and visitor replies are
+// keyed, a document row is set (not appended), and the bank takes each
+// payment key once.
 function safeToRepeat(outlet: Outlet): boolean {
-  return "csv" in outlet || "visitor" in outlet;
+  return "csv" in outlet || "visitor" in outlet || "document" in outlet || "pay" in outlet;
 }
 
 // Fills a verify step's args. A value that is only a placeholder keeps the
@@ -694,7 +767,7 @@ export function combine(step: ParallelStep, answers: Record<string, unknown>): R
 // What `when:` conditions and `{placeholders}` can see: the case data under
 // `case`, and each finished step's result under its id.
 export function scopeOf(state: CaseState): Scope {
-  return { case: state.data, ...state.results };
+  return { case: state.data, ...state.results, by: state.deciders };
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {

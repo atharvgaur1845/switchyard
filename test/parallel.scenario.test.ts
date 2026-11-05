@@ -1,9 +1,14 @@
+import { parse as parseYaml } from "yaml";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadFlow } from "../src/engine/flow-schema.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
 import { FakeSwitch, RecordingOutlets, replyWith } from "./fake-switch.ts";
+
+// The finance room's vendor master, as its template seeds it.
+const VENDOR_MASTER = (parseYaml(readFileSync("templates/invoice-check.template.yaml", "utf8")).room.docs as { name: string; content: string }[])
+  .find((d) => d.name === "vendor-master")!.content;
 
 const invoices = loadFlow(readFileSync("flows/invoice-check.flow.yaml", "utf8"));
 const invoice = { supplier: "Northwind Paper", number: "NW-1", amount: 1240, po: "PO-1041" };
@@ -17,7 +22,7 @@ describe("parallel checkers", () => {
   let store: Store, chat: FakeSwitch, outlets: RecordingOutlets, runner: Runner;
   beforeEach(() => {
     store = new Store();
-    chat = new FakeSwitch().doc("finance", "purchase-orders", PURCHASE_ORDERS);
+    chat = new FakeSwitch().doc("finance", "purchase-orders", PURCHASE_ORDERS).doc("finance", "vendor-master", VENDOR_MASTER);
     outlets = new RecordingOutlets();
     runner = new Runner(store, chat, outlets, [invoices]);
   });

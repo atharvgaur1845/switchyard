@@ -69,7 +69,7 @@ agents:
 
 room:
   name: finance
-  description: Supplier invoices checked before payment
+  description: Supplier payments released only to verified accounts
   bridge: "{bridge}"
   channel_type: channel_private
   agents: [checker, checker-backup]
@@ -87,6 +87,16 @@ room:
         | PO-1042 | Contoso Cloud | 8,900.00 | open |
         | PO-1043 | Fabrikam Print | 3,150.00 | open |
         | PO-1044 | Tailspin Travel | 12,400.00 | open |
+    - name: vendor-master
+      description: Suppliers and the bank accounts we pay them on (sandbox data)
+      instructions: Payments go only to the account here. A row changes only through a bank-change case (callback plus a second approver).
+      content: |
+        | vendor | domain | iban | contact | phone | changed | verified |
+        |---|---|---|---|---|---|---|
+        | Northwind Paper | northwind.test | DE89370400440532013000 | ap@northwind.test | +49 30 5550 1001 | 2025-06-02 | callback 2025-06-02 |
+        | Contoso Cloud | contoso.test | DE44500105175407324931 | billing@contoso.test | +49 30 5550 1002 | 2025-09-14 | callback 2025-09-14 |
+        | Fabrikam Print | fabrikam.test | DE29100500000190183746 | accounts@fabrikam.test | +49 30 5550 1003 | 2025-03-20 | callback 2025-03-20 |
+        | Tailspin Travel | tailspin.test | DE20200400000628401599 | finance@tailspin.test | +49 30 5550 1004 | 2025-01-11 | callback 2025-01-11 |
 
 kickoff: |
   @checker: this room runs invoice checks. Reply once in one line, then wait for @yard.

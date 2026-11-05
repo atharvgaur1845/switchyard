@@ -15,6 +15,7 @@ people:
   "@finance-lead": "@you"
   "@owner": "@you"
   "@controller": "@you"
+  "@ap-clerk": "@you"
   "@cfo": "@you"
 flows: flows
 data: data

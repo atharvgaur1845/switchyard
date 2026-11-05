@@ -13,7 +13,10 @@ export interface VerifyResult {
   [field: string]: unknown;
 }
 
-type Check = (args: Record<string, unknown>, docs: RoomDocument[]) => VerifyResult;
+// `now` is the engine's clock, so checks about dates are testable.
+type Check = (args: Record<string, unknown>, docs: RoomDocument[], now?: number) => VerifyResult;
+
+const DAY = 86_400_000;
 
 export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
   // args: doc, po, supplier, amount. The document holds a markdown table
@@ -72,7 +75,150 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
       };
     },
   },
+
+  // A request to change a supplier's bank account. args: doc (the vendor
+  // master), vendor, sender (the email address it came from), iban (the new
+  // account). Passes only when the vendor is on file, the request came from
+  // the vendor's own domain, and the new account is a valid IBAN that differs
+  // from the current one. A pass still needs a callback and a second person.
+  bank_change: {
+    needsDoc: true,
+    run(args, docs, now = Date.now()) {
+      const master = vendorMaster(docs, args.doc);
+      if ("error" in master) return { ok: false, detail: master.error };
+      const vendor = master.find(String(args.vendor ?? ""));
+      if (!vendor) return { ok: false, detail: `${String(args.vendor || "(no vendor)")} is not in ${String(args.doc)}` };
+      const sender = String(args.sender ?? "").toLowerCase();
+      const senderDomain = sender.split("@")[1]?.replace(/>$/, "") ?? "";
+      const distance = editDistance(senderDomain, vendor.domain);
+      const iban = compactIban(String(args.iban ?? ""));
+      const problems = [
+        senderDomain !== vendor.domain &&
+          (distance <= 2
+            ? `the request came from ${senderDomain}, ${distance} character${distance === 1 ? "" : "s"} away from ${vendor.domain} on file: a look-alike domain`
+            : `the request came from ${senderDomain || "an unknown sender"}, not ${vendor.domain} on file`),
+        !ibanValid(iban) && `${iban || "(no account)"} is not a valid IBAN`,
+        iban === vendor.iban && "the new account is the one already on file",
+      ].filter(Boolean);
+      return {
+        ok: problems.length === 0,
+        vendor: vendor.vendor,
+        domain: vendor.domain,
+        sender_domain: senderDomain,
+        lookalike: senderDomain !== vendor.domain && distance <= 2,
+        contact: vendor.contact,
+        phone: vendor.phone,
+        current_iban: vendor.iban,
+        new_iban: iban,
+        new_tail: iban.slice(-4),
+        today: new Date(now).toISOString().slice(0, 10),
+        detail: problems.length === 0 ? `${vendor.vendor}: ${maskIban(vendor.iban)} → ${maskIban(iban)}, requested from ${senderDomain}` : problems.join("; "),
+      };
+    },
+  },
+
+  // Before paying: where the money goes. args: doc (the vendor master),
+  // vendor, iban (the account printed on the invoice, if any). The payment
+  // always goes to the account on file, never to one taken from the invoice.
+  vendor_bank: {
+    needsDoc: true,
+    run(args, docs, now = Date.now()) {
+      const master = vendorMaster(docs, args.doc);
+      if ("error" in master) return { ok: false, detail: master.error };
+      const vendor = master.find(String(args.vendor ?? ""));
+      if (!vendor) return { ok: false, detail: `${String(args.vendor || "(no vendor)")} is not in ${String(args.doc)}` };
+      const printed = compactIban(String(args.iban ?? ""));
+      const changed = Date.parse(vendor.changed);
+      const recent = Number.isFinite(changed) && now - changed < 30 * DAY;
+      const problems = [
+        printed && printed !== vendor.iban && `the invoice asks for payment to ${maskIban(printed)}, but ${maskIban(vendor.iban)} is on file`,
+        !ibanValid(vendor.iban) && `the account on file is not a valid IBAN`,
+        !vendor.verified && `the account on file was never verified by a callback`,
+      ].filter(Boolean);
+      return {
+        ok: problems.length === 0,
+        iban: vendor.iban,
+        recent,
+        changed: vendor.changed,
+        detail: problems.length === 0
+          ? `pays ${maskIban(vendor.iban)} on file${recent ? `, changed ${vendor.changed} (first payment since: a person approves)` : ""}`
+          : problems.join("; "),
+      };
+    },
+  },
 };
+
+interface Vendor {
+  vendor: string;
+  domain: string;
+  iban: string;
+  contact: string;
+  phone: string;
+  changed: string;
+  verified: string;
+}
+
+// The vendor master: | vendor | domain | iban | contact | phone | changed | verified |
+function vendorMaster(docs: RoomDocument[], name: unknown): { error: string } | { find: (vendor: string) => Vendor | undefined } {
+  const doc = docs.find((d) => d.name === name);
+  if (!doc) return { error: `no document "${String(name)}" in this room` };
+  const rows = tableRows(doc.content).map(([vendor = "", domain = "", iban = "", contact = "", phone = "", changed = "", verified = ""]) => ({
+    vendor,
+    domain: domain.toLowerCase(),
+    iban: compactIban(iban),
+    contact,
+    phone,
+    changed,
+    verified: /^(no|none|-|)$/i.test(verified.trim()) ? "" : verified,
+  }));
+  return { find: (vendor) => rows.find((r) => norm(r.vendor) === norm(vendor)) };
+}
+
+export function compactIban(iban: string): string {
+  return iban.replace(/\s+/g, "").toUpperCase();
+}
+
+// ISO 13616: move the first four characters to the end, letters become
+// numbers (A=10 ... Z=35), and the result mod 97 must be 1.
+export function ibanValid(iban: string): boolean {
+  const s = compactIban(iban);
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(s)) return false;
+  const digits = (s.slice(4) + s.slice(0, 4)).replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let rest = 0;
+  for (const d of digits) rest = (rest * 10 + Number(d)) % 97;
+  return rest === 1;
+}
+
+const maskIban = (iban: string) => (iban.length > 8 ? `${iban.slice(0, 4)}…${iban.slice(-4)}` : iban || "?");
+
+// Damerau-Levenshtein distance (optimal string alignment): "fabrikam" and
+// "fabrikarn" are 2 apart, "fabrlkam" 1.
+export function editDistance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+
+// Replaces the row whose first cell is `row[0]` in the document's table, or
+// appends it. Returns the new document.
+export function setTableRow(markdown: string, row: string[]): string {
+  const lines = markdown.replace(/\n+$/, "").split("\n");
+  const line = `| ${row.join(" | ")} |`;
+  const at = lines.findIndex((l) => l.trim().startsWith("|") && norm(l.trim().replace(/^\|/, "").split("|")[0] ?? "") === norm(row[0]));
+  if (at >= 0) lines[at] = line;
+  else {
+    const last = lines.map((l, i) => (l.trim().startsWith("|") ? i : -1)).filter((i) => i >= 0).at(-1);
+    lines.splice(last === undefined ? lines.length : last + 1, 0, line);
+  }
+  return `${lines.join("\n")}\n`;
+}
 
 // Rows of every markdown table in a document, as trimmed cell strings,
 // without header and separator rows.

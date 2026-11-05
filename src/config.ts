@@ -22,6 +22,8 @@ const Config = z.object({
   data: z.string().default("data"),
   port: z.number().int().default(4100),
   mailpit: z.object({ url: z.string().url().default("http://localhost:8025") }).prefault({}),
+  // The sandbox bank the `pay` outlet pays through (`switchyard bank`).
+  bank: z.object({ url: z.string().url().default("http://localhost:4300") }).prefault({}),
   tick_seconds: z.number().positive().default(15),
   smtp: z
     .object({ host: z.string().default("localhost"), port: z.number().default(1025), from: z.string().default("switchyard@localhost") })

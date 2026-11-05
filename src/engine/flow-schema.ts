@@ -38,6 +38,9 @@ const GateStep = z.object({
     deadline: Duration.optional(),
     // The outlet steps whose exact payload this approval covers.
     approves: z.array(z.string()).default([]),
+    // Earlier gates whose answerer may not answer this one: four eyes, e.g.
+    // the person who did the callback cannot also approve the change.
+    not_same_as: z.array(z.string()).default([]),
   }),
 });
 
@@ -50,6 +53,13 @@ const OutletStep = z.object({
     z.object({ post: z.object({ room: z.string(), body: z.string() }) }),
     // A reply to the front-desk visitor who opened the case.
     z.object({ visitor: z.object({ body: z.string() }) }),
+    // Sets one row (matched on its first cell) of a table in a Switch room
+    // document, such as a vendor's bank account in the vendor master.
+    z.object({ document: z.object({ room: z.string(), name: z.string(), row: z.array(z.string()).min(1) }) }),
+    // A payment instruction to the bank, keyed so it is made at most once.
+    z.object({
+      pay: z.object({ payee: z.string(), to: z.string(), amount: z.string(), currency: z.string().default("EUR"), reference: z.string() }),
+    }),
   ]),
   // Runs with no human gate: always (true) or when a condition holds, such as
   // `case.amount <= 500`. Each use is a deliberate, reviewable exception.
@@ -148,6 +158,13 @@ export function lint(flow: Flow): string[] {
       }
     }
 
+    if (isGate(step)) {
+      for (const other of step.gate.not_same_as) {
+        const earlier = seen.get(other);
+        if (!earlier || !isGate(earlier)) problems.push(`gate "${step.id}": not_same_as "${other}" is not an earlier gate`);
+      }
+    }
+
     if (isVerify(step) && !CHECKS[step.verify.check]) {
       problems.push(`step "${step.id}": unknown check "${step.verify.check}"; known checks: ${Object.keys(CHECKS).join(", ")}`);
     }
@@ -165,7 +182,7 @@ export function lint(flow: Flow): string[] {
     const known = isOutlet(step) ? knownAtGate.get(step.id) : undefined;
     if (isOutlet(step) && known) {
       for (const name of placeholderNames(step.outlet)) {
-        if (name !== "case" && seen.has(name) && !known.has(name)) {
+        if (name !== "case" && name !== "by" && seen.has(name) && !known.has(name)) {
           problems.push(`outlet "${step.id}" uses "${name}", which runs after its approval card, so the approver never saw it`);
         }
       }
@@ -179,7 +196,7 @@ export function lint(flow: Flow): string[] {
     }
 
     for (const name of referencedNames(step)) {
-      if (name !== "case" && !seen.has(name)) {
+      if (name !== "case" && name !== "by" && !seen.has(name)) {
         problems.push(`step "${step.id}" refers to "${name}", which is not "case" or an earlier step`);
       }
     }

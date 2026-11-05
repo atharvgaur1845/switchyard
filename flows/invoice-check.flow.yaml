@@ -4,7 +4,7 @@ description: Supplier invoice check
 inlet:
   webhook:
     secret_env: INVOICE_HOOK_SECRET
-    map: { supplier: invoice.supplier, number: invoice.number, amount: invoice.total, po: invoice.po_number }
+    map: { supplier: invoice.supplier, number: invoice.number, amount: invoice.total, po: invoice.po_number, iban: invoice.iban }
 steps:
   # Two checkers on different vendors work independently: four eyes, no
   # shared blind spot. A payment is automatic only when both say "match".
@@ -24,8 +24,13 @@ steps:
   - id: po_check
     verify: { check: po_lookup, doc: purchase-orders, po: "{case.po}", supplier: "{case.supplier}", amount: "{case.amount}" }
 
+  # Where the money goes is decided by the vendor master in this room, never
+  # by the account printed on an invoice.
+  - id: bank_check
+    verify: { check: vendor_bank, doc: vendor-master, vendor: "{case.supplier}", iban: "{case.iban}" }
+
   - id: finance
-    when: po_check.ok == false or match.agreed == false or case.amount > 10000
+    when: po_check.ok == false or match.agreed == false or bank_check.ok == false or bank_check.recent == true or case.amount > 10000
     gate:
       approver: "@controller"
       backup: "@cfo"
@@ -34,8 +39,9 @@ steps:
       deadline: 1d
       approves: [schedule_payment]
 
+  # Paid through the bank with the case as idempotency key, then read back.
   - id: schedule_payment
-    when: finance != "dispute"
-    auto_approve: po_check.ok == true and match.agreed == true and case.amount <= 10000
+    when: finance != "dispute" and bank_check.iban != null
+    auto_approve: po_check.ok == true and match.agreed == true and bank_check.ok == true and bank_check.recent == false and case.amount <= 10000
     outlet:
-      csv: { file: payables.csv, row: ["{case.supplier}", "{case.number}", "{case.amount}", "{case.po}"] }
+      pay: { payee: "{case.supplier}", to: "{bank_check.iban}", amount: "{case.amount}", currency: EUR, reference: "{case.number}" }

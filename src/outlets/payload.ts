@@ -36,5 +36,10 @@ export function describeOutlet(outlet: Outlet): string {
   if ("email" in outlet) return `Email ${outlet.email.to}\nSubject: ${outlet.email.subject}\n\n${outlet.email.body}`;
   if ("webhook" in outlet) return `POST ${outlet.webhook.url}\n${JSON.stringify(outlet.webhook.body, null, 2)}`;
   if ("visitor" in outlet) return `Reply to the visitor:\n${outlet.visitor.body}`;
+  if ("document" in outlet) return `Set the row for ${outlet.document.row[0]} in ${outlet.document.name}: ${outlet.document.row.join(" | ")}`;
+  if ("pay" in outlet) {
+    const { payee, to, amount, currency, reference } = outlet.pay;
+    return `Pay ${amount} ${currency} to ${payee}\nAccount: ${to}\nReference: ${reference}`;
+  }
   return `Post to ${outlet.post.room}:\n${outlet.post.body}`;
 }

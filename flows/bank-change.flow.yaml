@@ -1,0 +1,84 @@
+flow: bank-change
+room: finance
+description: Supplier bank-detail change
+inlet:
+  email: { to: ap@acme.test }
+steps:
+  # The most common way to steal a supplier payment is an email saying "we
+  # changed banks". An agent reads the request; code decides whether it is
+  # believable; a person calls the supplier; a different person approves.
+  - id: request
+    agent: "@checker"
+    ask: >-
+      A supplier email asks us to change the bank account we pay them on.
+      Give the supplier's name as the vendor-master document in this room spells
+      it, the new IBAN exactly as written in the email, and the reason given.
+      List anything that pressures us (urgency, secrecy, "do not call", an
+      executive's name, a new contact) as red flags.
+    expect:
+      vendor: str
+      new_iban: str
+      reason: str
+      red_flags: list
+    sla: 10m
+    bench: "@checker-backup"
+
+  # Code, not the model: is the sender the supplier's own domain, is the
+  # account a valid IBAN, is it really a change.
+  - id: checks
+    verify: { check: bank_change, doc: vendor-master, vendor: "{request.vendor}", sender: "{case.from}", iban: "{request.new_iban}" }
+
+  - id: suspect
+    when: checks.ok == false
+    gate:
+      approver: "@controller"
+      title: "block this bank-detail change request ({checks.detail})?"
+      options: [block, investigate]
+      deadline: 4h
+      approves: [warn_vendor]
+
+  # The real supplier hears about it at the address on file, never the sender.
+  - id: warn_vendor
+    when: suspect == "block" and checks.contact != null
+    outlet:
+      email:
+        to: "{checks.contact}"
+        subject: "We did not change your bank details"
+        body: |
+          Hello {checks.vendor},
+
+          We received a request to change the bank account we pay you on. It came
+          from {case.from}, which is not an address we have on file for you, so we
+          did not act on it.
+
+          If you did send it, please call us; we will verify the change by phone.
+
+          Accounts payable, Acme
+
+  - id: callback
+    when: checks.ok == true
+    gate:
+      approver: "@ap-clerk"
+      title: "call {checks.vendor} on {checks.phone} (the number on file, not one from the email) and confirm their new account ends in {checks.new_tail}"
+      options: [confirmed, not-confirmed]
+      deadline: 1d
+
+  # Four eyes: whoever made the call cannot also approve the change.
+  - id: approve
+    when: callback == "confirmed"
+    gate:
+      approver: "@controller"
+      not_same_as: [callback]
+      title: "change {checks.vendor}'s bank account to {checks.new_iban}?"
+      options: [approve, reject]
+      deadline: 1d
+      approves: [update_master]
+
+  # Written only if the vendor master is still the version the checks read.
+  - id: update_master
+    when: approve == "approve"
+    outlet:
+      document:
+        room: finance
+        name: vendor-master
+        row: ["{checks.vendor}", "{checks.domain}", "{checks.new_iban}", "{checks.contact}", "{checks.phone}", "{checks.today}", "callback by {by.callback}"]
