@@ -18,6 +18,8 @@ interface Options {
   agentCommand: string[];
   // For agents the template puts on `{backup_provider}`: another vendor.
   backupCommand: string[];
+  // Overwrite commands of agents already in switchyard.yaml.
+  replaceCommands: boolean;
   // The chat app to create rooms on; the server's default when omitted.
   bridgeId?: string;
 }
@@ -47,7 +49,10 @@ export async function setupLocal(options: Options): Promise<void> {
       const id = env[`${key}_ID`] ?? (await registerAgent(options.baseUrl, token, agent.name, agent.name, agent.description, env));
       agentIds.push(id);
       const backup = agent.provider === "{backup_provider}";
-      config.cli_agents[agent.name] = { template: templatePath, command: backup ? options.backupCommand : options.agentCommand };
+      const existing = config.cli_agents[agent.name];
+      if (!existing || options.replaceCommands) {
+        config.cli_agents[agent.name] = { template: templatePath, command: backup ? options.backupCommand : options.agentCommand };
+      }
     }
 
     const rooms = [flow.room, ...outletRooms(flow)];

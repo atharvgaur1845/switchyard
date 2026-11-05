@@ -10,6 +10,8 @@ import { MailpitInbox } from "./inlets/email.ts";
 import { startSchedules } from "./inlets/schedule.ts";
 import { LiveOutlets } from "./outlets/index.ts";
 import { CliAgent } from "./agents/cli-agent.ts";
+import { vendorOf } from "./agents/lockdown.ts";
+import { vendorProblems } from "./agents/vendors.ts";
 import { envKey, setupLocal } from "./setup-local.ts";
 import { startServer } from "./server.ts";
 import { parse as parseYaml } from "yaml";
@@ -50,7 +52,10 @@ switch (command) {
       flows: flags.rest,
       chatUser: flags.user ?? "user",
       agentCommand: (flags.agent ?? "claude -p --model haiku").split(" "),
-      backupCommand: (flags.backup ?? flags.agent ?? "claude -p --model haiku").split(" "),
+      // Backups default to a different vendor: an outage should not take both.
+      backupCommand: (flags.backup ?? "pi -p --model gemini-flash-lite-latest").split(" "),
+      // Re-running keeps each agent's command unless a flag says otherwise.
+      replaceCommands: flags.agent !== undefined || flags.backup !== undefined,
       bridgeId: flags.bridge,
     });
     break;
@@ -144,18 +149,14 @@ async function up(): Promise<void> {
   );
   const runner = new Runner(store, client, outlets, flows, { people: config.people });
 
-  const commands = new Commands(runner, store, client, flows);
-  client.onMessage(async (message) => {
-    if (!(await commands.handle(message))) await runner.onMessage(message);
-  });
-  client.onApproval((outcome) => runner.onApproval(outcome));
-  await client.start();
-  startServer({ port: config.port, flows, runner, store, available: all.filter((f) => !flows.includes(f)) });
-  new MailpitInbox(config.mailpit.url, flows, runner, store).start();
-  startSchedules(flows, runner, store);
-  setInterval(() => void runner.tick().catch((e) => console.error("[switchyard] tick:", e)), config.tick_seconds * 1000);
-
-  for (const [name, spec] of Object.entries(config.cli_agents)) {
+  // Agents come up before any case is resumed, so a resumed step is asked of
+  // an agent that is already listening. Every command is locked down (and
+  // refused if it can't be) before anything starts.
+  const agentCommands = Object.fromEntries(Object.entries(config.cli_agents).map(([n, a]) => [n, a.command]));
+  for (const p of vendorProblems(flows, agentCommands)) {
+    console.warn(`Warning: ${p.flow}.${p.step}: ${p.agents.join(" and ")} all run on ${p.vendor}, so one provider outage stops them all. Give them different vendors in switchyard.yaml.`);
+  }
+  const agents = Object.entries(config.cli_agents).map(([name, spec]) => {
     const room = parseYaml(readFileSync(spec.template, "utf8")).room.name as string;
     const agentClient = new SwitchClient({
       baseUrl: config.switch.url,
@@ -163,10 +164,25 @@ async function up(): Promise<void> {
       apiKey: requireEnv(`${envKey(name)}_KEY`),
       rooms: { [room]: config.rooms[room] },
     });
-    new CliAgent({ name, command: spec.command, template: spec.template }, agentClient).start();
+    return { name, client: agentClient, agent: new CliAgent({ name, command: spec.command, template: spec.template }, agentClient) };
+  });
+  for (const { name, client: agentClient, agent } of agents) {
+    agent.start();
     await agentClient.start();
-    console.log(`@${name} is up (${spec.command[0]})`);
+    console.log(`@${name} is up (${vendorOf(agent.command) ?? "unknown vendor"}): ${agent.command.map((a) => a || '""').join(" ")}`);
   }
+
+  const commands = new Commands(runner, store, client, flows);
+  client.onMessage(async (message) => {
+    if (!(await commands.handle(message))) await runner.onMessage(message);
+  });
+  client.onApproval((outcome) => runner.onApproval(outcome));
+  await client.start();
+  await runner.resumeAll();
+  startServer({ port: config.port, flows, runner, store, available: all.filter((f) => !flows.includes(f)) });
+  new MailpitInbox(config.mailpit.url, flows, runner, store).start();
+  startSchedules(flows, runner, store);
+  setInterval(() => void runner.tick().catch((e) => console.error("[switchyard] tick:", e)), config.tick_seconds * 1000);
 
   console.log(`Switchyard is up: ${flows.length} flows, forms at http://localhost:${config.port}/f/<flow>`);
 }

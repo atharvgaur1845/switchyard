@@ -70,7 +70,9 @@ function waitingOn(state: CaseState) {
       ? { kind: "wait", step: p.step, until: p.until }
       : p.kind === "parallel"
         ? { kind: "agent", step: p.step, who: Object.keys(p.agents).filter((a) => p.agents[a].value === undefined).join(" + "), since: p.at }
-        : { kind: "person", step: p.step, since: p.at, escalated: p.escalated };
+        : p.kind === "in_doubt"
+          ? { kind: "person", step: p.step, since: p.at, escalated: false, doubt: true }
+          : { kind: "person", step: p.step, since: p.at, escalated: p.escalated };
 }
 
 // Each flow step as a station on the case's track.

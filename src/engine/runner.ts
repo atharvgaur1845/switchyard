@@ -12,6 +12,8 @@ import {
   isOutlet,
   isParallel,
   isWait,
+  type Outlet,
+  type OutletStep,
   type ParallelStep,
 } from "./flow-schema.ts";
 import { isApproval, mayAnswer, mention, type People } from "./gates.ts";
@@ -43,6 +45,8 @@ export class Runner {
   private readonly flows: Map<string, Flow>;
   private readonly now: () => number;
   private readonly people: People;
+  // Outlets running right now in this process: not in doubt, just slow.
+  private readonly inFlight = new Set<string>();
 
   constructor(store: Store, chat: Chat, outlets: Outlets, flows: Flow[], options: RunnerOptions = {}) {
     this.store = store;
@@ -129,8 +133,32 @@ export class Runner {
           return true;
         }
       }
-      const receipt = await this.outlets.execute(payload, `${state.id}/${step.id}`);
-      this.store.append(state.id, { type: "executed", step: step.id, hash, receipt });
+
+      const key = `${state.id}/${step.id}`;
+      // Already running in this process (a second advance arrived mid-send).
+      if (this.inFlight.has(key)) return true;
+      if (state.executing[step.id] && !safeToRepeat(payload)) {
+        // A previous run started this action and stopped before recording the
+        // result. Repeating it could send the email twice; skipping it could
+        // lose it. A person decides.
+        await this.openDoubt(state, step, hash, payload);
+        return true;
+      }
+
+      this.inFlight.add(key);
+      let receipt: string;
+      try {
+        this.store.append(state.id, { type: "executing", step: step.id, hash, payload });
+        receipt = await this.outlets.execute(payload, key);
+      } catch (error) {
+        // A failed send may still have reached the other side (a timeout
+        // after the server accepted it), so a person checks, as after a crash.
+        this.inFlight.delete(key);
+        await this.openDoubt(this.store.load(state.id), step, hash, payload, (error as Error).message);
+        return true;
+      }
+      this.store.append(state.id, { type: "executed", step: step.id, hash, receipt, payload });
+      this.inFlight.delete(key);
       const by = autoApproved ? `rule "${rule === true ? "always" : rule}"` : state.approved[step.id].by;
       await this.say(state, `Done: ${receipt} (approved by ${by}, ${hash})`);
       return false;
@@ -151,7 +179,7 @@ export class Runner {
     const token = stepToken(state.id, parallel ? `${step.id}.${agent.slice(1)}` : step.id, attempt);
     this.store.append(state.id, { type: "asked", step: step.id, agent, token, attempt, tries, at: this.now(), parallel });
     const body = stepRequest({
-      ask: render(step.ask, scopeOf(state)),
+      ask: step.ask,
       expect: step.expect,
       token,
       untrusted: state.data,
@@ -164,9 +192,12 @@ export class Runner {
   private async openGate(state: CaseState, step: GateStep): Promise<void> {
     const scope = scopeOf(state);
     const hashes: Record<string, string> = {};
+    const payloads: Record<string, unknown> = {};
     for (const target of step.gate.approves) {
       const outlet = this.flowOf(state).steps.find((s) => s.id === target);
-      if (outlet && isOutlet(outlet)) hashes[target] = hashOutlet(renderOutlet(outlet.outlet, scope));
+      if (!outlet || !isOutlet(outlet)) continue;
+      payloads[target] = renderOutlet(outlet.outlet, scope);
+      hashes[target] = hashOutlet(payloads[target] as Outlet);
     }
     const requestId = `${state.id}-${step.id}`;
     this.store.append(state.id, {
@@ -175,6 +206,7 @@ export class Runner {
       requestId,
       approver: step.gate.approver,
       hashes,
+      payloads,
       at: this.now(),
     });
     await this.chat.openApproval(this.gateCard(state, step, requestId, step.gate.approver));
@@ -251,21 +283,36 @@ export class Runner {
 
     if (!reply.ok) {
       this.store.append(state.id, { type: "reply_rejected", step: step.id, error: `${message.sender}: ${reply.error}` });
-      if (mine.tries < MAX_TRIES) {
+      if (PROVIDER_FAILURE.test(message.body)) {
+        await this.unavailable(state, step, message.sender, "its provider reported an error");
+      } else if (mine.tries < MAX_TRIES) {
         await this.ask(state, step, message.sender, mine.attempt + 1, mine.tries + 1, reply.error);
-        return;
+      } else {
+        await this.unavailable(state, step, message.sender, `its replies did not match the step's contract (${reply.error})`);
       }
-      this.store.append(state.id, { type: "failed", step: step.id, reason: `${message.sender}: ${reply.error}` });
-      await this.say(state, `${message.sender} could not finish "${step.id}" (${reply.error}). A person needs to take this case.`);
       return;
     }
 
     this.store.append(state.id, { type: "partial", step: step.id, agent: message.sender, value: reply.value });
-    const answers = { ...Object.fromEntries(Object.entries(pending.agents).map(([a, s]) => [a, s.value])), [message.sender]: reply.value };
-    if (Object.values(answers).some((value) => value === undefined)) return;
+    await this.finishParallel(state.id, step);
+  }
 
-    this.store.append(state.id, { type: "answered", step: step.id, value: combine(step, answers) });
-    await this.advance(state.id);
+  // A checker that cannot answer does not stop the case. Its answer is
+  // recorded as unavailable, the step counts as not agreed, and the flow's
+  // own rule (typically `when: match.agreed == false`) hands it to a person.
+  private async unavailable(state: CaseState, step: ParallelStep, agent: string, reason: string): Promise<void> {
+    this.store.append(state.id, { type: "partial", step: step.id, agent, value: { unavailable: true, reason } });
+    await this.say(state, `${agent} could not check "${step.id}" (${reason}); the other answers go ahead without it.`);
+    await this.finishParallel(state.id, step);
+  }
+
+  private async finishParallel(caseId: string, step: ParallelStep): Promise<void> {
+    const pending = this.store.load(caseId).pending;
+    if (pending?.kind !== "parallel" || pending.step !== step.id) return;
+    const answers = Object.fromEntries(Object.entries(pending.agents).map(([a, s]) => [a, s.value]));
+    if (Object.values(answers).some((value) => value === undefined)) return;
+    this.store.append(caseId, { type: "answered", step: step.id, value: combine(step, answers) });
+    await this.advance(caseId);
   }
 
   // Hands an agent step to its bench agent. Returns false when there is no
@@ -281,6 +328,13 @@ export class Runner {
   }
 
   async onApproval(outcome: ApprovalOutcome): Promise<void> {
+    const doubtful = this.store
+      .openCases()
+      .find((c) => c.pending?.kind === "in_doubt" && c.pending.requestIds.includes(outcome.requestId));
+    if (doubtful) {
+      await this.resolveDoubt(doubtful, outcome);
+      return;
+    }
     const state = this.store
       .openCases()
       .find((c) => c.pending?.kind === "gate" && c.pending.requestIds.includes(outcome.requestId));
@@ -321,6 +375,74 @@ export class Runner {
     this.store.append(caseId, { type: "cancelled", by });
     await this.say(state, `Case ${caseId} was cancelled by ${by}. Nothing further will run.`);
     return true;
+  }
+
+  // After a restart: carries on every open case that is not waiting on
+  // someone, which is where a crash between two steps leaves a case.
+  async resumeAll(): Promise<void> {
+    for (const state of this.store.openCases()) {
+      if (!state.pending) await this.advance(state.id);
+    }
+  }
+
+  private async openDoubt(state: CaseState, step: OutletStep, hash: string, payload: Outlet, error?: string): Promise<void> {
+    const requestId = `${state.id}-${step.id}-doubt`;
+    const approver = this.approverOf(state, step.id);
+    const why = error ? `"${step.id}" failed (${error}), and it may still have reached the other side.` : `Switchyard stopped while doing "${step.id}" and can't tell whether it happened.`;
+    // The card goes out before the case is marked in doubt: if the process
+    // stops in between, the restart finds no doubt yet and simply asks again.
+    await this.chat.openApproval(this.doubtCard(state, step.id, requestId, hash, payload));
+    this.store.append(state.id, { type: "in_doubt", step: step.id, requestId, hash, at: this.now() });
+    await this.say(state, `${why} ${mention(this.people, approver ?? "@yard")} please check.`);
+  }
+
+  private doubtCard(state: CaseState, stepId: string, requestId: string, hash: string, payload: Outlet, note?: string): ApprovalCard {
+    const approver = this.approverOf(state, stepId);
+    const detail = `${describeOutlet(payload)}\n(approval ${hash})\n\nCheck the recipient's side before answering. "send it again" repeats exactly this action.`;
+    return {
+      requestId,
+      room: state.room,
+      threadId: state.threadId!,
+      title: `${approver ? mention(this.people, approver) + " " : ""}did "${stepId}" go out?`,
+      detail: note ? `${note}\n\n${detail}` : detail,
+      options: [DOUBT_SENT, DOUBT_RESEND],
+    };
+  }
+
+  private async resolveDoubt(state: CaseState, outcome: ApprovalOutcome): Promise<void> {
+    const pending = state.pending;
+    if (pending?.kind !== "in_doubt") return;
+    const step = this.stepOf(state, pending.step);
+    if (!step || !isOutlet(step)) return;
+
+    const answerer = await this.chat.handleOf(outcome.answeredBy);
+    const approver = this.approverOf(state, step.id);
+    const allowed = answerer !== undefined && (!approver || mayAnswer({ approver, title: "", options: ["x", "y"], approves: [] }, answerer, false, this.people));
+    if (!allowed) {
+      await this.say(state, `${answerer ?? "That answer"} cannot decide this; it is for ${approver}.`);
+      // Switch keeps one answer per card, so asking again needs a new card.
+      const requestId = `${state.id}-${step.id}-doubt-r${pending.requestIds.length}`;
+      this.store.append(state.id, { type: "card_reopened", step: step.id, requestId });
+      const { hash, payload } = state.executing[step.id];
+      await this.chat.openApproval(this.doubtCard(state, step.id, requestId, hash, payload as Outlet, `Re-opened: only ${approver} can decide this.`));
+      return;
+    }
+
+    this.store.append(state.id, { type: "doubt_resolved", step: step.id, answer: outcome.answer, answeredBy: answerer! });
+    const { hash, payload } = state.executing[step.id];
+    if (outcome.answer === DOUBT_SENT) {
+      this.store.append(state.id, { type: "executed", step: step.id, hash, payload, receipt: `confirmed sent by ${answerer}` });
+    } else {
+      const receipt = await this.outlets.execute(payload as Outlet, `${state.id}/${step.id}`);
+      this.store.append(state.id, { type: "executed", step: step.id, hash, payload, receipt: `${receipt} (resent by ${answerer})` });
+    }
+    await this.advance(state.id);
+  }
+
+  // The person whose gate approved this outlet, if one did.
+  private approverOf(state: CaseState, outletId: string): string | undefined {
+    const gate = this.flowOf(state).steps.find((s) => isGate(s) && s.gate.approves.includes(outletId));
+    return gate && isGate(gate) ? gate.gate.approver : undefined;
   }
 
   // Ends a wait step early, on a person's word.
@@ -368,9 +490,7 @@ export class Runner {
       if (pending.kind === "parallel" && step && isParallel(step) && step.sla) {
         if (now - pending.at >= durationMs(step.sla)) {
           const missing = Object.entries(pending.agents).filter(([, s]) => s.value === undefined).map(([a]) => a);
-          const reason = `no answer from ${missing.join(", ")} within ${step.sla}`;
-          this.store.append(state.id, { type: "failed", step: step.id, reason });
-          await this.say(state, `"${step.id}" stopped: ${reason}. A person needs to take this case.`);
+          for (const agent of missing) await this.unavailable(this.store.load(state.id), step, agent, `no answer within ${step.sla}`);
         }
         continue;
       }
@@ -421,13 +541,30 @@ export class Runner {
   }
 }
 
+const DOUBT_SENT = "it went out";
+const DOUBT_RESEND = "send it again";
+
+// Outlets whose receiver ignores a repeat with the same key, so finishing an
+// interrupted one is safe: ledger rows carry the key, visitor replies too.
+function safeToRepeat(outlet: Outlet): boolean {
+  return "csv" in outlet || "visitor" in outlet;
+}
+
 // One result from several agents: each answer under the agent's name (so
 // `review.rev-claude.verdict` works), and `agreed` when every agent gave the
 // same value for every enum field.
 export function combine(step: ParallelStep, answers: Record<string, unknown>): Record<string, unknown> {
-  const enums = Object.entries(step.expect).filter(([, type]) => Array.isArray(type)).map(([name]) => name);
   const values = Object.values(answers) as Record<string, unknown>[];
-  const agreed = enums.every((field) => values.every((v) => v[field] === values[0][field]));
+  // Agreement means the same decision and the same figures: two checkers who
+  // both say "match" but read different amounts did not agree.
+  const compared = Object.entries(step.expect)
+    .filter(([, type]) => Array.isArray(type) || type === "number" || type === "number?")
+    .map(([name]) => name);
+  // Figures must match to the cent; rounding hides float noise, not differences.
+  const same = (a: unknown, b: unknown) =>
+    typeof a === "number" && typeof b === "number" ? Math.round(a * 100) === Math.round(b * 100) : a === b;
+  const agreed =
+    values.every((v) => !v.unavailable) && compared.every((field) => values.every((v) => same(v[field], values[0][field])));
   return {
     ...Object.fromEntries(Object.entries(answers).map(([agent, value]) => [agent.slice(1), value])),
     agreed,

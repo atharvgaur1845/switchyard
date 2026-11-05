@@ -113,6 +113,7 @@ function waitingOn(state: CaseState): string {
   const pending = state.pending;
   if (!pending) return state.status;
   if (pending.kind === "parallel") return `waiting on ${Object.keys(pending.agents).join(" and ")} for "${pending.step}"`;
+  if (pending.kind === "in_doubt") return `in doubt: did "${pending.step}" go out? (waiting on a person)`;
   if (pending.kind === "wait") return `waiting until ${new Date(pending.until).toUTCString()}`;
   return pending.kind === "agent" ? `waiting on ${pending.agent} for "${pending.step}"` : `waiting on approval "${pending.step}"`;
 }

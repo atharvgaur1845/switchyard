@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import type { InboundMessage } from "../engine/ports.ts";
 import type { SwitchClient } from "../switch/client.ts";
+import { lockedCommand } from "./lockdown.ts";
 
 // A Switch agent backed by any coding-agent CLI run headless, one process
 // per request: `claude -p`, `pi -p`, `codex exec`. It is how Switchyard's
@@ -38,7 +39,10 @@ export class CliAgent {
   private readonly spec: CliAgentSpec;
   private readonly client: SwitchClient;
   private readonly prompt: string;
-  // A sandbox folder with nothing in it: the CLI has no project to touch.
+  // The command as it actually runs: with its tools switched off.
+  readonly command: string[];
+  // An empty working folder. The real protection is the lockdown flags: a
+  // working directory alone confines nothing.
   private readonly cwd = mkdtempSync(join(tmpdir(), "switchyard-agent-"));
   private queue: Promise<void> = Promise.resolve();
 
@@ -46,6 +50,7 @@ export class CliAgent {
     this.spec = spec;
     this.client = client;
     this.prompt = systemPrompt(spec.template, spec.name);
+    this.command = lockedCommand(spec.command);
   }
 
   start(): void {
@@ -60,14 +65,14 @@ export class CliAgent {
   }
 
   private async answer(message: InboundMessage): Promise<void> {
-    if (process.env.SWITCHYARD_DEBUG) console.log(`[${this.spec.name}] running ${this.spec.command[0]}`);
+    if (process.env.SWITCHYARD_DEBUG) console.log(`[${this.spec.name}] running ${this.command[0]}`);
     const request = `${this.prompt}\n\n# Message from ${message.sender}\n\n${message.body}`;
     let reply: string;
     try {
       if (simulatedOutage(this.spec.name)) {
         throw new Error("usage limit reached (simulated outage: SWITCHYARD_OUTAGE)");
       }
-      reply = await run(this.spec.command, request, this.cwd, this.spec.timeoutMs ?? 300_000);
+      reply = await run(this.command, request, this.cwd, this.spec.timeoutMs ?? 300_000);
     } catch (error) {
       // Said in the room, so @yard's failover sees it like any provider error.
       reply = `Provider error: ${(error as Error).message}`;

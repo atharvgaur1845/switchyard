@@ -9,7 +9,7 @@ steps:
   - id: draft
     agent: "@analyst"
     ask: >-
-      Write the weekly sales report for {case.period} from the sales data
+      Write the weekly sales report for the period in the case data, from the sales data
       document in this room: totals, the three biggest changes, and one risk.
     expect:
       headline: str

@@ -54,7 +54,7 @@ describe("parallel checkers", () => {
     expect(outlets.executed).toHaveLength(1);
   });
 
-  it("hands the case to a person when a checker misses the SLA", async () => {
+  it("sends the case to the controller, not to failure, when a checker misses the SLA", async () => {
     let clock = 0;
     chat.agent("@checker", replyWith(match));
     runner = new Runner(store, chat, outlets, [invoices], { now: () => clock });
@@ -64,7 +64,34 @@ describe("parallel checkers", () => {
 
     clock = 10 * 60_000;
     await runner.tick();
-    expect(store.load(id).status).toBe("failed");
-    expect(chat.said("no answer from @checker-backup within 10m")).toBe(true);
+    expect(store.load(id).results.match).toMatchObject({ agreed: false, "checker-backup": { unavailable: true } });
+    expect(store.load(id).pending?.kind).toBe("gate");
+    expect(outlets.executed).toHaveLength(0);
+  });
+
+  it("sends the case to the controller when a checker's provider fails (e.g. a 429)", async () => {
+    chat.agent("@checker", replyWith(match)).agent("@checker-backup", () => "Provider error: 429 quota exceeded");
+    const id = await runner.open("invoice-check", invoice, "webhook");
+    await deliver();
+
+    expect(store.load(id).results.match).toMatchObject({ agreed: false });
+    expect(chat.cards).toHaveLength(1);
+    expect(outlets.executed).toHaveLength(0);
+  });
+
+  it("does not count amounts that differ by a few units as agreement", async () => {
+    chat.agent("@checker", replyWith({ ...match, po_amount: 10_000 })).agent("@checker-backup", replyWith({ ...match, po_amount: 10_049 }));
+    const id = await runner.open("invoice-check", invoice, "webhook");
+    await deliver();
+    expect(store.load(id).results.match).toMatchObject({ agreed: false });
+  });
+
+  it("does not count matching verdicts with different amounts as agreement", async () => {
+    chat.agent("@checker", replyWith(match)).agent("@checker-backup", replyWith({ ...match, po_amount: 1420 }));
+    const id = await runner.open("invoice-check", invoice, "webhook");
+    await deliver();
+
+    expect(store.load(id).results.match).toMatchObject({ agreed: false });
+    expect(outlets.executed).toHaveLength(0);
   });
 });

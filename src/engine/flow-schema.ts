@@ -108,6 +108,8 @@ export function lint(flow: Flow): string[] {
   const problems: string[] = [];
   const seen = new Map<string, Step>();
   const gated = new Set<string>();
+  // Outlet id -> the steps that had run when its gate's card was shown.
+  const knownAtGate = new Map<string, Set<string>>();
 
   for (const step of flow.steps) {
     if (seen.has(step.id)) problems.push(`step "${step.id}" is defined twice`);
@@ -132,6 +134,26 @@ export function lint(flow: Flow): string[] {
           problems.push(`gate "${step.id}" must come before the outlet "${target}" it approves`);
         }
         gated.add(target);
+        knownAtGate.set(target, new Set(seen.keys()));
+      }
+    }
+
+    // Case data and earlier results reach an agent only inside the fence
+    // (contracts.ts). A placeholder in `ask` would paste them outside it, as
+    // if they were part of the instruction.
+    if ((isAgent(step) || isParallel(step)) && placeholderNames(step.ask).size > 0) {
+      problems.push(`step "${step.id}": "ask" must not contain {placeholders}; the agent already receives the case data and earlier results, fenced`);
+    }
+
+    // An approved action may only use what the approver could see: results
+    // of steps that ran before the card. A later step could change the action
+    // after the approval, which the runtime hash would then refuse.
+    const known = isOutlet(step) ? knownAtGate.get(step.id) : undefined;
+    if (isOutlet(step) && known) {
+      for (const name of placeholderNames(step.outlet)) {
+        if (name !== "case" && seen.has(name) && !known.has(name)) {
+          problems.push(`outlet "${step.id}" uses "${name}", which runs after its approval card, so the approver never saw it`);
+        }
       }
     }
 
@@ -168,8 +190,15 @@ function referencedNames(step: Step): Set<string> {
       if (!WORDS.has(word)) names.add(word.split(".")[0]);
     }
   }
-  const text = JSON.stringify(isAgent(step) || isParallel(step) ? step.ask : isGate(step) ? step.gate.title : isOutlet(step) ? step.outlet : "");
-  for (const [, path] of text.matchAll(/\{([A-Za-z_][A-Za-z0-9_.-]*)\}/g)) names.add(path.split(".")[0]);
+  for (const name of placeholderNames(isAgent(step) || isParallel(step) ? step.ask : isGate(step) ? step.gate.title : isOutlet(step) ? step.outlet : "")) {
+    names.add(name);
+  }
+  return names;
+}
+
+function placeholderNames(value: unknown): Set<string> {
+  const names = new Set<string>();
+  for (const [, path] of JSON.stringify(value).matchAll(/\{([A-Za-z_][A-Za-z0-9_.-]*)\}/g)) names.add(path.split(".")[0]);
   return names;
 }
 

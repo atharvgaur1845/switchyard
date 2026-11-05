@@ -16,12 +16,27 @@ export type CaseEvent =
   | { type: "failed_over"; step: string; from: string; to: string; reason: string }
   | { type: "reply_rejected"; step: string; error: string }
   | { type: "answered"; step: string; value: unknown }
-  | { type: "gate_opened"; step: string; requestId: string; approver: string; hashes: Record<string, string>; at: number }
+  | {
+      type: "gate_opened";
+      step: string;
+      requestId: string;
+      approver: string;
+      hashes: Record<string, string>;
+      // The exact rendered actions the card shows, so anyone can recompute the hashes.
+      payloads?: Record<string, unknown>;
+      at: number;
+    }
   | { type: "reminded"; step: string }
   | { type: "card_reopened"; step: string; requestId: string }
   | { type: "escalated"; step: string; requestId: string; to?: string }
   | { type: "gate_answered"; step: string; answer: string; answeredBy: string; approved: boolean }
-  | { type: "executed"; step: string; hash: string; receipt: string }
+  // Written just before an outlet acts outside Switch, and `executed` just
+  // after. One without the other means the process stopped in between, and
+  // nobody knows whether the action happened: the case is "in doubt".
+  | { type: "executing"; step: string; hash: string; payload: unknown }
+  | { type: "executed"; step: string; hash: string; receipt: string; payload?: unknown }
+  | { type: "in_doubt"; step: string; requestId: string; hash: string; at: number }
+  | { type: "doubt_resolved"; step: string; answer: string; answeredBy: string }
   | { type: "failed"; step: string; reason: string }
   | { type: "cancelled"; by: string }
   | { type: "waiting"; step: string; until: number }
@@ -31,6 +46,7 @@ export type CaseEvent =
 // What a case is waiting on. `at` is when the wait began (epoch ms), which the
 // deadline timers measure from.
 export type Pending =
+  | { kind: "in_doubt"; step: string; requestIds: string[]; hash: string; at: number }
   | {
       kind: "parallel";
       step: string;
@@ -61,6 +77,8 @@ export interface CaseState {
   // Outlet step id -> the payload hash a human approved for it.
   approved: Record<string, { hash: string; by: string }>;
   finished: Set<string>;
+  // Outlets that started and never recorded finishing (see `executing`).
+  executing: Record<string, { hash: string; payload: unknown }>;
   pending?: Pending;
   status: "open" | "done" | "failed" | "cancelled";
 }
@@ -74,6 +92,7 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
     results: {},
     approved: {},
     finished: new Set(),
+    executing: {},
     status: "open",
   };
   for (const event of events) {
@@ -123,7 +142,7 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         };
         break;
       case "card_reopened":
-        if (state.pending?.kind === "gate") state.pending.requestIds.push(event.requestId);
+        if (state.pending?.kind === "gate" || state.pending?.kind === "in_doubt") state.pending.requestIds.push(event.requestId);
         break;
       case "reminded":
         if (state.pending?.kind === "gate") state.pending.reminded = true;
@@ -146,9 +165,20 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         state.pending = undefined;
         break;
       }
+      case "executing":
+        state.executing[event.step] = { hash: event.hash, payload: event.payload };
+        break;
       case "executed":
         state.results[event.step] = { receipt: event.receipt, hash: event.hash };
         state.finished.add(event.step);
+        delete state.executing[event.step];
+        state.pending = undefined;
+        break;
+      case "in_doubt":
+        state.pending = { kind: "in_doubt", step: event.step, requestIds: [event.requestId], hash: event.hash, at: event.at };
+        break;
+      case "doubt_resolved":
+        state.pending = undefined;
         break;
       case "failed":
         state.status = "failed";

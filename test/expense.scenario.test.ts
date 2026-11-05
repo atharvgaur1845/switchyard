@@ -72,10 +72,9 @@ describe("expense flow against a fake Switch", () => {
     expect(outlets.executed).toHaveLength(0);
   });
 
-  it("refuses to act when the action changed after approval", async () => {
-    // The gate approves the email before the agent has written its body, so
-    // the email that would go out is not the one the person saw.
-    const drifting = loadFlow(`
+  it("rejects a flow whose approved action uses a step that runs after the approval", () => {
+    expect(() =>
+      loadFlow(`
 flow: drift
 room: r
 steps:
@@ -87,12 +86,31 @@ steps:
     expect: { text: str }
   - id: mail
     outlet: { email: { to: "{case.email}", subject: Re, body: "{draft.text}" } }
+`),
+    ).toThrow(/runs after its approval card/);
+  });
+
+  it("refuses to act when the flow file changed the action after approval", async () => {
+    const version = (body: string) =>
+      loadFlow(`
+flow: notice
+room: r
+steps:
+  - id: ok
+    gate: { approver: "@manager", title: send it?, options: [send, stop], approves: [mail] }
+  - id: pause
+    wait: 1h
+  - id: mail
+    outlet: { email: { to: "{case.email}", subject: Notice, body: "${body}" } }
 `);
-    chat.agent("@writer", replyWith({ text: "We will refund you in full." }));
-    runner = new Runner(store, chat, outlets, [drifting]);
-    const id = await runner.open("drift", request, "test");
-    await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "send", answeredBy: "mx:@manager" });
-    await deliver();
+    // Approved under the original wording...
+    const before = new Runner(store, chat, outlets, [version("Your refund is on its way.")], { now: () => 0 });
+    const id = await before.open("notice", request, "test");
+    await before.onApproval({ requestId: chat.cards[0].requestId, answer: "send", answeredBy: "mx:@manager" });
+
+    // ...then someone edits the flow and restarts before the email goes out.
+    const after = new Runner(store, chat, outlets, [version("Your full refund plus a bonus is on its way.")], { now: () => 3_600_000 });
+    await after.tick();
 
     expect(outlets.executed).toHaveLength(0);
     expect(store.load(id).status).toBe("failed");
@@ -131,19 +149,18 @@ steps:
     expect(store.load(id).status).toBe("done");
   });
 
-  it("fills placeholders in what it asks an agent", async () => {
-    const flow = loadFlow(`
+  it("rejects placeholders in an agent's instruction, which would paste data outside the fence", () => {
+    expect(() =>
+      loadFlow(`
 flow: hello
 room: r
 steps:
   - id: greet
     agent: "@policy"
-    ask: Write to {case.name} about {case.category}.
+    ask: Write to {case.name}.
     expect: { text: str }
-`);
-    let seen = "";
-    chat.agent("@policy", (body) => ((seen = body), ""));
-    await new Runner(store, chat, outlets, [flow]).open("hello", { name: "Asha", category: "travel" }, "test");
-    expect(seen).toContain("Write to Asha about travel.");
+`),
+    ).toThrow(/must not contain \{placeholders\}/);
   });
+
 });

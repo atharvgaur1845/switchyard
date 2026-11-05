@@ -9,7 +9,7 @@ const PATTERNS: [string, RegExp][] = [
   ["system prompt probe", /\b(system prompt|developer message|hidden instructions?)\b/i],
   ["money request", /\b(refund|discount|credit|wire|transfer|gift card)\b.{0,40}\b(now|immediately|approve|issue|send)\b/i],
   ["impersonation", /\b(i am|this is)\b.{0,20}\b(the )?(ceo|admin|administrator|owner|manager)\b/i],
-  ["markup injection", /<\/?(untrusted-data|system|assistant)>|```/i],
+  ["markup injection", /<\s*\/?\s*(untrusted[\w-]*|system|assistant)\s*>|```/i],
 ];
 
 export function screen(text: string): { flagged: boolean; flags: string[] } {
