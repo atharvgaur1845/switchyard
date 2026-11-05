@@ -353,14 +353,23 @@ export class Runner {
   private checkAttested(room: string, doc: RoomDocument, key: string, value: VerifyResult): VerifyResult {
     const current = rowHash(doc.content, key);
     if (current === "") return value;
-    // The first time Switchyard reads a document it adopts it as it stands.
-    if (this.store.attestedRows(room, doc.name) === 0) this.adopt(room, doc, "first read");
     const known = this.store.attestation(room, doc.name, key);
     if (known?.hash === current) return { ...value, attested: true };
     const why = known
       ? `${key}'s row in ${doc.name} is not what Switchyard last wrote there (${known.by}): it was changed in the room directly`
-      : `${key}'s row in ${doc.name} was added in the room directly, not by a case`;
+      : this.store.attestedRows(room, doc.name) === 0
+        ? `${doc.name} has never been attested (Switchyard attests a room's documents when it starts)`
+        : `${key}'s row in ${doc.name} was added in the room directly, not by a case`;
     return { ...value, ok: false, attested: false, detail: `${why}, so nothing is paid on it until a person restores it or a case rewrites it; ${value.detail}` };
+  }
+
+  // After a person says a document write went out: attested only if the room
+  // now holds exactly the row that was approved.
+  private async attestIfWritten(state: CaseState, payload: Outlet): Promise<void> {
+    if (!("document" in payload) || !this.chat.documents) return;
+    const { room, name, row } = payload.document;
+    const doc = (await this.chat.documents(room)).filter((d) => d.name === name);
+    if (doc.length === 1 && rowHash(doc[0].content, row[0]) === rowHash(`| ${row.join(" | ")} |`, row[0])) this.attestWrite(state, payload);
   }
 
   // Records what a document outlet wrote, so the next check accepts it.
@@ -370,9 +379,9 @@ export class Runner {
     this.store.attest(room, name, row[0], rowHash(`| ${row.join(" | ")} |`, row[0]), `case ${state.id}`, new Date(this.now()));
   }
 
-  // At start: a written document Switchyard has never attested is adopted
-  // as it stands (a new install, or one that predates attestation). From
-  // then on, a row added or changed outside a case does not pass a check.
+  // At start (`switchyard up`), and only then: a document Switchyard has
+  // never attested is adopted as it stands, and the room is told. A check
+  // never adopts: a row with no attestation does not pass.
   async attestRows(): Promise<string[]> {
     if (!this.chat.documents) return [];
     const adopted: string[] = [];
@@ -380,17 +389,19 @@ export class Runner {
       const [room, name] = guarded.split("/");
       const docs = (await this.chat.documents(room)).filter((d) => d.name === name);
       if (docs.length === 1 && this.store.attestedRows(room, name) === 0) {
-        this.adopt(room, docs[0], "first seen at start");
+        const rows = this.adopt(room, docs[0], "first seen at start");
         adopted.push(`#${room}/${name}`);
+        // Said in the room, so whoever reads it can check the baseline.
+        await this.chat.post(room, `Attested ${rows.length} row${rows.length === 1 ? "" : "s"} of ${name} as they stand now (${rows.join(", ")}). From now on a row changed outside a case does not pass a check.`);
       }
     }
     return adopted;
   }
 
-  private adopt(room: string, doc: RoomDocument, by: string): void {
-    for (const [key] of tableRows(doc.content)) {
-      if (key) this.store.attest(room, doc.name, key, rowHash(doc.content, key), by, new Date(this.now()));
-    }
+  private adopt(room: string, doc: RoomDocument, by: string): string[] {
+    const keys = tableRows(doc.content).map(([key]) => key).filter(Boolean);
+    for (const key of keys) this.store.attest(room, doc.name, key, rowHash(doc.content, key), by, new Date(this.now()));
+    return keys;
   }
 
   private async openGate(state: CaseState, step: GateStep): Promise<void> {
@@ -726,6 +737,7 @@ export class Runner {
       this.store.append(state.id, { type: "executed", step: step.id, hash, payload, receipt: `${held.receipt} (confirmed with the bank after ${answerer} said it went out)`, readback: held.readback });
     } else if (outcome.answer === DOUBT_SENT) {
       this.store.append(state.id, { type: "executed", step: step.id, hash, payload, receipt: `confirmed sent by ${answerer}` });
+      await this.attestIfWritten(state, payload as Outlet);
     } else {
       let result: Awaited<ReturnType<Outlets["execute"]>>;
       try {

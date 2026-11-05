@@ -1,3 +1,5 @@
+import type { Store } from "../src/engine/store.ts";
+import { rowHash, tableRows } from "../src/engine/verifiers.ts";
 import type { ApprovalCard, Chat, InboundMessage, Outlets, RoomDocument } from "../src/engine/ports.ts";
 import type { Outlet } from "../src/engine/flow-schema.ts";
 
@@ -86,4 +88,14 @@ export function replyWith(fields: Record<string, unknown>): Agent {
     const token = /"token": "([^"]+)"/.exec(request)![1];
     return `Checked it.\n\n\`\`\`json\n${JSON.stringify({ token, ...fields })}\n\`\`\``;
   };
+}
+
+// As `switchyard up` does at start: attest every row of every document in
+// the fake rooms, so checks accept them until something edits them.
+export function attestRooms(store: Store, chat: FakeSwitch): void {
+  for (const [room, docs] of chat.docs) {
+    for (const doc of docs) {
+      for (const [key] of tableRows(doc.content)) if (key) store.attest(room, doc.name, key, rowHash(doc.content, key), "first seen at start");
+    }
+  }
 }

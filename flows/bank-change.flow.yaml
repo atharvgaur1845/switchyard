@@ -48,8 +48,7 @@ steps:
           Hello {checks.vendor},
 
           We received a request to change the bank account we pay you on. It came
-          from {case.from}, which is not an address we have on file for you, so we
-          did not act on it.
+          from {case.from} and did not pass our checks, so we did not act on it.
 
           If you did send it, please call us; we will verify the change by phone.
 

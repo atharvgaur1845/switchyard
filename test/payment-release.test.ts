@@ -13,7 +13,7 @@ import { basisHash, CHECKS, editDistance, ibanValid, rowHash, setTableRow } from
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
 import { startBank } from "../src/sandbox/bank.ts";
-import { FakeSwitch, replyWith } from "./fake-switch.ts";
+import { FakeSwitch, replyWith, attestRooms } from "./fake-switch.ts";
 
 // Releasing supplier payments: bank details change only through a checked,
 // called-back, four-eyes case; payments go only to the account on file; and
@@ -98,6 +98,7 @@ describe("a bank-detail change", () => {
     // One person can hold both roles; four eyes must still keep them apart.
     const people = { "@ap-clerk": ["@clerk"], "@controller": ["@controller", "@clerk"] };
     const runner = new Runner(store, chat, outlets, [flow("bank-change")], { people });
+    attestRooms(store, chat);
     const open = async () => {
       const id = await runner.open("bank-change", { from: sender, subject: "bank details", body: "Please pay us at DE63 1203 0000 1064 5328 71 from now on." }, `email from ${sender}`);
       await chat.deliver((m) => runner.onMessage(m));
@@ -151,7 +152,7 @@ describe("a bank-detail change", () => {
     // room, not by a case, so nobody is asked to call the new number: the
     // change goes to the block card instead.
     expect(chat.cards.at(-1)!.title).not.toMatch(/\+49 30 5550 9999/);
-    expect(store.load(id).results.checks).toMatchObject({ ok: false, attested: false, detail: expect.stringMatching(/^Fabrikam Print's row in vendor-master is not what Switchyard last wrote there \(first read\): it was changed in the room directly/) });
+    expect(store.load(id).results.checks).toMatchObject({ ok: false, attested: false, detail: expect.stringMatching(/^Fabrikam Print's row in vendor-master is not what Switchyard last wrote there \(first seen at start\): it was changed in the room directly/) });
   });
 });
 
@@ -172,6 +173,7 @@ describe("paying an invoice", () => {
       .doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", MASTER);
     const outlets = new TestOutlets(chat, bankUrl);
     const runner = new Runner(store, chat, outlets, [flow("invoice-check")], { now: () => Date.parse("2026-11-05") });
+    attestRooms(store, chat);
     return { store, chat, outlets, runner };
   };
   const matched = { result: "match", po_amount: 3150, reasons: ["PO-1043 matches"] };

@@ -13,7 +13,7 @@ import { fold, Store } from "../src/engine/store.ts";
 import { CHECKS, setTableRow } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { startBank } from "../src/sandbox/bank.ts";
-import { FakeSwitch, replyWith } from "./fake-switch.ts";
+import { FakeSwitch, replyWith, attestRooms } from "./fake-switch.ts";
 
 // Defects found by the independent review of the payment work, one test each.
 
@@ -60,6 +60,7 @@ const setup = (opts: { people?: Record<string, string[]>; master?: string } = {}
     .doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", opts.master ?? MASTER);
   const outlets = new Paying(chat);
   const runner = new Runner(store, chat, outlets, [invoice], { now: () => clock, people: opts.people });
+  attestRooms(store, chat);
   const open = async (data: Record<string, unknown>) => {
     const id = await runner.open("invoice-check", data, "webhook");
     await chat.deliver((m) => runner.onMessage(m));

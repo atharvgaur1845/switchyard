@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { loadFlow } from "../src/engine/flow-schema.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
-import { FakeSwitch, RecordingOutlets, replyWith } from "./fake-switch.ts";
+import { FakeSwitch, RecordingOutlets, replyWith, attestRooms } from "./fake-switch.ts";
 
 // The finance room's vendor master, as its template seeds it.
 const VENDOR_MASTER = (parseYaml(readFileSync("templates/invoice-check.template.yaml", "utf8")).room.docs as { name: string; content: string }[])
@@ -25,6 +25,7 @@ describe("parallel checkers", () => {
     chat = new FakeSwitch().doc("finance", "purchase-orders", PURCHASE_ORDERS).doc("finance", "vendor-master", VENDOR_MASTER);
     outlets = new RecordingOutlets();
     runner = new Runner(store, chat, outlets, [invoices]);
+    attestRooms(store, chat);
   });
   const deliver = () => chat.deliver((m) => runner.onMessage(m));
 
@@ -67,6 +68,7 @@ describe("parallel checkers", () => {
     let clock = 0;
     chat.agent("@checker", replyWith(match));
     runner = new Runner(store, chat, outlets, [invoices], { now: () => clock });
+    attestRooms(store, chat);
     const id = await runner.open("invoice-check", invoice, "webhook");
     await deliver();
     expect(store.load(id).pending?.kind).toBe("parallel");

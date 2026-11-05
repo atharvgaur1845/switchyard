@@ -7,7 +7,7 @@ import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
 import { basisHash, CHECKS, docHash, tableRows } from "../src/engine/verifiers.ts";
 import { seedDocuments } from "../src/switch/seed-docs.ts";
-import { FakeSwitch, RecordingOutlets, replyWith } from "./fake-switch.ts";
+import { FakeSwitch, RecordingOutlets, replyWith, attestRooms } from "./fake-switch.ts";
 
 // The finance room's vendor master, as its template seeds it.
 const VENDOR_MASTER = (parseYaml(readFileSync("templates/invoice-check.template.yaml", "utf8")).room.docs as { name: string; content: string }[])
@@ -65,6 +65,7 @@ describe("invoices: the models check, code decides", () => {
     if (withDocs) chat.doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", VENDOR_MASTER);
     const outlets = new RecordingOutlets();
     const runner = new Runner(store, chat, outlets, [flow], { vendors: { "@checker": "anthropic", "@checker-backup": "google" } });
+    attestRooms(store, chat);
     const id = await runner.open("invoice-check", invoice, "webhook");
     await chat.deliver((m) => runner.onMessage(m));
     return { store, chat, outlets, id };
@@ -109,6 +110,7 @@ describe("invoices: the models check, code decides", () => {
     };
     const outlets = new RecordingOutlets();
     const runner = new Runner(store, chat, outlets, [flow]);
+    attestRooms(store, chat);
     const id = await runner.open("invoice-check", { supplier: "Northwind Paper", number: "NW-1", amount: 1240, po: "PO-1041" }, "webhook");
     await chat.deliver((m) => runner.onMessage(m));
 
@@ -132,6 +134,7 @@ describe("rules live in the room", () => {
     const store = new Store();
     const chat = new FakeSwitch().doc("ops-requests", "expense-policy", "Meals: up to 60 per person per day.");
     const runner = new Runner(store, chat, new RecordingOutlets(), [flow]);
+    attestRooms(store, chat);
     const commands = new Commands(runner, store, chat, [flow], { "@manager": ["@priya"] });
     const say = (body: string, sender = "@priya") => commands.handle({ room: "ops-requests", messageId: "u1", sender, body, fromPerson: true });
     return { chat, say };

@@ -27,7 +27,7 @@ Disclose on screen from the first frame:
    npm run switchyard up
    ```
 
-   `up` prints "Attested every row of #finance/purchase-orders, #finance/vendor-master" after a reset.
+   After a reset, `up` prints "Attested every row of #finance/purchase-orders, #finance/vendor-master", and `#finance` gets one message per document listing the rows it attested.
 5. Warm up the agents: send one input and check that both checkers answer. Gemini's free tier can return 429. If it does, the case still works; it just shows "split".
 6. Agent replies take 10–20 s. Cut the waits in the edit but keep the timestamps visible. Never call a cut "live".
 

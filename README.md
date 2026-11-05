@@ -67,7 +67,7 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 
 - **Money goes only to the account on file.** The `pay` outlet's account comes from the `vendor_bank` check on the vendor master, never from the invoice. Tests: "pays the account on file even when the invoice prints another one, after a person decides".
 - **Look-alike domains are caught by code**, using edit distance against the domain on file. The warning goes to the contact on file, never to the sender. Tests: "refuses a change from a look-alike domain and says why", "from a look-alike domain is blocked, and the real supplier is warned at the address on file".
-- **An edit made in the room, outside any case, moves no money.** Switch has no per-document permissions, so Switchyard keeps its own record: the full SHA-256 of every row a code check reads, as it first saw it at start or as a case last wrote it. A check on a row that differs fails and says so. A vendor row edited by hand is never paid, even if a person clicks; a purchase order edited by hand goes to a person. Restoring the row by hand makes it pass again. Tests: "an account swapped in the room directly is never paid, and no pay card is offered", "a vendor added in the room directly is not paid", "an insider's edit while the card is open voids the approval and holds the invoice".
+- **An edit made in the room, outside any case, moves no money.** Switch has no per-document permissions, so Switchyard keeps its own record: the full SHA-256 of every row a code check reads, as it first saw it when it started or as a case last wrote it. A check on a row that differs fails and says so. A vendor row edited by hand is never paid, even if a person clicks; a purchase order edited by hand goes to a person. Restoring the row by hand makes it pass again. Tests: "an account swapped in the room directly is never paid, and no pay card is offered", "a vendor added in the room directly is not paid", "an insider's edit while the card is open voids the approval and holds the invoice".
 - **From chat, nobody can redirect a payment.** `@yard edit` refuses documents that code checks read, so the only way to change a bank account is a bank-change case. Invoices come in only through the signed webhook and bank changes only through the email inlet, never from `@yard start`. Other cases started by hand need a role. Tests: "cannot be edited from chat, even by someone who holds a role", "does not let anyone start a paying case from chat, even someone who holds a role".
 - **One purchase order, one automatic payment.** Before paying, the case marks the PO's row "invoiced <number> (case <id>)" in the room, and the PO check accepts only a status of exactly `open`. Another case that checked the same PO sees its row change before it acts, so its approval no longer counts. An invoice is also opened once per supplier and invoice number (compared like names, so `FP-0912` and `FP 0912` are one invoice). Suppliers must match the PO's whole name. Tests: "a second invoice for an already invoiced PO, under a new number, waits for a person", "two cards open on one PO: once one is paid, the other's approval no longer counts", "pays one invoice once, however many times it arrives".
 - **The agent's reading is checked against the email.** The new IBAN must appear in the email itself, and the callback card has the supplier read out the whole account. Agent steps ignore replies typed by people, and `@yard reassign` moves a step only to one of the flow's agents. Tests: "an account the email does not contain is not accepted from the agent", "a person typing the agent's reply in the thread is ignored".
@@ -87,7 +87,7 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 
 ## Attacks, and what stops each
 
-Each attack below paid, or misled a person, on an earlier version of this code. `test/adversarial.test.ts` now runs each one and checks that it is stopped.
+The look-alike email, the clerk approving their own callback and the approval on old facts were stopped from the start. The others paid, or misled a person, on an earlier version of this code; an independent red-team review found them, and `test/adversarial.test.ts` now runs each one and checks that it is stopped.
 
 | Attack | What stops it | Test |
 |---|---|---|
@@ -156,10 +156,11 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
 
 - **The sender check reads the email's `From` address.** It does not verify SPF or DKIM, so a forged `From` on the right domain passes the domain check. That is why a passing change still needs a callback to the number on file and a second approver.
 - **A valid IBAN is not proof of who owns the account.** The check digits catch typos only. There is no payee-name check (Verification of Payee) in the sandbox bank.
-- **Attestation trusts the documents as they stand when Switchyard first starts** (or first reads them). An edit made before that is accepted. After that, attestations persist across restarts.
-- **The event log is append-only by convention, not tamper-evident.** Someone with access to the SQLite file could rewrite it. Approval hashes are SHA-256 cut to 16 hex characters: enough inside the engine, where both sides are rendered from the same state, but too short to stand as a commitment another party checks later. Row attestations use the full hash.
+- **Attestation trusts the documents as they stand when Switchyard first starts.** `up` attests a document it has never seen and posts the rows it attested to the room, so anyone can check that baseline. An edit made before that first start is accepted. A check never adopts a document: one that was never attested passes nothing. Attestations persist across restarts.
+- **The event log is append-only by convention, not tamper-evident.** Someone with access to the SQLite file could rewrite it, and the row attestations live in the same file. Approval hashes are SHA-256 cut to 16 hex characters: enough inside the engine, where both sides are rendered from the same state, but too short to stand as a commitment another party checks later. Row attestations use the full hash.
 - **One engine process.** Switch's `update_room_document` has no version precondition, so the PO reservation and the vendor-master write rely on the engine's single queue.
 - **Exact names and whole POs.** "Fabrikam Print GmbH" against "Fabrikam Print" goes to a person, and so does a second, partial invoice against a PO that is already invoiced.
+- **Some controls fail closed, at a cost.** Two rows with the same vendor name hold every payment to that vendor until a person removes one. A PO reserved by a case whose payment the bank then refuses stays reserved until a person reopens it.
 - **A re-check re-runs the code checks and the gates after them.** It does not re-ask agent steps that ran before the check.
 - **One slow action holds the engine's queue** for up to its timeout (60 s), because calls into the engine run one at a time.
 
@@ -189,7 +190,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 234 tests
+npm test             # 237 tests
 npm run typecheck
 npm run lint         # every flow in flows/
 npm run demo:offline

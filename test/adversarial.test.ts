@@ -11,7 +11,7 @@ import { CHECKS } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { startBank } from "../src/sandbox/bank.ts";
 import { caseSummaries } from "../src/web/api.ts";
-import { FakeSwitch, replyWith } from "./fake-switch.ts";
+import { attestRooms, FakeSwitch, replyWith } from "./fake-switch.ts";
 
 // Attacks on supplier payments, each one paired with the control that stops
 // it. Every test was a probe that paid (or misled) on the code before the
@@ -174,6 +174,7 @@ describe("attacks through the agent step of a bank change", () => {
     const runner = new Runner(store, chat, new LiveOutlets({ dataDir: tmpdir(), bankUrl, smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, chat, store), flows, {
       people: { "@ap-clerk": ["@clerk"], "@controller": ["@controller"] },
     });
+    attestRooms(store, chat);
     const open = (body: string) => runner.open("bank-change", { from: "accounts@fabrikam.test", subject: "new bank", body }, "email");
     return { chat, store, runner, open };
   };
@@ -230,6 +231,7 @@ describe("attacks on what the bank holds", () => {
     const store = new Store();
     const outlets = new Flaky({ dataDir: tmpdir(), bankUrl, smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, chat, store);
     const runner = new Runner(store, chat, outlets, flows, { now: () => Date.parse("2026-11-06") });
+    attestRooms(store, chat);
     return { chat, store, outlets, runner };
   };
   const paid = (store: Store, id: string) => store.events(id).filter((e) => e.type === "executed" && e.step === "schedule_payment");
@@ -258,5 +260,34 @@ describe("attacks on what the bank holds", () => {
     const [done] = paid(store, id);
     expect(done).toMatchObject({ receipt: expect.stringMatching(/confirmed with the bank after @controller said it went out/) });
     expect(done?.type === "executed" && done.readback).toBe(done?.type === "executed" ? done.hash : "");
+  });
+});
+
+describe("attestation starts with Switchyard, not with the first check", () => {
+  it("a row edited before any check, on a fresh store, is still held", async () => {
+    // As after `demo reset`: Switchyard has started and attested the room,
+    // then someone edits the vendor master before the first invoice.
+    const { store, doc, open, paid } = await rig();
+    doc("vendor-master").content = doc("vendor-master").content.replace(FABRIKAM, MULE);
+    const id = await open(fabrikam("FP-6001"));
+    expect(paid(id)).toHaveLength(0);
+    expect(store.load(id).results.bank_check).toMatchObject({ attested: false });
+  });
+
+  it("a check never adopts a document: without a start, nothing passes on it", async () => {
+    const verdict = { result: "match", po_amount: 3150, reasons: [] };
+    const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict))
+      .doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", MASTER.replace(FABRIKAM, MULE));
+    const store = new Store();
+    const runner = new Runner(store, chat, new LiveOutlets({ dataDir: tmpdir(), bankUrl, smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, chat, store), flows, { now: () => Date.parse("2026-11-06") });
+    const id = await runner.open("invoice-check", fabrikam("FP-6002"), "webhook");
+    await chat.deliver((m) => runner.onMessage(m));
+    expect(store.events(id).some((e) => e.type === "executed" && e.step === "schedule_payment")).toBe(false);
+    expect(store.load(id).results.bank_check).toMatchObject({ attested: false, detail: expect.stringContaining("vendor-master has never been attested") });
+  });
+
+  it("start tells the room what it attested", async () => {
+    const { chat } = await rig();
+    expect(chat.said("Attested 4 rows of vendor-master as they stand now (Northwind Paper, Contoso Cloud, Fabrikam Print, Tailspin Travel)")).toBe(true);
   });
 });
