@@ -2,7 +2,7 @@
 
 **Supplier payments a fraudster cannot redirect, run by agents and people in [Switch](https://github.com/sandbox-quantum/switch) rooms.**
 
-> Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is paid on facts that changed after the checks ran.
+> Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is paid on facts that changed after the checks ran, on a vendor row someone edited in the room outside a case, or twice on one purchase order.
 
 The one rule in the payment flow pays automatically only when all of these hold:
 - the two checkers agree;
@@ -18,6 +18,7 @@ A supplier emails: *"We changed banks. Please pay all open invoices to our new a
 - **Code decides the facts.** It checks whether the sender's domain is the supplier's own, or one a couple of characters away. It also checks the IBAN check digits, and whether the purchase order exists and matches to the cent.
 - **People decide, in Switch.** A named person calls the number on file. A *different* person approves the change. A controller approves any payment the rules can't release.
 - **Switchyard acts only on what was approved.** It writes the vendor's row in a Switch room document and pays through a bank that takes each payment once. It then reads the payment back and shows that the bank holds exactly the approved instruction.
+- **The room remembers what Switchyard wrote.** Every row a code check reads is attested: Switchyard keeps the hash of the version it first saw or last wrote through a case. A purchase order is marked invoiced in the room before any money moves. So an account swapped into the vendor master by hand is never paid, and a second invoice for the same order, under any number, goes to a person.
 
 ## See it in one minute, with no accounts
 
@@ -32,9 +33,11 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 1. **A "we changed banks" email from `fabrikarn.test`.** Code finds it is 2 characters away from `fabrikam.test` on file, the controller blocks it, and the real supplier is warned *at the address on file*.
 2. **A Fabrikam invoice that prints a different account.** The two checkers agree it matches PO-1043, but code finds the account differs from the vendor master. The card shows the payment going to the account *on file*, and it waits for the controller.
 3. **Meanwhile, a genuine change from Fabrikam's own domain.** A callback card goes to the AP clerk, who confirms. The clerk then tries to approve the change too and is refused (four eyes). The controller approves, and Switchyard writes the new account into the vendor master.
-4. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to pay, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it pays the new account through the bank and reads the payment back, and all three hashes match: the approved one, the one sent and the bank's copy.
+4. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to act, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it marks PO-1043 as invoiced in the room, pays the new account through the bank and reads the payment back. All three hashes match: the approved one, the one sent and the bank's copy.
+5. **Someone edits the vendor master in the room directly**, swapping Northwind's account and leaving the old date and the word "callback". The next Northwind invoice would have been paid by the rule. Instead it is held: the row is not the one Switchyard first saw, and no pay card is offered.
+6. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the case goes to a person.
 
-The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person.
+The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep a dashboard of the run's cases open at `http://localhost:4101`.
 
 ## What it looked like live, on Slack
 
@@ -64,11 +67,14 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 
 - **Money goes only to the account on file.** The `pay` outlet's account comes from the `vendor_bank` check on the vendor master, never from the invoice. Tests: "pays the account on file even when the invoice prints another one, after a person decides".
 - **Look-alike domains are caught by code**, using edit distance against the domain on file. The warning goes to the contact on file, never to the sender. Tests: "refuses a change from a look-alike domain and says why", "from a look-alike domain is blocked, and the real supplier is warned at the address on file".
-- **One insider can't redirect a payment from chat.** `@yard edit` refuses documents that code checks read, so from chat the only way to change a bank account is a bank-change case. Payment and bank-change cases come in only through their own signed inlet, never from `@yard start`. Other cases started by hand need a role. An invoice is opened once per supplier and invoice number (compared like names, so `FP-0912` and `FP 0912` are one invoice), however it arrives. Tests: "cannot be edited from chat, even by someone who holds a role", "does not let anyone start a paying case from chat, even someone who holds a role", "pays one invoice once, however many times it arrives". Anyone with direct write access to the room's documents in Switch is outside this: Switch has no per-document permissions to use.
+- **An edit made in the room, outside any case, moves no money.** Switch has no per-document permissions, so Switchyard keeps its own record: the full SHA-256 of every row a code check reads, as it first saw it at start or as a case last wrote it. A check on a row that differs fails and says so. A vendor row edited by hand is never paid, even if a person clicks; a purchase order edited by hand goes to a person. Restoring the row by hand makes it pass again. Tests: "an account swapped in the room directly is never paid, and no pay card is offered", "a vendor added in the room directly is not paid", "an insider's edit while the card is open voids the approval and holds the invoice".
+- **From chat, nobody can redirect a payment.** `@yard edit` refuses documents that code checks read, so the only way to change a bank account is a bank-change case. Invoices come in only through the signed webhook and bank changes only through the email inlet, never from `@yard start`. Other cases started by hand need a role. Tests: "cannot be edited from chat, even by someone who holds a role", "does not let anyone start a paying case from chat, even someone who holds a role".
+- **One purchase order, one automatic payment.** Before paying, the case marks the PO's row "invoiced <number> (case <id>)" in the room, and the PO check accepts only a status of exactly `open`. Another case that checked the same PO sees its row change before it acts, so its approval no longer counts. An invoice is also opened once per supplier and invoice number (compared like names, so `FP-0912` and `FP 0912` are one invoice). Suppliers must match the PO's whole name. Tests: "a second invoice for an already invoiced PO, under a new number, waits for a person", "two cards open on one PO: once one is paid, the other's approval no longer counts", "pays one invoice once, however many times it arrives".
+- **The agent's reading is checked against the email.** The new IBAN must appear in the email itself, and the callback card has the supplier read out the whole account. Agent steps ignore replies typed by people, and `@yard reassign` moves a step only to one of the flow's agents. Tests: "an account the email does not contain is not accepted from the agent", "a person typing the agent's reply in the thread is ignored".
 - **Four eyes.** A gate with `not_same_as: [callback]` refuses the person who made the call and re-opens the card. Test: "needs a callback and a second person, then changes exactly one row".
 - **An approval on old facts never pays.** Every check records the hash of each room document it read. Before any action, Switchyard re-reads those documents. If one changed, it sends nothing, re-runs the checks from that point on the new version, and opens a new card. Tests: "does not pay on an approval given before the vendor master changed", "is not written if the vendor master changed after the checks read it".
 - **What was approved is what is sent, and what the bank holds.** The card shows the rendered action and its hash. The outlet refuses if the action no longer hashes the same. The bank's copy is read back and must hash the same too. Tests: "pays the account on file by rule, and the bank's copy hashes to the approved action", "refuses to act when the flow file changed the action after approval".
-- **At most once.** Each payment uses the case and step as its idempotency key. The sandbox bank returns the same payment for a retry and refuses a different body under the same key. Test: "is paid at most once per key, and refuses a different payment under the same key".
+- **At most once per key.** Each payment uses the case and step as its idempotency key. The sandbox bank returns the same payment for a retry and refuses a different body under the same key; that refusal means something is already held under the key, so the case goes to a person rather than reporting "nothing was sent". When a person answers "it went out" on a payment in doubt, Switchyard reads the payment back from the bank by its key before believing it. Tests: "is paid at most once per key, and refuses a different payment under the same key", "'it went out' is not believed when the bank holds no such payment".
 - **Further guards:**
   - a redelivered webhook opens no second case ("opens one case and says the second delivery was a duplicate");
   - the same answer arriving twice records one decision ("records one decision when the same answer arrives twice at once");
@@ -78,6 +84,25 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 - **Outside text is data, not instructions.** Emails, invoices and forms reach agents only inside a fence with a random tag per request. Tests: "fences outside data off from instructions", "cannot be closed from inside the data".
 - **Agents cannot act.** Every agent CLI is started with its tools, MCP servers and settings switched off, and Switchyard refuses to start one it cannot lock down. Test: "refuses a CLI it cannot lock down".
 - **Two vendors, so one outage doesn't stop the room.** The two invoice checkers run on different vendors (Claude and Gemini). The bank-change agent and most other agent steps have a backup agent on another vendor; the weekly report's review step has none. On case `94221172` the Claude checker hit its real usage limit mid-run, and the case still went to a person with the evidence it had.
+
+## Attacks, and what stops each
+
+Each attack below paid, or misled a person, on an earlier version of this code. `test/adversarial.test.ts` now runs each one and checks that it is stopped.
+
+| Attack | What stops it | Test |
+|---|---|---|
+| "We changed banks" from a look-alike domain | Code compares the sender's domain with the one on file | "from a look-alike domain is blocked, and the real supplier is warned at the address on file" |
+| Same invoice resent, or renumbered (`FP-0913`, `FР-0912` with a Cyrillic Р) | Business-key dedupe, and the PO is marked invoiced in the room | "a second invoice for an already invoiced PO, under a new number, waits for a person" |
+| Two cards for one PO approved one after the other | The second case's PO row changed: its approval is void, and it re-checks | "two cards open on one PO: once one is paid, the other's approval no longer counts" |
+| A new vendor called "Fabrikam" invoicing on Fabrikam Print's PO | Whole-name match; PO status must be exactly `open` | "a supplier named only part of the name on the PO is not that supplier" |
+| An insider swaps an IBAN in `vendor-master` and types "callback" | Row attestation: the row is not the one Switchyard saw or wrote | "an account swapped in the room directly is never paid, and no pay card is offered" |
+| An insider adds a vendor and a PO by hand | Rows without attestation do not pass | "a vendor added in the room directly is not paid" |
+| A vendor row edited while a pay card is open | Re-check before acting; the edited row is held | "an insider's edit while the card is open voids the approval and holds the invoice" |
+| An email whose agent reading names a different IBAN (injection or a model's slip) | The IBAN must appear in the email | "an account the email does not contain is not accepted from the agent" |
+| A person types the agent's JSON reply, or reassigns the step to themselves | Agent steps ignore people; reassign only to the flow's agents | "a person typing the agent's reply in the thread is ignored" |
+| A clerk confirms the callback and approves the change | `not_same_as: [callback]` | "needs a callback and a second person, then changes exactly one row" |
+| An approval given before the facts changed | Document basis re-checked before any action | "does not pay on an approval given before the vendor master changed" |
+| "It went out" on a payment the bank never received | Read back by key from the bank | "'it went out' is not believed when the bank holds no such payment" |
 
 ## Run it live on Switch and Slack
 
@@ -100,10 +125,16 @@ npm run switchyard up                    # puts vendor-master and purchase-order
 In `switchyard.yaml`, map the roles to people under `people:`: `@controller`, `@ap-clerk`, `@cfo`. One person may hold several roles, but four eyes still keeps the callback and the approval apart. Then:
 
 ```bash
-npm run switchyard demo send bank-change        # the look-alike email
-npm run switchyard demo send bank-change-real   # the genuine change
-npm run switchyard demo send fabrikam-invoice   # an invoice printing another account
+npm run switchyard demo send bank-change          # the look-alike email
+npm run switchyard demo send bank-change-real     # the genuine change
+npm run switchyard demo send fabrikam-invoice     # an invoice printing another account
+npm run switchyard demo send fabrikam-invoice-2   # the same PO again, under a new number
+npm run switchyard demo send insider-edit         # writes vendor-master directly, outside any case
+npm run switchyard demo send northwind-invoice    # would be paid by the rule; held after the edit
+npm run switchyard demo send insider-restore      # puts Northwind's row back
 ```
+
+`insider-edit` uses @yard's own key over a second, short-lived connection to write the document directly, the way anyone with write access to it could. That connection never polls for card answers. For a clean recording, stop Switchyard and run `npm run switchyard demo reset`. It moves the event log and the bank ledger aside (it never deletes them) and puts the two finance documents back to the template.
 
 Answer the cards in Slack: click the button, or reply `A1 block` in the case thread (Switch's own typed-answer form). The dashboard at `http://localhost:4100` (localhost only) draws each case from its event log. It shows the checkers on their two vendors, the code checks with the document versions they read, the approval arcs with their hashes, and the receipts. The sandbox bank's ledger is at `http://localhost:4300`.
 
@@ -124,6 +155,11 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
 ## Known limits
 
 - **The sender check reads the email's `From` address.** It does not verify SPF or DKIM, so a forged `From` on the right domain passes the domain check. That is why a passing change still needs a callback to the number on file and a second approver.
+- **A valid IBAN is not proof of who owns the account.** The check digits catch typos only. There is no payee-name check (Verification of Payee) in the sandbox bank.
+- **Attestation trusts the documents as they stand when Switchyard first starts** (or first reads them). An edit made before that is accepted. After that, attestations persist across restarts.
+- **The event log is append-only by convention, not tamper-evident.** Someone with access to the SQLite file could rewrite it. Approval hashes are SHA-256 cut to 16 hex characters: enough inside the engine, where both sides are rendered from the same state, but too short to stand as a commitment another party checks later. Row attestations use the full hash.
+- **One engine process.** Switch's `update_room_document` has no version precondition, so the PO reservation and the vendor-master write rely on the engine's single queue.
+- **Exact names and whole POs.** "Fabrikam Print GmbH" against "Fabrikam Print" goes to a person, and so does a second, partial invoice against a PO that is already invoiced.
 - **A re-check re-runs the code checks and the gates after them.** It does not re-ask agent steps that ran before the check.
 - **One slow action holds the engine's queue** for up to its timeout (60 s), because calls into the engine run one at a time.
 
@@ -145,6 +181,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 
 - **Approval outcomes on the event stream.** Today they are polled, so a decision can take a poll interval to land.
 - **A stable handle in `answered_by`.** Today it is a bridge-specific id that has to be matched back to a participant by username.
+- **Per-document write permissions.** Today anyone who can write to a room's documents can rewrite the vendor master, which is why Switchyard attests rows itself.
 - **A version precondition on `update_room_document`.** Today a write replaces the content unconditionally. Switchyard re-reads and compares just before it writes, which leaves a small race window that only Switch can close.
 - **Inbound webhooks and schedules for agents.** Today Switchyard provides these itself.
 - **A room-document view in Console.** 0.40.1 has none, which is why rules are edited with `@yard edit`.
@@ -152,7 +189,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 219 tests
+npm test             # 234 tests
 npm run typecheck
 npm run lint         # every flow in flows/
 npm run demo:offline
