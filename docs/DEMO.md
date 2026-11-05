@@ -1,15 +1,18 @@
 # Demo script (about 5 minutes)
 
-Screen layout: Mattermost (`localhost:8065`) on the left, the Switchyard dashboard (`localhost:4100`) on the right. Open Mailpit (`localhost:8025`) in a third tab.
+Screen layout: Slack on the left, the Switchyard dashboard (`localhost:4100`) on the right. Open Mailpit (`localhost:8025`) in a third tab.
 
 Before recording:
+- Switch Console is open, with its local server running and Slack connected.
+- The flows are set up on Slack with `setup-local … --bridge <slack bridge id>`.
+- Mailpit is running.
+- Then start Switchyard:
 
 ```bash
-# Switch: Postgres + Mattermost + Mailpit, then core
-cd ../switch && just up && docker compose -f deploy/local/docker-compose.yml --project-directory . --profile mail up -d mailpit && just run
-# Switchyard
-cd ../switchyard && npm run switchyard up
+npm run switchyard up
 ```
+
+The same script works on the local Mattermost stack (`just up && just run` in the Switch repo); read "Mattermost" wherever it says Slack.
 
 Agent replies take 10 to 20 seconds. Cut the waits in the edit, but keep the timestamps visible.
 
@@ -23,9 +26,9 @@ Show: the dashboard Flows tab, with six flows.
 
 ## 0:20 – Agency: a client email becomes an approved quote (60 s)
 
-1. In Mailpit, send this from `dana@globex.test` to `quotes@acme.test`. Or run `curl smtp://localhost:1025 … -T client-mail.eml`.
+1. Send this email to `quotes@acme.test` from `dana@globex.test` to `quotes@acme.test`. Or run `curl smtp://localhost:1025 … -T client-mail.eml`.
    > New website for Globex Bakeries: 4 pages, copy, a workshop, budget about 6k.
-2. Mattermost `#client-requests`: a case thread opens. `@intake` (Claude) writes the brief, and `@quoter` prices it from the rate-sheet document: **7,720 USD**.
+2. Slack `#client-requests`: a case thread opens. `@intake` (Claude) writes the brief, and `@quoter` prices it from the rate-sheet document: **7,720 USD**.
 3. A card appears for you: *"send Globex Bakeries a quote of 7720 USD?"*, showing the exact email and its approval hash. Click **send**.
 4. Mailpit: the email is in Dana's inbox.
 5. Dashboard: the receipt panel shows **Approved `376c2aa6…` = Executed `376c2aa6…`**.
@@ -74,7 +77,20 @@ Show the dashboard KPIs and the Flows tab.
 
 ---
 
-## Run results (recorded 2026-11-05, local Switch + Mattermost)
+## Run results on Slack (2026-11-05, Switch Console 0.40.1 local server)
+
+Every approval was clicked in Slack and recorded as the Slack user who clicked it.
+
+| Flow | Case | Result |
+|---|---|---|
+| expense | `ebbf3442` | Approved in Slack; ledger row written, hash `0c1508e9…` (identical to the Mattermost run of the same expense) |
+| client-quote | `82f60a21` | Quote of 7,720 USD approved in Slack and emailed; follow-up scheduled for 3 days later |
+| invoice-check | `f2a5b65a` | Claude and Gemini both flagged 3,980 against a 3,150 PO; disputed in Slack; nothing paid |
+| onboarding | `c224a332` | Approved in Slack; welcome email and access row |
+| front-desk | `c3bc67ea` | Injection attempt held; staff chose to handle it themselves; nothing sent |
+| weekly-report | `80c7908a` | Started with `@yard start` in Slack; Gemini reviewed it as accurate; published to `#leadership` and emailed |
+
+## Run results (2026-11-05, local Switch + Mattermost)
 
 | Flow | Case | Result |
 |---|---|---|

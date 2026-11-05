@@ -128,7 +128,7 @@ In the room, `@yard help` lists the chat commands: `flows`, `cases`, `status <ca
 
 ## Verified live
 
-All six flows have been run end to end on a real Switch server with Mattermost. The agents were Claude Haiku and, as backups, Gemini (through the `claude` and `pi` CLIs), and the results were real:
+All six flows have been run end to end on Slack, through Switch Console's local server, and on a Switch server with Mattermost. The agents were Claude Haiku and, as backups, Gemini (through the `claude` and `pi` CLIs), and the results were real:
 - a ledger row and a payables row
 - the client's quote email and the onboarding email
 - the access-request row
