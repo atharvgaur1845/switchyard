@@ -8,12 +8,16 @@ import { FakeSwitch, RecordingOutlets, replyWith } from "./fake-switch.ts";
 const invoices = loadFlow(readFileSync("flows/invoice-check.flow.yaml", "utf8"));
 const invoice = { supplier: "Northwind Paper", number: "NW-1", amount: 1240, po: "PO-1041" };
 const match = { result: "match", po_amount: 1240, reasons: ["ok"] };
+const PURCHASE_ORDERS = `| PO | supplier | amount | status |
+|---|---|---|---|
+| PO-1041 | Northwind Paper | 1,240.00 | open |
+| PO-1042 | Contoso Cloud | 8,900.00 | open |`;
 
 describe("parallel checkers", () => {
   let store: Store, chat: FakeSwitch, outlets: RecordingOutlets, runner: Runner;
   beforeEach(() => {
     store = new Store();
-    chat = new FakeSwitch();
+    chat = new FakeSwitch().doc("finance", "purchase-orders", PURCHASE_ORDERS);
     outlets = new RecordingOutlets();
     runner = new Runner(store, chat, outlets, [invoices]);
   });

@@ -206,3 +206,8 @@ code.rule { font-size: 11.5px; white-space: normal; }
   .list { max-height: 60vh; }
   .detail { scroll-margin-top: 64px; }
 }
+.steps .k.verify { background: var(--act-soft); color: var(--act); }
+.station.done.k-verify .node { background: var(--act); }
+.docrefs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.docref { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); }
+.docref .ico { width: 12px; height: 12px; }

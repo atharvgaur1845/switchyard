@@ -34,12 +34,14 @@ const PATHS = {
   flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
   yard: '<path d="M3 21V14c0-3 2-5 5-5h13"/><path d="M3 14V3"/><path d="M17 5l4 4-4 4"/>',
   user: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
+  doc: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
 };
 const icon = (name, cls = "") =>
   `<svg class="ico ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name] ?? ""}</svg>`;
 
 const INLET_ICON = { form: "form", email: "mail", schedule: "calendar", webhook: "webhook", frontdesk: "message" };
-const STEP_ICON = { agent: "bot", parallel: "fork", gate: "hand", outlet: "send", wait: "clock" };
+const STEP_ICON = { agent: "bot", parallel: "fork", gate: "hand", outlet: "send", wait: "clock", verify: "code" };
 
 // ---------- state ----------
 
@@ -271,7 +273,10 @@ function timeline(c) {
         break;
       case "asked":
         if (!e.parallel) lastAgent = e.agent;
-        if (!e.parallel || e.attempt > 1) row("", "@yard", icon("yard"), `asked <b>${esc(e.agent)}</b> ${vendorBadge(e.agent)} for <b>${name}</b>${e.tries > 1 ? ` <span class="pill neutral">retry ${e.tries}</span>` : ""}`);
+        if (!e.parallel || e.attempt > 1) row("", "@yard", icon("yard"), `asked <b>${esc(e.agent)}</b> ${vendorBadge(e.agent)} for <b>${name}</b>${e.tries > 1 ? ` <span class="pill neutral">retry ${e.tries}</span>` : ""}`, docRefs(e.docs));
+        break;
+      case "verified":
+        row(e.value?.ok ? "act" : "stop", "code", icon("code"), `checked <b>${name}</b> (${esc(e.check)}): ${esc(e.value?.detail ?? "")}${e.docs ? ` ${Object.entries(e.docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)} <code>${esc(h)}</code></span>`).join(" ")}` : ""}`);
         break;
       case "fanned_out":
         row("", "@yard", icon("fork"), `asked ${e.agents.map((a) => `<b>${esc(a)}</b> ${vendorBadge(a)}`).join(" and ")} to do <b>${name}</b> independently`);
@@ -339,6 +344,12 @@ function timeline(c) {
     }
   }
   return items.join("");
+}
+
+// Which version of each room document an agent was working from.
+function docRefs(docs) {
+  if (!docs || !Object.keys(docs).length) return "";
+  return `<div class="docrefs">${Object.entries(docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)} <code>${esc(h)}</code></span>`).join("")}</div>`;
 }
 
 // Agent results: arrays of objects become tables, text keeps its line

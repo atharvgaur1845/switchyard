@@ -1,5 +1,7 @@
 import type { Flow } from "./flow-schema.ts";
+import type { People } from "./gates.ts";
 import type { Chat, InboundMessage } from "./ports.ts";
+import { docHash } from "./verifiers.ts";
 import type { Runner } from "./runner.ts";
 import type { CaseState, Store } from "./store.ts";
 
@@ -10,7 +12,9 @@ const HELP = `I run this room's flows. Ask me:
 - \`@yard start <flow> key=value ...\`: open a case by hand
 - \`@yard cancel <case>\`: stop a case
 - \`@yard reassign <case> @agent\`: give a waiting step to another agent
-- \`@yard resume <case>\`: end a wait step early`;
+- \`@yard resume <case>\`: end a wait step early
+- \`@yard docs\`: this room's documents (the rules agents and checks use)
+- \`@yard edit <document> "<old text>" "<new text>"\`: change a rule (approvers only)`;
 
 // People talk to @yard in the room. Agents can't: a command changes what
 // runs, so it has to come from a person.
@@ -19,12 +23,14 @@ export class Commands {
   private readonly store: Store;
   private readonly chat: Chat;
   private readonly flows: Flow[];
+  private readonly people: People;
 
-  constructor(runner: Runner, store: Store, chat: Chat, flows: Flow[]) {
+  constructor(runner: Runner, store: Store, chat: Chat, flows: Flow[], people: People = {}) {
     this.runner = runner;
     this.store = store;
     this.chat = chat;
     this.flows = flows;
+    this.people = people;
   }
 
   // Returns true when the message was a command (handled or refused).
@@ -97,10 +103,48 @@ export class Commands {
         break;
       }
 
+      case "docs": {
+        if (!this.chat.documents) {
+          await reply("This Switch connection cannot read room documents.");
+          break;
+        }
+        const docs = await this.chat.documents(message.room);
+        await reply(
+          docs.map((d) => `- \`${d.name}\` (version \`${docHash(d.content)}\`)${d.description ? `: ${d.description}` : ""}`).join("\n") ||
+            "This room has no documents.",
+        );
+        break;
+      }
+
+      case "edit": {
+        await reply(await this.edit(message, match[1]));
+        break;
+      }
+
       default:
         await reply(HELP);
     }
     return true;
+  }
+
+  // Changing a rule changes what agents and checks decide from then on, so
+  // only people who fill an approver role may do it, the change must match
+  // exactly one place, and the room is told the old and new versions.
+  private async edit(message: InboundMessage, text: string): Promise<string> {
+    const parsed = /^edit\s+(\S+)\s+"((?:[^"\\]|\\.)+)"\s+"((?:[^"\\]|\\.)*)"\s*$/s.exec(text.trim());
+    if (!parsed) return 'Use `@yard edit <document> "<old text>" "<new text>"`.';
+    const [, name, oldText, newText] = parsed;
+    const roles = Object.entries(this.people).filter(([, who]) => who.includes(message.sender)).map(([role]) => role);
+    if (roles.length === 0) return `${message.sender} cannot change this room's rules: only people who fill an approver role can.`;
+    if (!this.chat.documents || !this.chat.updateDocument) return "This Switch connection cannot change room documents.";
+
+    const doc = (await this.chat.documents(message.room)).find((d) => d.name === name);
+    if (!doc) return `No document \`${name}\` here. \`@yard docs\` lists them.`;
+    const count = doc.content.split(oldText).length - 1;
+    if (count !== 1) return `"${oldText}" appears ${count} times in \`${name}\`; it must appear exactly once.`;
+    const content = doc.content.replace(oldText, newText);
+    await this.chat.updateDocument(message.room, doc.id, content);
+    return `${message.sender} (${roles.join(", ")}) changed \`${name}\`: "${oldText}" → "${newText}". Version \`${docHash(doc.content)}\` → \`${docHash(content)}\`; cases asked from now on use the new version.`;
   }
 
   private find(id: string | undefined): CaseState | undefined {

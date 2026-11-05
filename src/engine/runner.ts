@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
-import { compile, render, type Scope } from "./expr.ts";
+import { compile, lookup, render, type Scope } from "./expr.ts";
+import { CHECKS, docHash } from "./verifiers.ts";
 import {
   type AgentStep,
   type Flow,
@@ -11,13 +12,15 @@ import {
   isGate,
   isOutlet,
   isParallel,
+  isVerify,
   isWait,
   type Outlet,
   type OutletStep,
   type ParallelStep,
+  type VerifyStep,
 } from "./flow-schema.ts";
 import { isApproval, mayAnswer, mention, type People } from "./gates.ts";
-import type { ApprovalCard, ApprovalOutcome, Chat, InboundMessage, Outlets } from "./ports.ts";
+import type { ApprovalCard, ApprovalOutcome, Chat, InboundMessage, Outlets, RoomDocument } from "./ports.ts";
 import type { CaseState, Store } from "./store.ts";
 import { describeOutlet, hashOutlet, renderOutlet } from "../outlets/payload.ts";
 
@@ -33,6 +36,8 @@ const PROVIDER_FAILURE =
 export interface RunnerOptions {
   now?: () => number;
   people?: People;
+  // Agent handle -> model vendor, shown on approval cards as evidence.
+  vendors?: Record<string, string>;
 }
 
 // Drives cases through their flow. It keeps no state of its own: every
@@ -45,6 +50,7 @@ export class Runner {
   private readonly flows: Map<string, Flow>;
   private readonly now: () => number;
   private readonly people: People;
+  private readonly vendors: Record<string, string>;
   // Outlets running right now in this process: not in doubt, just slow.
   private readonly inFlight = new Set<string>();
 
@@ -55,6 +61,7 @@ export class Runner {
     this.flows = new Map(flows.map((flow) => [flow.flow, flow]));
     this.now = options.now ?? Date.now;
     this.people = options.people ?? {};
+    this.vendors = options.vendors ?? {};
   }
 
   flowNames(): string[] {
@@ -110,6 +117,10 @@ export class Runner {
       this.store.append(state.id, { type: "fanned_out", step: step.id, agents: step.parallel, at: this.now() });
       for (const agent of step.parallel) await this.ask(state, step, agent, 1, 1);
       return true;
+    }
+    if (isVerify(step)) {
+      await this.verify(state, step);
+      return this.store.load(state.id).status !== "open";
     }
     if (isWait(step)) {
       const until = this.now() + durationMs(step.wait);
@@ -177,7 +188,8 @@ export class Runner {
     const parallel = isParallel(step);
     // Agents working the same step in parallel each get their own token.
     const token = stepToken(state.id, parallel ? `${step.id}.${agent.slice(1)}` : step.id, attempt);
-    this.store.append(state.id, { type: "asked", step: step.id, agent, token, attempt, tries, at: this.now(), parallel });
+    const docs = await this.documentHashes(state);
+    this.store.append(state.id, { type: "asked", step: step.id, agent, token, attempt, tries, at: this.now(), parallel, ...(docs ? { docs } : {}) });
     const body = stepRequest({
       ask: step.ask,
       expect: step.expect,
@@ -187,6 +199,48 @@ export class Runner {
       correction,
     });
     await this.chat.sendTargeted(state.room, agent, body, state.threadId!);
+  }
+
+  // Which version of each room document the agents are working from. A
+  // read failure is recorded, not fatal: the agent itself then fails to read
+  // the documents and the step moves on to its backup, then to a person.
+  private async documentHashes(state: CaseState): Promise<Record<string, string> | undefined> {
+    if (!this.chat.documents) return undefined;
+    try {
+      const docs = await this.chat.documents(state.room);
+      return Object.fromEntries(docs.map((d) => [d.name, docHash(d.content)]));
+    } catch {
+      return { "(unreadable)": "" };
+    }
+  }
+
+  private async verify(state: CaseState, step: VerifyStep): Promise<void> {
+    const { check, ...rawArgs } = step.verify;
+    const spec = CHECKS[check];
+    let docs: RoomDocument[] = [];
+    if (spec.needsDoc) {
+      try {
+        if (!this.chat.documents) throw new Error("this Switch connection cannot read room documents");
+        docs = await this.chat.documents(state.room);
+      } catch (error) {
+        // Fail closed: without the rules, nothing is decided automatically.
+        const reason = `could not read the room's documents (${(error as Error).message})`;
+        this.store.append(state.id, { type: "failed", step: step.id, reason });
+        await this.say(state, `Stopped at "${step.id}": ${reason}. A person needs to take this case.`);
+        return;
+      }
+    }
+    const args = renderArgs(rawArgs, scopeOf(state));
+    const value = spec.run(args, docs);
+    const used = typeof args.doc === "string" ? docs.filter((d) => d.name === args.doc) : [];
+    this.store.append(state.id, {
+      type: "verified",
+      step: step.id,
+      check,
+      value,
+      ...(used.length ? { docs: Object.fromEntries(used.map((d) => [d.name, docHash(d.content)])) } : {}),
+    });
+    await this.say(state, `${value.ok ? "✓" : "✗"} Checked by code (${check}): ${value.detail}`);
   }
 
   private async openGate(state: CaseState, step: GateStep): Promise<void> {
@@ -222,15 +276,38 @@ export class Runner {
       const payload = renderOutlet(outlet.outlet, scope);
       return [`${describeOutlet(payload)}\n(approval ${hashOutlet(payload)})`];
     });
-    const detail = previews.join("\n\n") || "No outside action depends on this answer.";
+    const action = previews.join("\n\n") || "No outside action depends on this answer.";
+    const sections = [note, action, this.evidence(state), this.timing(step)].filter(Boolean);
     return {
       requestId,
       room: state.room,
       threadId: state.threadId!,
       title: `${mention(this.people, addressee)} ${render(step.gate.title, scope)}`,
-      detail: note ? `${note}\n\n${detail}` : detail,
+      detail: sections.join("\n\n"),
       options: step.gate.options,
     };
+  }
+
+  // What the decision can rest on: checks done by code, and whether the
+  // agents that checked independently (on which vendors) agreed.
+  private evidence(state: CaseState): string {
+    const lines: string[] = [];
+    for (const step of this.flowOf(state).steps) {
+      const value = state.results[step.id] as Record<string, unknown> | undefined;
+      if (!value) continue;
+      if (isVerify(step)) lines.push(`${value.ok ? "✓" : "✗"} checked by code (${step.verify.check}): ${String(value.detail)}`);
+      if (isParallel(step)) {
+        const who = step.parallel.map((a) => `${a}${this.vendors[a] ? ` (${this.vendors[a]})` : ""}`).join(" and ");
+        lines.push(`${value.agreed ? "✓" : "✗"} ${who} ${value.agreed ? "agreed" : "did not agree"} on ${step.id}`);
+      }
+    }
+    return lines.length ? `Evidence:\n${lines.join("\n")}` : "";
+  }
+
+  private timing(step: GateStep): string {
+    if (!step.gate.deadline) return "";
+    const deadline = `${new Date(this.now() + durationMs(step.gate.deadline)).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+    return `Decide by ${deadline}${step.gate.backup ? `; after that ${mention(this.people, step.gate.backup)} can decide` : ""}.`;
   }
 
   async onMessage(message: InboundMessage): Promise<void> {
@@ -548,6 +625,18 @@ const DOUBT_RESEND = "send it again";
 // interrupted one is safe: ledger rows carry the key, visitor replies too.
 function safeToRepeat(outlet: Outlet): boolean {
   return "csv" in outlet || "visitor" in outlet;
+}
+
+// Fills a verify step's args. A value that is only a placeholder keeps the
+// type of what it names (a list of quote lines stays a list).
+function renderArgs(args: Record<string, unknown>, scope: Scope): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(args).map(([k, v]) => {
+      if (typeof v !== "string") return [k, v];
+      const whole = /^\{([A-Za-z_][\w.-]*)\}$/.exec(v);
+      return [k, whole ? lookup(scope, whole[1].split(".")) : render(v, scope)];
+    }),
+  );
 }
 
 // One result from several agents: each answer under the agent's name (so

@@ -120,6 +120,13 @@ export async function demoOffline(root = process.cwd()): Promise<void> {
     async handleOf(answeredBy) {
       return answeredBy.replace(/^demo:/, "");
     },
+    // Without Switch, each room's documents are the ones its template seeds.
+    async documents(room) {
+      const flow = flows.find((f) => f.room === room);
+      const template = flow ? join(root, "templates", `${flow.flow}.template.yaml`) : "";
+      const docs = template ? (parse(readFileSync(template, "utf8")).room?.docs ?? []) : [];
+      return docs.map((d: { name: string; content: string }, i: number) => ({ id: `${room}-${i}`, name: d.name, content: d.content }));
+    },
   };
   const outlets: Outlets = {
     async execute(outlet, key) {

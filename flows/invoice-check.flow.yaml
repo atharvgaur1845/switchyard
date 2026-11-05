@@ -19,8 +19,13 @@ steps:
       reasons: list
     sla: 10m
 
+  # The decision rests on code, not on the models: the purchase order is
+  # looked up in the room's document and compared to the invoice exactly.
+  - id: po_check
+    verify: { check: po_lookup, doc: purchase-orders, po: "{case.po}", supplier: "{case.supplier}", amount: "{case.amount}" }
+
   - id: finance
-    when: match.agreed == false or match.checker.result != "match" or case.amount > 10000
+    when: po_check.ok == false or match.agreed == false or case.amount > 10000
     gate:
       approver: "@controller"
       backup: "@cfo"
@@ -31,6 +36,6 @@ steps:
 
   - id: schedule_payment
     when: finance != "dispute"
-    auto_approve: match.agreed == true and match.checker.result == "match" and case.amount <= 10000
+    auto_approve: po_check.ok == true and match.agreed == true and case.amount <= 10000
     outlet:
       csv: { file: payables.csv, row: ["{case.supplier}", "{case.number}", "{case.amount}", "{case.po}"] }

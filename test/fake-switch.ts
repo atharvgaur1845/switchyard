@@ -1,4 +1,4 @@
-import type { ApprovalCard, Chat, InboundMessage, Outlets } from "../src/engine/ports.ts";
+import type { ApprovalCard, Chat, InboundMessage, Outlets, RoomDocument } from "../src/engine/ports.ts";
 import type { Outlet } from "../src/engine/flow-schema.ts";
 
 type Agent = (request: string) => string;
@@ -11,11 +11,31 @@ export class FakeSwitch implements Chat {
   readonly cards: ApprovalCard[] = [];
   readonly inbox: InboundMessage[] = [];
   private readonly agents = new Map<string, Agent>();
+  readonly docs = new Map<string, RoomDocument[]>();
   private nextId = 1;
 
   agent(handle: string, reply: Agent): this {
     this.agents.set(handle, reply);
     return this;
+  }
+
+  doc(room: string, name: string, content: string): this {
+    this.docs.set(room, [...(this.docs.get(room) ?? []), { id: `d-${name}`, name, content }]);
+    return this;
+  }
+
+  async documents(room: string): Promise<RoomDocument[]> {
+    return this.docs.get(room) ?? [];
+  }
+
+  async updateDocument(room: string, id: string, content: string): Promise<void> {
+    const doc = this.docs.get(room)?.find((d) => d.id === id);
+    if (doc) doc.content = content;
+  }
+
+  async createDocument(room: string, doc: Omit<RoomDocument, "id">): Promise<string> {
+    this.doc(room, doc.name, doc.content);
+    return `d-${doc.name}`;
   }
 
   async post(room: string, body: string, threadId?: string): Promise<string> {

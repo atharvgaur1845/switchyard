@@ -10,7 +10,20 @@ export type CaseEvent =
   | { type: "skipped"; step: string }
   // `attempt` counts every request for the step (it makes tokens unique);
   // `tries` counts this agent's requests, so a bench agent starts fresh.
-  | { type: "asked"; step: string; agent: string; token: string; attempt: number; tries?: number; at: number; parallel?: boolean }
+  | {
+      type: "asked";
+      step: string;
+      agent: string;
+      token: string;
+      attempt: number;
+      tries?: number;
+      at: number;
+      parallel?: boolean;
+      // Room document name -> hash of its content when the agent was asked:
+      // which version of the rules a verdict was based on.
+      docs?: Record<string, string>;
+    }
+  | { type: "verified"; step: string; check: string; value: unknown; docs?: Record<string, string> }
   | { type: "fanned_out"; step: string; agents: string[]; at: number }
   | { type: "partial"; step: string; agent: string; value: unknown }
   | { type: "failed_over"; step: string; from: string; to: string; reason: string }
@@ -112,6 +125,10 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         } else {
           state.pending = { kind: "agent", ...event, tries: event.tries ?? event.attempt };
         }
+        break;
+      case "verified":
+        state.results[event.step] = event.value;
+        state.finished.add(event.step);
         break;
       case "fanned_out":
         state.pending = { kind: "parallel", step: event.step, at: event.at, agents: {} };

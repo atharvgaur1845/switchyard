@@ -1,6 +1,7 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { compile, ExprError } from "./expr.ts";
+import { CHECKS } from "./verifiers.ts";
 
 // Field types an agent step can demand in its JSON reply. An array of strings
 // is an enum; a trailing "?" makes the field optional.
@@ -66,17 +67,25 @@ const ParallelStep = z.object({
   sla: Duration.optional(),
 });
 
+// A check done by code (src/engine/verifiers.ts), not by a model. Its args
+// may use {placeholders}; a value that is only a placeholder keeps its type.
+const VerifyStep = z.object({
+  ...base,
+  verify: z.object({ check: z.string() }).catchall(z.unknown()),
+});
+
 // Pauses the case, e.g. three days before a follow-up. A person can end it
 // early with `@yard resume <case>`.
 const WaitStep = z.object({ ...base, wait: Duration });
 
-export const Step = z.union([AgentStep, ParallelStep, GateStep, OutletStep, WaitStep]);
+export const Step = z.union([AgentStep, ParallelStep, GateStep, OutletStep, WaitStep, VerifyStep]);
 export type Step = z.infer<typeof Step>;
 export type AgentStep = z.infer<typeof AgentStep>;
 export type GateStep = z.infer<typeof GateStep>;
 export type OutletStep = z.infer<typeof OutletStep>;
 export type WaitStep = z.infer<typeof WaitStep>;
 export type ParallelStep = z.infer<typeof ParallelStep>;
+export type VerifyStep = z.infer<typeof VerifyStep>;
 export type Outlet = OutletStep["outlet"];
 
 export const Flow = z.object({
@@ -92,6 +101,7 @@ export const isAgent = (step: Step): step is AgentStep => "agent" in step;
 export const isGate = (step: Step): step is GateStep => "gate" in step;
 export const isOutlet = (step: Step): step is OutletStep => "outlet" in step;
 export const isParallel = (step: Step): step is ParallelStep => "parallel" in step;
+export const isVerify = (step: Step): step is VerifyStep => "verify" in step;
 export const isWait = (step: Step): step is WaitStep => "wait" in step;
 
 export class FlowError extends Error {
@@ -136,6 +146,10 @@ export function lint(flow: Flow): string[] {
         gated.add(target);
         knownAtGate.set(target, new Set(seen.keys()));
       }
+    }
+
+    if (isVerify(step) && !CHECKS[step.verify.check]) {
+      problems.push(`step "${step.id}": unknown check "${step.verify.check}"; known checks: ${Object.keys(CHECKS).join(", ")}`);
     }
 
     // Case data and earlier results reach an agent only inside the fence
@@ -190,7 +204,7 @@ function referencedNames(step: Step): Set<string> {
       if (!WORDS.has(word)) names.add(word.split(".")[0]);
     }
   }
-  for (const name of placeholderNames(isAgent(step) || isParallel(step) ? step.ask : isGate(step) ? step.gate.title : isOutlet(step) ? step.outlet : "")) {
+  for (const name of placeholderNames(isAgent(step) || isParallel(step) ? step.ask : isGate(step) ? step.gate.title : isOutlet(step) ? step.outlet : isVerify(step) ? step.verify : "")) {
     names.add(name);
   }
   return names;

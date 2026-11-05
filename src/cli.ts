@@ -12,6 +12,7 @@ import { LiveOutlets } from "./outlets/index.ts";
 import { CliAgent } from "./agents/cli-agent.ts";
 import { vendorOf } from "./agents/lockdown.ts";
 import { vendorProblems } from "./agents/vendors.ts";
+import { seedDocuments } from "./switch/seed-docs.ts";
 import { envKey, setupLocal } from "./setup-local.ts";
 import { DEMO_INPUTS, demoOffline, demoSend } from "./demo.ts";
 import { startServer } from "./server.ts";
@@ -167,7 +168,8 @@ async function up(): Promise<void> {
     client,
     store,
   );
-  const runner = new Runner(store, client, outlets, flows, { people: config.people });
+  const runnerVendors = Object.fromEntries(Object.entries(config.cli_agents).map(([n, a]) => [`@${n}`, vendorOf(a.command) ?? "unknown"]));
+  const runner = new Runner(store, client, outlets, flows, { people: config.people, vendors: runnerVendors });
 
   // Agents come up before any case is resumed, so a resumed step is asked of
   // an agent that is already listening. Every command is locked down (and
@@ -192,12 +194,14 @@ async function up(): Promise<void> {
     console.log(`@${name} is up (${vendorOf(agent.command) ?? "unknown vendor"}): ${agent.command.map((a) => a || '""').join(" ")}`);
   }
 
-  const commands = new Commands(runner, store, client, flows);
+  const commands = new Commands(runner, store, client, flows, config.people);
   client.onMessage(async (message) => {
     if (!(await commands.handle(message))) await runner.onMessage(message);
   });
   client.onApproval((outcome) => runner.onApproval(outcome));
   await client.start();
+  const seeded = await seedDocuments(client, flows);
+  if (seeded.length) console.log(`Created room documents in Switch: ${seeded.join(", ")}`);
   await runner.resumeAll();
   const vendors = Object.fromEntries(agents.map(({ name, agent }) => [`@${name}`, vendorOf(agent.command) ?? "unknown"]));
   startServer({

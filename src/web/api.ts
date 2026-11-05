@@ -1,5 +1,5 @@
 import type { Flow, Step } from "../engine/flow-schema.ts";
-import { durationMs, isAgent, isGate, isOutlet, isParallel, isWait } from "../engine/flow-schema.ts";
+import { durationMs, isAgent, isGate, isOutlet, isParallel, isVerify, isWait } from "../engine/flow-schema.ts";
 import type { CaseEvent, CaseState, Store } from "../engine/store.ts";
 import { nextRuns } from "../inlets/schedule.ts";
 
@@ -13,10 +13,10 @@ export interface Extras {
   people?: Record<string, string[]>;
 }
 
-type Kind = "agent" | "parallel" | "gate" | "wait" | "outlet";
+type Kind = "agent" | "parallel" | "gate" | "wait" | "outlet" | "verify";
 
 function kindOf(step: Step): Kind {
-  return isAgent(step) ? "agent" : isParallel(step) ? "parallel" : isGate(step) ? "gate" : isWait(step) ? "wait" : "outlet";
+  return isAgent(step) ? "agent" : isParallel(step) ? "parallel" : isGate(step) ? "gate" : isWait(step) ? "wait" : isVerify(step) ? "verify" : "outlet";
 }
 
 export function flowSummaries(flows: Flow[], running: Set<string> = new Set(flows.map((f) => f.flow))) {
@@ -30,7 +30,7 @@ export function flowSummaries(flows: Flow[], running: Set<string> = new Set(flow
       id: step.id,
       label: step.id.replace(/_/g, " "),
       kind: kindOf(step),
-      who: isAgent(step) ? step.agent : isGate(step) ? step.gate.approver : isWait(step) ? step.wait : isOutlet(step) ? Object.keys(step.outlet)[0] : undefined,
+      who: isAgent(step) ? step.agent : isGate(step) ? step.gate.approver : isWait(step) ? step.wait : isOutlet(step) ? Object.keys(step.outlet)[0] : isVerify(step) ? `code: ${step.verify.check}` : undefined,
       agents: isParallel(step) ? step.parallel : isAgent(step) ? [step.agent] : undefined,
       backup: isAgent(step) ? step.bench : isGate(step) ? step.gate.backup : undefined,
       when: step.when,

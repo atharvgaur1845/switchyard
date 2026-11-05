@@ -31,10 +31,13 @@ steps:
     sla: 15m
     bench: "@quoter-backup"
 
+  - id: arithmetic
+    verify: { check: sum_lines, lines: "{quote.lines}", total: "{quote.total}" }
+
   - id: owner
     gate:
       approver: "@owner"
-      title: "send {brief.client} a quote of {quote.total} {quote.currency}?"
+      title: "send {brief.client} a quote of {quote.total} {quote.currency}? (arithmetic: {arithmetic.detail})"
       options: [send, hold]
       deadline: 8h
       approves: [send_quote, follow_up]

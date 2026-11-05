@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import type { InboundMessage } from "../engine/ports.ts";
+import type { InboundMessage, RoomDocument } from "../engine/ports.ts";
 import type { SwitchClient } from "../switch/client.ts";
 import { lockedCommand } from "./lockdown.ts";
 
@@ -19,26 +19,32 @@ export interface CliAgentSpec {
   timeoutMs?: number;
 }
 
-export function systemPrompt(templatePath: string, agentName: string): string {
+// The agent's standing instructions come from its template. The room's
+// documents (policy, prices, FAQ) do not: they are read from Switch for every
+// request, so a change made in the room applies to the very next case.
+export function systemPrompt(templatePath: string, agentName: string): { room: string; instructions: string } {
   const template = parse(readFileSync(templatePath, "utf8"));
   const agent = template.agents.find((a: { name: string }) => a.name === agentName);
   if (!agent) throw new Error(`${templatePath} has no agent named ${agentName}`);
-  const docs = (template.room.docs ?? [])
-    .map((d: { name: string; content: string }) => `## Room document: ${d.name}\n\n${d.content}`)
-    .join("\n\n");
-  return [
-    `You are @${agentName}, an agent in the Switch room "${template.room.name}".`,
-    agent.instructions,
-    template.room.instructions ?? "",
-    docs,
-    "Answer with the text of your chat reply only.",
-  ].join("\n\n");
+  return {
+    room: template.room.name,
+    instructions: [
+      `You are @${agentName}, an agent in the Switch room "${template.room.name}".`,
+      agent.instructions,
+      template.room.instructions ?? "",
+    ].join("\n\n"),
+  };
+}
+
+export function documentsSection(docs: RoomDocument[]): string {
+  if (docs.length === 0) return "This room has no documents.";
+  return docs.map((d) => `## Room document: ${d.name}\n\n${d.content}`).join("\n\n");
 }
 
 export class CliAgent {
   private readonly spec: CliAgentSpec;
   private readonly client: SwitchClient;
-  private readonly prompt: string;
+  private readonly prompt: { room: string; instructions: string };
   // The command as it actually runs: with its tools switched off.
   readonly command: string[];
   // An empty working folder. The real protection is the lockdown flags: a
@@ -66,9 +72,12 @@ export class CliAgent {
 
   private async answer(message: InboundMessage): Promise<void> {
     if (process.env.SWITCHYARD_DEBUG) console.log(`[${this.spec.name}] running ${this.command[0]}`);
-    const request = `${this.prompt}\n\n# Message from ${message.sender}\n\n${message.body}`;
     let reply: string;
     try {
+      // Without the room's rules the agent must not guess: a failed read
+      // fails the request, and @yard moves the step on, then to a person.
+      const docs = this.command.some((a) => a.endsWith("fixture-agent.ts")) ? [] : await this.client.documents(this.prompt.room);
+      const request = `${this.prompt.instructions}\n\n${documentsSection(docs)}\n\nAnswer with the text of your chat reply only.\n\n# Message from ${message.sender}\n\n${message.body}`;
       if (simulatedOutage(this.spec.name)) {
         throw new Error("usage limit reached (simulated outage: SWITCHYARD_OUTAGE)");
       }
