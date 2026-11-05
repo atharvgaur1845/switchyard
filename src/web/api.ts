@@ -123,6 +123,10 @@ function outcomeOf(state: CaseState, events: CaseEvent[], flow: Flow | undefined
   }
   const executed = events.filter((e) => e.type === "executed");
   const declined = events.find((e) => e.type === "gate_answered" && !e.approved);
+  // A "block" is a decision against the request even though it approves an
+  // action (warning the real supplier); the decision is the outcome.
+  const blocked = events.find((e) => e.type === "gate_answered" && e.approved && e.answer === "block");
+  if (blocked && executed.length > 0) return { label: "Blocked · supplier warned", tone: "stop" };
   if (executed.length > 0) {
     const last = executed.at(-1)!;
     const step = last.type === "executed" ? flow?.steps.find((s) => s.id === last.step) : undefined;
