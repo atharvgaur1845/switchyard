@@ -1,0 +1,46 @@
+flow: weekly-report
+room: sales-ops
+description: Monday sales report
+inlet:
+  schedule:
+    cron: "0 9 * * MON"
+    data: { period: last week }
+steps:
+  - id: draft
+    agent: "@analyst"
+    ask: >-
+      Write the weekly sales report for {case.period} from the sales data
+      document in this room: totals, the three biggest changes, and one risk.
+    expect:
+      headline: str
+      report: str
+    sla: 20m
+    bench: "@analyst-backup"
+
+  - id: review
+    agent: "@reviewer"
+    ask: >-
+      Check the draft report against the sales data. Correct any figure that
+      does not match and return the final text.
+    expect:
+      verdict: [accurate, corrected]
+      report: str
+    sla: 15m
+
+  - id: manager
+    gate:
+      approver: "@manager"
+      title: "publish this week's report ({draft.headline})?"
+      options: [publish, hold]
+      deadline: 4h
+      approves: [post, mail]
+
+  - id: post
+    when: manager == "publish"
+    outlet:
+      post: { room: leadership, body: "*Weekly sales report*\n\n{review.report}" }
+
+  - id: mail
+    when: manager == "publish"
+    outlet:
+      email: { to: leadership@acme.test, subject: "Weekly sales report: {draft.headline}", body: "{review.report}" }

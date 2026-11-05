@@ -1,0 +1,35 @@
+flow: invoice-check
+room: finance
+description: Supplier invoice check
+inlet:
+  webhook:
+    secret_env: INVOICE_HOOK_SECRET
+    map: { supplier: invoice.supplier, number: invoice.number, amount: invoice.total, po: invoice.po_number }
+steps:
+  - id: match
+    agent: "@checker"
+    ask: >-
+      Match this invoice against the purchase orders document in this room.
+      Say whether the PO exists, whether the amount matches it, and why not.
+    expect:
+      result: [match, mismatch, no_po]
+      po_amount: number?
+      reasons: list
+    sla: 10m
+    bench: "@checker-backup"
+
+  - id: finance
+    when: match.result != "match" or case.amount > 10000
+    gate:
+      approver: "@controller"
+      backup: "@cfo"
+      title: "pay {case.supplier} invoice {case.number} for {case.amount}?"
+      options: [pay, dispute]
+      deadline: 1d
+      approves: [schedule_payment]
+
+  - id: schedule_payment
+    when: finance != "dispute"
+    auto_approve: match.result == "match" and case.amount <= 10000
+    outlet:
+      csv: { file: payables.csv, row: ["{case.supplier}", "{case.number}", "{case.amount}", "{case.po}"] }

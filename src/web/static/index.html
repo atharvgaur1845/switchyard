@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switchyard</title>
+<link rel="icon" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/theme.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><img src="/static/logo.svg" alt="" width="22" height="22" class="logo"> Switchyard</a>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="cases" aria-selected="true">Cases</button>
+    <button role="tab" data-view="flows" aria-selected="false">Flows</button>
+  </nav>
+  <span class="live" id="live"><span class="dot"></span><span id="live-text">Connecting…</span></span>
+</header>
+
+<section class="kpis" id="kpis" aria-label="Summary">
+  <div class="kpi card"><div class="skeleton" style="height:48px"></div></div><div class="kpi card"><div class="skeleton" style="height:48px"></div></div>
+  <div class="kpi card"><div class="skeleton" style="height:48px"></div></div><div class="kpi card"><div class="skeleton" style="height:48px"></div></div>
+  <div class="kpi card"><div class="skeleton" style="height:48px"></div></div><div class="kpi card"><div class="skeleton" style="height:48px"></div></div>
+</section>
+
+<main id="view-cases" class="cases-view">
+  <aside class="list card" aria-label="Cases">
+    <div class="list-tools">
+      <div class="chips" id="filters" role="radiogroup" aria-label="Show"></div>
+      <input id="search" type="search" placeholder="Search cases" aria-label="Search cases">
+    </div>
+    <ol id="case-list" class="case-list">
+      <li style="padding:10px"><div class="skeleton" style="height:44px"></div></li>
+      <li style="padding:10px"><div class="skeleton" style="height:44px"></div></li>
+      <li style="padding:10px"><div class="skeleton" style="height:44px"></div></li>
+    </ol>
+  </aside>
+  <article class="detail card" id="detail" aria-live="polite"></article>
+</main>
+
+<main id="view-flows" class="flows-view" hidden>
+  <div id="flow-grid" class="flow-grid"></div>
+</main>
+
+<template id="empty-detail">
+  <div class="empty-state">
+    <img src="/static/logo.svg" alt="" width="40" height="40">
+    <h2>No case selected</h2>
+    <p>Cases arrive from forms, email, schedules, webhooks and the front desk. Pick one to see its track, who did what, and what was approved.</p>
+  </div>
+</template>
+
+<script src="/static/app.js" type="module"></script>
+</body>
+</html>

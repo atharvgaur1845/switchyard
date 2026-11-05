@@ -1,0 +1,33 @@
+flow: expense
+room: ops-requests
+description: Expense request
+inlet:
+  form:
+    fields: [name, email:email, amount:number, category, reason:long]
+steps:
+  - id: check
+    agent: "@policy"
+    ask: Check this expense against the expense policy document attached to this room.
+    expect:
+      verdict: [ok, needs_review, reject]
+      reasons: list
+    sla: 10m
+    bench: "@policy-backup"
+
+  - id: manager
+    when: case.amount > 500 or check.verdict == "needs_review"
+    gate:
+      approver: "@manager"
+      backup: "@finance-lead"
+      title: "approve {case.name}'s expense?"
+      options: [approve, reject]
+      deadline: 4h
+      approves: [record]
+
+  - id: record
+    when: manager != "reject" and check.verdict != "reject"
+    outlet:
+      csv:
+        file: ledger.csv
+        row: ["{case.name}", "{case.amount}", "{case.category}"]
+    auto_approve: case.amount <= 500 and check.verdict == "ok"

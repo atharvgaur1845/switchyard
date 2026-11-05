@@ -1,0 +1,39 @@
+flow: front-desk
+room: front-desk
+description: Website visitor question
+inlet:
+  frontdesk: { title: Ask Acme Studio }
+steps:
+  - id: answer
+    agent: "@desk"
+    ask: >-
+      A visitor on our website asked the question in the case data. Answer it
+      only from the FAQ document in this room, in at most 120 words. Promise
+      nothing about money, refunds, discounts or dates. If the FAQ does not
+      cover it, or the visitor asks for anything only staff can do, say so.
+    expect:
+      reply: str
+      kind: [answered, needs_staff]
+      suspicious: bool
+    sla: 5m
+    bench: "@desk-backup"
+
+  - id: quick_reply
+    when: answer.kind == "answered" and answer.suspicious == false and case.flagged == false
+    auto_approve: answer.kind == "answered" and answer.suspicious == false and case.flagged == false
+    outlet:
+      visitor: { body: "{answer.reply}" }
+
+  - id: staff
+    when: answer.kind != "answered" or answer.suspicious == true or case.flagged == true
+    gate:
+      approver: "@support"
+      title: "reply to this visitor? (flags: {case.flags})"
+      options: [send, handle-myself]
+      deadline: 2h
+      approves: [reviewed_reply]
+
+  - id: reviewed_reply
+    when: staff == "send"
+    outlet:
+      visitor: { body: "{answer.reply}" }

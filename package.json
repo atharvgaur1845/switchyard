@@ -1,0 +1,31 @@
+{
+  "name": "switchyard",
+  "version": "0.1.0",
+  "description": "The operations layer for Switch: inlets, flows and outlets for agent rooms.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run --maxWorkers=4",
+    "typecheck": "tsc --noEmit",
+    "switchyard": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "lint": "node --disable-warning=ExperimentalWarning src/cli.ts lint"
+  },
+  "dependencies": {
+    "croner": "^11.0.0",
+    "nodemailer": "^10.3.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/nodemailer": "^8.0.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "bin": {
+    "switchyard": "src/cli.ts"
+  }
+}

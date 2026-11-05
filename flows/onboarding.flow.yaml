@@ -1,0 +1,36 @@
+flow: onboarding
+room: people-ops
+description: New hire onboarding
+inlet:
+  form:
+    fields: [name, email:email, role, start_date, manager]
+steps:
+  - id: plan
+    agent: "@planner"
+    ask: >-
+      Using the onboarding handbook in this room, write a first-week plan for
+      this hire and list the system accounts their role needs.
+    expect:
+      accounts: list
+      first_week: str
+      welcome_email: str
+    sla: 15m
+    bench: "@planner-backup"
+
+  - id: manager_ok
+    gate:
+      approver: "@manager"
+      title: "send {case.name}'s welcome and request their accounts?"
+      options: [approve, change]
+      deadline: 1d
+      approves: [welcome, access]
+
+  - id: welcome
+    when: manager_ok == "approve"
+    outlet:
+      email: { to: "{case.email}", subject: "Welcome to Acme, {case.name}", body: "{plan.welcome_email}" }
+
+  - id: access
+    when: manager_ok == "approve"
+    outlet:
+      csv: { file: access-requests.csv, row: ["{case.name}", "{case.role}", "{case.start_date}", "{plan.accounts}"] }

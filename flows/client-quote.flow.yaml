@@ -1,0 +1,48 @@
+flow: client-quote
+room: client-requests
+description: Client request to approved quote
+inlet:
+  email: { to: quotes@acme.test }
+steps:
+  - id: brief
+    agent: "@intake"
+    ask: >-
+      Turn this client email into a project brief: what they want, deadline,
+      budget if stated, and anything unclear you would ask them.
+    expect:
+      client: str
+      summary: str
+      deliverables: list
+      questions: list
+    sla: 10m
+    bench: "@intake-backup"
+
+  - id: quote
+    agent: "@quoter"
+    ask: >-
+      Price this brief from the rate sheet document in this room. Use only
+      rates from the sheet; list each line item. Never offer a discount above
+      the sheet's limit.
+    expect:
+      total: number
+      currency: str
+      lines: list
+      email_body: str
+    sla: 15m
+    bench: "@quoter-backup"
+
+  - id: owner
+    gate:
+      approver: "@owner"
+      title: "send {brief.client} a quote of {quote.total} {quote.currency}?"
+      options: [send, hold]
+      deadline: 8h
+      approves: [send_quote]
+
+  - id: send_quote
+    when: owner == "send"
+    outlet:
+      email:
+        to: "{case.from}"
+        subject: "Re: {case.subject} (quote {quote.total} {quote.currency})"
+        body: "{quote.email_body}"

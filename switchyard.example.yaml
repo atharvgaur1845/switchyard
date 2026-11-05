@@ -1,0 +1,25 @@
+switch:
+  url: http://localhost:8000
+# Each flow's room name -> the Switch room id that @yard has been added to.
+rooms:
+  ops-requests: "<room id>"
+  client-requests: "<room id>"
+  sales-ops: "<room id>"
+  leadership: "<room id>"
+  people-ops: "<room id>"
+  finance: "<room id>"
+# Roles that flows name, mapped to the chat handles of real people.
+# One person can fill several roles while you try things out.
+people:
+  "@manager": "@you"
+  "@finance-lead": "@you"
+  "@owner": "@you"
+  "@controller": "@you"
+  "@cfo": "@you"
+flows: flows
+data: data
+port: 4100
+smtp:
+  host: localhost
+  port: 1025
+  from: switchyard@localhost
