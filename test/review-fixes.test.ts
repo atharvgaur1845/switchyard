@@ -203,7 +203,7 @@ describe("in doubt", () => {
 
     await runner.onApproval({ requestId: chat.cards.at(-1)!.requestId, answer: "send it again", answeredBy: "mx:@controller" });
     const executed = store.events(id).find((e) => e.type === "executed" && e.step === "schedule_payment");
-    expect(executed?.type === "executed" && executed.receipt).toMatch(/^paid 3150 EUR to Fabrikam Print \(sandbox bank SBX-\d+\) \(resent by @controller\)$/);
+    expect(executed?.type === "executed" && executed.receipt).toMatch(/^paid 3150 EUR to Fabrikam Print at DE29100500000190183746 \(sandbox bank SBX-\d+\) \(resent by @controller\)$/);
     expect(executed).toMatchObject({ readback: executed?.type === "executed" ? executed.hash : "" });
     expect(store.load(id).status).toBe("done");
   });

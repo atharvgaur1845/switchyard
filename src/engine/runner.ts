@@ -500,6 +500,10 @@ export class Runner {
       .openCases()
       .find((c) => c.threadId !== undefined && c.threadId === message.threadId);
     const pending = state?.pending;
+    // An agent step is answered by an agent. A person typing the reply in the
+    // thread (with a token copied from the request) would be both the source
+    // of the facts and, later, the one confirming them.
+    if (message.fromPerson && (pending?.kind === "agent" || pending?.kind === "parallel")) return;
     if (state && pending?.kind === "parallel") {
       await this.onParallelReply(state, message);
       return;
@@ -703,7 +707,24 @@ export class Runner {
 
     this.store.append(state.id, { type: "doubt_resolved", step: step.id, answer: outcome.answer, answeredBy: answerer! });
     const { hash, payload } = state.executing[step.id];
-    if (outcome.answer === DOUBT_SENT) {
+    if (outcome.answer === DOUBT_SENT && this.outlets.lookup && "pay" in (payload as Outlet)) {
+      // A person's word that a payment went out is checked with the bank.
+      let held: Awaited<ReturnType<NonNullable<Outlets["lookup"]>>>;
+      try {
+        held = await this.outlets.lookup(payload as Outlet, `${state.id}/${step.id}`);
+      } catch (error) {
+        await this.openDoubt(this.store.load(state.id), step, hash, payload as Outlet, `could not ask the bank (${(error as Error).message})`);
+        return;
+      }
+      if (!held || typeof held === "string" || held.readback !== hash) {
+        const reason = !held
+          ? `${answerer} said it went out, but the bank holds no payment under ${state.id}/${step.id}`
+          : `${answerer} said it went out, but the bank holds a different payment under that key (read back ${typeof held === "string" ? "?" : held.readback}, approved ${hash})`;
+        await this.openDoubt(this.store.load(state.id), step, hash, payload as Outlet, reason);
+        return;
+      }
+      this.store.append(state.id, { type: "executed", step: step.id, hash, payload, receipt: `${held.receipt} (confirmed with the bank after ${answerer} said it went out)`, readback: held.readback });
+    } else if (outcome.answer === DOUBT_SENT) {
       this.store.append(state.id, { type: "executed", step: step.id, hash, payload, receipt: `confirmed sent by ${answerer}` });
     } else {
       let result: Awaited<ReturnType<Outlets["execute"]>>;
@@ -748,11 +769,26 @@ export class Runner {
     if (state.status !== "open" || pending?.kind !== "agent") return "that case is not waiting on an agent";
     const step = this.stepOf(state, pending.step);
     if (!step || !isAgent(step)) return "that step is not an agent step";
+    const agents = this.agentsOf(this.flowOf(state));
+    if (!agents.has(to)) return `${to} is not one of this flow's agents (${[...agents].join(", ")}); a person cannot take an agent's step`;
 
     this.store.append(caseId, { type: "failed_over", step: step.id, from: pending.agent, to, reason: `reassigned by ${by}` });
     await this.say(state, `${by} moved "${step.id}" from ${pending.agent} to ${to}.`);
     await this.ask(state, step, to, pending.attempt + 1, 1);
     return undefined;
+  }
+
+  // The agents a flow names, and those running beside it.
+  private agentsOf(flow: Flow): Set<string> {
+    const agents = new Set(Object.keys(this.vendors).map((a) => a.toLowerCase()));
+    for (const step of flow.steps) {
+      if (isAgent(step)) {
+        agents.add(step.agent.toLowerCase());
+        if (step.bench) agents.add(step.bench.toLowerCase());
+      }
+      if (isParallel(step)) for (const a of step.parallel) agents.add(a.toLowerCase());
+    }
+    return agents;
   }
 
   // Called on an interval. Reminds approvers, escalates overdue gates and

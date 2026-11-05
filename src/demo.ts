@@ -235,7 +235,7 @@ export async function demoOffline(root = process.cwd()): Promise<void> {
 
   try {
     scene("1. \"We changed banks\", from a look-alike domain: code blocks it");
-    await runner.open("bank-change", { from: "accounts@fabrikarn.test", subject: "URGENT: updated bank details", body: "Pay all open invoices to our new account today. Phones are down; reply by email only." }, "email from accounts@fabrikarn.test");
+    await runner.open("bank-change", { from: "accounts@fabrikarn.test", subject: "URGENT: updated bank details", body: "Pay all open invoices to our new account, IBAN DE88 5007 0010 0175 5263 03, today. Phones are down; reply by email only." }, "email from accounts@fabrikarn.test");
     await settle();
     await click(/block this bank-detail change/, "block", "@controller");
 

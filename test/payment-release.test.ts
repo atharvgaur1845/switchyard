@@ -99,7 +99,7 @@ describe("a bank-detail change", () => {
     const people = { "@ap-clerk": ["@clerk"], "@controller": ["@controller", "@clerk"] };
     const runner = new Runner(store, chat, outlets, [flow("bank-change")], { people });
     const open = async () => {
-      const id = await runner.open("bank-change", { from: sender, subject: "bank details", body: "..." }, `email from ${sender}`);
+      const id = await runner.open("bank-change", { from: sender, subject: "bank details", body: "Please pay us at DE63 1203 0000 1064 5328 71 from now on." }, `email from ${sender}`);
       await chat.deliver((m) => runner.onMessage(m));
       return id;
     };
@@ -121,7 +121,7 @@ describe("a bank-detail change", () => {
   it("needs a callback and a second person, then changes exactly one row", async () => {
     const { store, chat, open, answer, master } = setup("accounts@fabrikam.test");
     const id = await open();
-    expect(chat.cards[0].title).toMatch(/call Fabrikam Print on \+49 30 5550 1003 \(the number on file, not one from the email\).*ends in 2871/);
+    expect(chat.cards[0].title).toMatch(/call Fabrikam Print on \+49 30 5550 1003 \(the number on file, not one from the email\).*it must be DE63120300001064532871$/);
     await answer(0, "@clerk", "confirmed");
 
     // The person who made the call cannot approve the change.
@@ -183,7 +183,7 @@ describe("paying an invoice", () => {
 
     const executed = store.events(id).find((e) => e.type === "executed" && e.step === "schedule_payment");
     expect(executed).toMatchObject({ readback: executed?.type === "executed" ? executed.hash : "" });
-    expect(executed?.type === "executed" && executed.receipt).toMatch(/paid 3150 EUR to Fabrikam Print \(sandbox bank SBX-\d+\)/);
+    expect(executed?.type === "executed" && executed.receipt).toMatch(/paid 3150 EUR to Fabrikam Print at DE29100500000190183746 \(sandbox bank SBX-\d+\)/);
     const held = JSON.parse(readFileSync(ledger, "utf8")).find((p: { key: string }) => p.key === `${id}/schedule_payment`);
     expect(held).toMatchObject({ to: FABRIKAM, amount: "3150" });
   });
@@ -225,7 +225,10 @@ describe("paying an invoice", () => {
     const again = await outlets.execute(pay, "k1/pay");
     expect(again).toEqual(first);
     expect(typeof first === "object" && first.readback).toBe(hashOutlet(pay));
-    await expect(outlets.execute({ pay: { ...pay.pay, amount: "9999" } }, "k1/pay")).rejects.toThrow(/409/);
+    // Not a refusal ("nothing was sent"): the key does hold a payment, so the case goes in doubt.
+    const conflict = outlets.execute({ pay: { ...pay.pay, amount: "9999" } }, "k1/pay");
+    await expect(conflict).rejects.toThrow(/the bank already holds a different payment under this key/);
+    await expect(conflict).rejects.not.toHaveProperty("refused");
     expect(JSON.parse(readFileSync(ledger, "utf8")).filter((p: { key: string }) => p.key === "k1/pay")).toHaveLength(1);
   });
 });

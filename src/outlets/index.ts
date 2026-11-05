@@ -87,12 +87,26 @@ export class LiveOutlets implements Outlets {
       headers: { "Content-Type": "application/json", "Idempotency-Key": key },
       body: JSON.stringify(pay),
     });
+    // The key already holds a different payment: something did go out under
+    // it, so this is not "nothing was sent". A person looks.
+    if (sent.status === 409) throw new Error(`the bank already holds a different payment under this key (${await sent.text()})`);
     if (sent.status >= 400 && sent.status < 500) throw new RefusedError(`the bank refused the payment: ${sent.status} ${await sent.text()}`);
     if (!sent.ok) throw new Error(`the bank answered ${sent.status} ${await sent.text()}`);
+    const held = await this.lookup({ pay }, key);
+    if (!held) throw new Error(`the bank cannot find payment ${key} after accepting it`);
+    return held;
+  }
+
+  // Reads a payment back from the bank by its key and hashes what the bank
+  // holds, in the same form as the approved action.
+  async lookup(outlet: Outlet, key: string): Promise<OutletResult | null> {
+    if (!("pay" in outlet)) return null;
+    const bank = this.config.bankUrl ?? "http://localhost:4300";
     const back = await fetch(`${bank}/payments/${encodeURIComponent(key)}`);
-    if (!back.ok) throw new Error(`the bank cannot find payment ${key} after accepting it (${back.status})`);
+    if (back.status === 404) return null;
+    if (!back.ok) throw new Error(`the bank answered ${back.status} when asked for payment ${key}`);
     const held = (await back.json()) as Record<string, string>;
     const readback = hashOutlet({ pay: { payee: held.payee, to: held.to, amount: held.amount, currency: held.currency, reference: held.reference } });
-    return { receipt: `paid ${held.amount} ${held.currency} to ${held.payee} (sandbox bank ${held.id})`, readback };
+    return { receipt: `paid ${held.amount} ${held.currency} to ${held.payee} at ${held.to} (sandbox bank ${held.id})`, readback };
   }
 }

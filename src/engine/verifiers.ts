@@ -89,7 +89,7 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
 
   // A request to change a supplier's bank account. args: doc (the vendor
   // master), vendor, sender (the email address it came from), iban (the new
-  // account). Passes only when the vendor is on file, the request came from
+  // account), text (the email, which must contain that account). Passes only when the vendor is on file, the request came from
   // the vendor's own domain, and the new account is a valid IBAN that differs
   // from the current one. A pass still needs a callback and a second person.
   bank_change: {
@@ -111,6 +111,8 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
             : `the request came from ${senderDomain || "an unknown sender"}, not ${vendor.domain} on file`),
         !ibanValid(iban) && `${iban || "(no account)"} is not a valid IBAN`,
         iban === vendor.iban && "the new account is the one already on file",
+        // The agent read the account from the email; code confirms it is there.
+        args.text !== undefined && iban !== "" && !compactIban(String(args.text)).includes(iban) && `${maskIban(iban)} does not appear in the email, so the agent's reading of it cannot be confirmed`,
       ].filter(Boolean);
       return {
         ok: problems.length === 0,

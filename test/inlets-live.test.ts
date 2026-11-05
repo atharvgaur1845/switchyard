@@ -63,7 +63,7 @@ describe("@yard commands", () => {
   beforeEach(() => {
     store = new Store();
     chat = new FakeSwitch();
-    runner = new Runner(store, chat, new RecordingOutlets(), [quotes]);
+    runner = new Runner(store, chat, new RecordingOutlets(), [quotes], { vendors: { "@intake": "anthropic", "@intake-codex": "openai" } });
     commands = new Commands(runner, store, chat, [quotes], { "@owner": ["@asha"] });
   });
 
@@ -80,6 +80,11 @@ describe("@yard commands", () => {
     await say("@yard cases");
     expect(chat.said(`\`${id}\` quote: waiting on @intake`)).toBe(true);
 
+    // A person cannot take an agent's step: they would supply the facts
+    // that a person later confirms.
+    await say(`@yard reassign ${id} @asha`);
+    expect(store.load(id).pending).toMatchObject({ agent: "@intake" });
+    expect(chat.said("Can't reassign: @asha is not one of this flow's agents")).toBe(true);
     await say(`@yard reassign ${id} @intake-codex`);
     expect(store.load(id).pending).toMatchObject({ agent: "@intake-codex" });
 

@@ -4,7 +4,7 @@ description: Supplier bank-detail change
 inlet:
   email: { to: ap@acme.test }
 steps:
-  # The most common way to steal a supplier payment is an email saying "we
+  # A common way to steal a supplier payment is an email saying "we
   # changed banks". An agent reads the request; code decides whether it is
   # believable; a person calls the supplier; a different person approves.
   - id: request
@@ -24,9 +24,9 @@ steps:
     bench: "@checker-backup"
 
   # Code, not the model: is the sender the supplier's own domain, is the
-  # account a valid IBAN, is it really a change.
+  # account a valid IBAN that the email itself contains, is it really a change.
   - id: checks
-    verify: { check: bank_change, doc: vendor-master, vendor: "{request.vendor}", sender: "{case.from}", iban: "{request.new_iban}" }
+    verify: { check: bank_change, doc: vendor-master, vendor: "{request.vendor}", sender: "{case.from}", iban: "{request.new_iban}", text: "{case.body}" }
 
   - id: suspect
     when: checks.ok == false
@@ -59,7 +59,7 @@ steps:
     when: checks.ok == true
     gate:
       approver: "@ap-clerk"
-      title: "call {checks.vendor} on {checks.phone} (the number on file, not one from the email) and confirm their new account ends in {checks.new_tail}"
+      title: "call {checks.vendor} on {checks.phone} (the number on file, not one from the email) and have them read out their new account: it must be {checks.new_iban}"
       options: [confirmed, not-confirmed]
       deadline: 1d
 

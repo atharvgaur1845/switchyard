@@ -48,6 +48,9 @@ export class RefusedError extends Error {
 
 export interface Outlets {
   execute(outlet: Outlet, key: string): Promise<OutletResult>;
+  // What the other side holds under `key`, for outlets that can be asked:
+  // null when it holds nothing. Lets "it went out" be checked, not trusted.
+  lookup?(outlet: Outlet, key: string): Promise<OutletResult | null>;
 }
 
 export interface InboundMessage {
