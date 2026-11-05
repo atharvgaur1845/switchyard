@@ -28,6 +28,16 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 
 The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person.
 
+## What it looked like live, on Slack
+
+The dashboard draws each case from its event log. This is case `60c4c081`: an invoice that printed the fraudster's account. Gemini's checker failed and Claude called it a mismatch ("split"). Code caught the account, the controller approved on the Slack card, and the payment went to the account *on file*. The bank's copy hashes to the approved action.
+
+![The invoice case: two checkers, code checks with the document versions they read, the approval arc and the three-hash receipt](docs/img/invoice-paid.png)
+
+And case `1c5cc185`, the look-alike bank-change email. The block card was answered in Slack, and the warning went to the supplier's address on file:
+
+![The blocked bank-change case](docs/img/bank-change-blocked.png)
+
 ## How Switch is used, and what breaks without it
 
 | Switchyard needs | Switch provides | Without Switch |

@@ -336,3 +336,7 @@ code, .mono, .rawtable, .dg .sub, .dg .cond, .dg .vt, .dg .hashtext, .dg .arc-la
 .flow-card .diagram { margin: 0; }
 @media (max-width: 1100px) { .flow-card { grid-template-columns: 1fr; } }
 @media (prefers-color-scheme: dark) { .dg .vt.v-anthropic { fill: #f2b48d; } .dg .vt.v-google { fill: #9cc1ff; } }
+/* Receipts may carry two or three hash plates: approved, sent, read back. */
+.hashes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.hashes .hash { flex: 1 1 170px; min-width: 0; }
+.hashes .hash code { word-break: break-all; }
