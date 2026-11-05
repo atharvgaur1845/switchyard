@@ -6,6 +6,7 @@ import { parse } from "yaml";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Flow, loadFlow, type Outlet } from "../src/engine/flow-schema.ts";
 import type { Outlets, OutletResult } from "../src/engine/ports.ts";
+import { Commands } from "../src/engine/commands.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
 import { CHECKS, docHash, editDistance, ibanValid, setTableRow } from "../src/engine/verifiers.ts";
@@ -223,5 +224,18 @@ describe("paying an invoice", () => {
     expect(typeof first === "object" && first.readback).toBe(hashOutlet(pay));
     await expect(outlets.execute({ pay: { ...pay.pay, amount: "9999" } }, "k1/pay")).rejects.toThrow(/409/);
     expect(JSON.parse(readFileSync(ledger, "utf8")).filter((p: { key: string }) => p.key === "k1/pay")).toHaveLength(1);
+  });
+});
+
+describe("the documents payments rest on", () => {
+  it("cannot be edited from chat, even by someone who holds a role", async () => {
+    const store = new Store();
+    const chat = new FakeSwitch().doc("finance", "vendor-master", MASTER).doc("finance", "purchase-orders", POS);
+    const runner = new Runner(store, chat, new TestOutlets(chat), flows);
+    const commands = new Commands(runner, store, chat, flows, { "@controller": ["@priya"] });
+    await commands.handle({ room: "finance", messageId: "u1", sender: "@priya", body: `@yard edit vendor-master "${FABRIKAM}" "${NEW_IBAN}"`, fromPerson: true });
+
+    expect(chat.docs.get("finance")![0].content).toBe(MASTER);
+    expect(chat.posts.at(-1)!.body).toMatch(/`vendor-master` is read by code checks \(bank-change.checks, invoice-check.bank_check\), so it cannot be edited from chat; changes go through a `bank-change` case/);
   });
 });

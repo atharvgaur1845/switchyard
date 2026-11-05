@@ -95,6 +95,9 @@ const DECLINED: Record<string, string> = {
   stop: "Stopped",
   change: "Changes requested",
   "handle-myself": "Handled by staff",
+  block: "Blocked",
+  investigate: "Under investigation",
+  "not-confirmed": "Callback failed",
 };
 
 const DONE_BY_OUTLET: Record<string, string> = {
@@ -103,6 +106,8 @@ const DONE_BY_OUTLET: Record<string, string> = {
   visitor: "Answered",
   post: "Posted",
   webhook: "Delivered",
+  pay: "Paid",
+  document: "Updated",
 };
 
 // What a finished case came to, in one word a person would use.

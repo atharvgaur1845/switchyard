@@ -282,6 +282,9 @@ function timeline(c) {
       case "gate_answered":
         row(e.approved ? "act" : "stop", asRole(e.answeredBy, step?.who), initials(e.answeredBy), `chose <b>${esc(e.answer)}</b> for <b>${name}</b>`);
         break;
+      case "rewound":
+        row("stop", "@yard", icon("reroute"), `would not act on <b>${name}</b>: ${Object.entries(e.docs ?? {}).map(([d, [was, now]]) => `<b>${esc(d)}</b> changed <code>${esc(was)}</code> → <code>${esc(now)}</code>`).join(", ")} after the checks read it, so the checks run again and any earlier approval no longer counts`);
+        break;
       case "executing":
         break;
       case "executed":
@@ -377,13 +380,17 @@ function receiptsOf(c) {
   let gate = null;
   for (const e of c.events) {
     if (e.type === "gate_opened") gate = e;
+    if (e.type === "rewound") for (const step of e.steps) delete approvals[step];
     if (e.type === "gate_answered" && gate) {
       for (const [step, hash] of Object.entries(gate.hashes)) approvals[step] = { hash, by: e.answeredBy, answer: e.answer, approved: e.approved, gate: e.step, payload: gate.payloads?.[step] };
       if (!e.approved) for (const [step, hash] of Object.entries(gate.hashes)) out.push({ kind: "declined", step, hash, ...approvals[step] });
     }
     if (e.type === "executed") {
       const a = approvals[e.step];
-      out.push({ kind: "executed", step: e.step, approval: a, hash: e.hash, receipt: e.receipt, payload: e.payload, match: a ? a.hash === e.hash : undefined, rule: stepOf(c, e.step)?.autoRule });
+      // true: every hash we have agrees; false: one differs; undefined: a rule ran it and nothing was read back.
+      const agrees = (!a || a.hash === e.hash) && (e.readback === undefined || e.readback === e.hash);
+      const match = !agrees ? false : a || e.readback ? true : undefined;
+      out.push({ kind: "executed", step: e.step, approval: a, hash: e.hash, receipt: e.receipt, payload: e.payload, readback: e.readback, match, rule: stepOf(c, e.step)?.autoRule });
     }
     if (e.type === "failed" && /approved/.test(e.reason)) out.push({ kind: "blocked", step: e.step, reason: e.reason });
   }
@@ -407,8 +414,9 @@ function receiptsHtml(c) {
     return `<div class="receipt ${r.match === false ? "bad" : ""}">
       <h4>${icon(r.match === false ? "x" : "check")} ${label}: ${esc(r.receipt)}</h4>
       <div class="hashes">${approved}<span class="eq" aria-label="${r.match ? "matches" : r.match === false ? "does not match" : "by rule"}">${sign}</span>
-        <div class="hash"><div class="k">Executed</div><code>${esc(r.hash)}</code></div></div>
-      ${r.approval ? `<p class="fine">${r.match ? "The executed action hashes to exactly what the approver saw on the card." : "The hashes differ: this should never happen, and Switchyard would have refused it."}</p>` : ""}
+        <div class="hash"><div class="k">Sent</div><code>${esc(r.hash)}</code></div>
+        ${r.readback ? `<span class="eq">${r.readback === r.hash ? icon("lock", "t-act") : icon("x", "t-stop")}</span><div class="hash"><div class="k">Read back from the bank <span class="pill neutral">sandbox</span></div><code>${esc(r.readback)}</code></div>` : ""}</div>
+      ${r.approval || r.readback ? `<p class="fine">${r.match ? `${r.approval ? "What was sent hashes to exactly what the approver saw on the card" : "What was sent matched the rule"}${r.readback ? ", and the bank's own copy of the payment hashes the same" : ""}.` : "The hashes differ: Switchyard treats this as in doubt and asks a person."}</p>` : ""}
     </div>`;
   });
   return cards.length ? `<section class="receipts" aria-label="Receipts">${cards.join("")}</section>` : "";
@@ -489,12 +497,17 @@ async function refresh() {
   }
 }
 
-// The case a first-time visitor sees: the newest invoice that went through
-// the two-checker fork, since it shows the most of the engine at once.
+// The case a first-time visitor sees: the payment story first (an approval
+// that stopped counting, then a bank check), since it shows the most at once.
 function hero(cases) {
-  return cases
-    .filter((c) => c.flow === "invoice-check" && c.events.some((e) => e.type === "fanned_out"))
-    .sort((a, b) => (b.openedAt ?? "").localeCompare(a.openedAt ?? ""))[0]?.id;
+  const newest = (list) => list.sort((a, b) => (b.openedAt ?? "").localeCompare(a.openedAt ?? ""))[0]?.id;
+  const invoices = cases.filter((c) => c.flow === "invoice-check");
+  return (
+    newest(invoices.filter((c) => c.events.some((e) => e.type === "rewound"))) ??
+    newest(invoices.filter((c) => c.events.some((e) => e.type === "verified" && e.check === "vendor_bank"))) ??
+    newest(cases.filter((c) => c.flow === "bank-change")) ??
+    newest(invoices.filter((c) => c.events.some((e) => e.type === "fanned_out")))
+  );
 }
 
 function select(id) {

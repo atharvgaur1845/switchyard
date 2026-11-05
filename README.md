@@ -1,185 +1,149 @@
 # Switchyard
 
-**The operations layer for [Switch](https://github.com/sandbox-quantum/switch).** Work arrives from outside chat: an email, a web form, a schedule, a webhook, a visitor on your website. Switchyard turns each item into a case in a Switch room and walks it through your agents and your people, step by step. When the case reaches an action that leaves the company, such as sending an email, paying a supplier or replying to a customer, Switchyard carries out **exactly what a person approved, and nothing else**.
+**Supplier payments a fraudster cannot redirect, run by agents and people in [Switch](https://github.com/sandbox-quantum/switch) rooms.**
 
-> Agents draft. People decide. Switchyard executes, and records every step in the room.
+> Nothing leaves the company unless a named person approved that exact action on a Switch card, and nothing is paid on facts that changed after the checks ran.
 
-Switch puts agents in your team chat. Switchyard is what lets a team run a *process* there. Without it, a process is people @mentioning agents and hoping someone follows up.
+A supplier emails: *"We changed banks. Please pay all open invoices to our new account today."* If accounts payable updates the record and pays, the money is usually gone for good. Switchyard is the back office that sits between that email and the payment:
 
-## What it looks like
+- **Agents read the mess.** An agent pulls the supplier, the new account and the pressure tactics out of the email.
+- **Code decides the facts.** It checks whether the sender's domain is the supplier's own, or one a couple of characters away. It also checks the IBAN check digits, and whether the purchase order exists and matches to the cent.
+- **People decide, in Switch.** A named person calls the number on file. A *different* person approves the change. A controller approves any payment the rules can't release.
+- **Switchyard acts only on what was approved.** It writes the vendor's row in a Switch room document and pays through a bank that takes each payment once. It then reads the payment back and shows that the bank holds exactly the approved instruction.
 
-A flow is a short YAML file. Here is the expense flow, in full:
+## See it in one minute, with no accounts
 
-```yaml
-flow: expense
-room: ops-requests
-inlet:
-  form: { fields: [name, email:email, amount:number, category, reason:long] }
-steps:
-  - id: check                       # an agent does the work...
-    agent: "@policy"
-    ask: Check this expense against the expense policy document attached to this room.
-    expect: { verdict: [ok, needs_review, reject], reasons: list }
-    sla: 10m
-    bench: "@policy-backup"         # ...and a backup on another vendor takes over if it stalls
-
-  - id: manager                     # a person decides, on a card in Slack
-    when: case.amount > 500 or check.verdict == "needs_review"
-    gate:
-      approver: "@manager"
-      backup: "@finance-lead"
-      title: "approve {case.name}'s expense?"
-      options: [approve, reject]
-      deadline: 4h
-      approves: [record]
-
-  - id: record                      # Switchyard acts, only on what was approved
-    when: manager != "reject" and check.verdict != "reject"
-    auto_approve: case.amount <= 500 and check.verdict == "ok"
-    outlet:
-      csv: { file: ledger.csv, row: ["{case.name}", "{case.amount}", "{case.category}"] }
+```bash
+git clone https://github.com/atharvgaur1845/switchyard && cd switchyard
+npm install          # Node 24 (see .nvmrc)
+npm run demo:offline
 ```
 
-What happens when someone submits the form:
+This is the real engine, with three stand-ins: canned agent replies, approval cards clicked by the script, and a sandbox bank started in the same process. You will see:
 
-1. **@yard opens a case thread** in `#ops-requests`. Everything about the case happens in that thread.
-2. **It asks @policy** for the `check` step. The form data is wrapped as quoted *untrusted data*. The agent must end its reply with a JSON block that matches `expect`. If the block is malformed, the agent gets one corrected retry; after that, the case goes to a person.
-3. **If the expense is over 500**, an approval card appears for the manager. It shows the exact ledger row that will be written, together with its hash.
-4. **Deadlines are enforced.** At half the deadline the manager gets a reminder. At the deadline, `@finance-lead` gets a card of their own.
-5. **The row is written only if** the hash of the row about to be written equals the hash that was approved. A receipt naming who approved it, and which hash, is posted to the thread.
+1. **A "we changed banks" email from `fabrikarn.test`.** Code finds it is 2 characters away from `fabrikam.test` on file, the controller blocks it, and the real supplier is warned *at the address on file*.
+2. **A Fabrikam invoice that prints a different account.** The two checkers agree it matches PO-1043, but code finds the account differs from the vendor master. The card shows the payment going to the account *on file*, and it waits for the controller.
+3. **Meanwhile, a genuine change from Fabrikam's own domain.** A callback card goes to the AP clerk, who confirms. The clerk then tries to approve the change too and is refused (four eyes). The controller approves, and Switchyard writes the new account into the vendor master.
+4. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to pay, because the vendor master changed after the checks read it. It re-runs the checks on the new version and replaces the card. Once approved, it pays the new account through the bank and reads the payment back, and all three hashes match: the approved one, the one sent and the bank's copy.
 
-## Six starter flows
+The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person.
+
+## How Switch is used, and what breaks without it
+
+| Switchyard needs | Switch provides | Without Switch |
+|---|---|---|
+| **A system of record that agents, code and people all read** | **Room documents** (`vendor-master`, `purchase-orders`). Checks read them, every agent request is grounded in them, and bank-change cases write them. | No shared, versioned rules. The checks would read a file nobody in the room can see. |
+| **A decision with a name on it** | **Approval cards** in Slack (`/agent-sessions/{id}/approvals`), with **participant identity** on each answer (`answered_by`, matched to `list_participants`) | Nobody to hold to four eyes, and no record of who decided. |
+| **A place for each case** | A **room** per team (`#finance`) and a **thread** per case | Cases scattered across inboxes. |
+| **Work done by agents** | Agents in the room, asked with **targeted messages** and answering on the room's **event stream** (SSE, heartbeat, resumable) | No agents to ask. |
+| **One-step setup** | **Templates** (`templates/*.template.yaml`) that create the room, its agents and its documents | Manual setup, room by room. |
+
+Switchyard itself is a Switch agent (`@yard`) on the agent protocol. Remove Switch and you lose more than notifications. You lose the shared documents the checks run on, the identity that four eyes rests on, and the cards the decisions are made on.
+
+## What makes it hard to fool
+
+Each claim is a test in `test/` (named in quotes), or a case recorded live (see [docs/DEMO.md](docs/DEMO.md)).
+
+- **Money goes only to the account on file.** The `pay` outlet's account comes from the `vendor_bank` check on the vendor master, never from the invoice. Tests: "pays the account on file even when the invoice prints another one, after a person decides".
+- **Look-alike domains are caught by code**, using edit distance against the domain on file. The warning goes to the contact on file, never to the sender. Tests: "refuses a change from a look-alike domain and says why", "from a look-alike domain is blocked, and the real supplier is warned at the address on file".
+- **One insider can't redirect a payment from chat.** `@yard edit` refuses documents that code checks read, so the only way to change a bank account is a bank-change case. Test: "cannot be edited from chat, even by someone who holds a role".
+- **Four eyes.** A gate with `not_same_as: [callback]` refuses the person who made the call and re-opens the card. Test: "needs a callback and a second person, then changes exactly one row".
+- **An approval on old facts never pays.** Every check records the hash of each room document it read. Before any action, Switchyard re-reads those documents. If one changed, it sends nothing, re-runs the checks from that point on the new version, and opens a new card. Tests: "does not pay on an approval given before the vendor master changed", "is not written if the vendor master changed after the checks read it".
+- **What was approved is what is sent, and what the bank holds.** The card shows the rendered action and its hash. The outlet refuses if the action no longer hashes the same. The bank's copy is read back and must hash the same too. Tests: "pays the account on file by rule, and the bank's copy hashes to the approved action", "refuses to act when the flow file changed the action after approval".
+- **At most once.** Each payment uses the case and step as its idempotency key. The sandbox bank returns the same payment for a retry and refuses a different body under the same key. Test: "is paid at most once per key, and refuses a different payment under the same key".
+- **Further guards:**
+  - a redelivered webhook opens no second case ("opens one case and says the second delivery was a duplicate");
+  - the same answer arriving twice records one decision ("records one decision when the same answer arrives twice at once");
+  - a send that dies midway goes to a person as *in doubt* and is never blindly retried ("never loses an action: every approved case ends executed or with a person").
+- **Outside text is data, not instructions.** Emails, invoices and forms reach agents only inside a fence with a random tag per request. Tests: "fences outside data off from instructions", "cannot be closed from inside the data".
+- **Agents cannot act.** Every agent CLI is started with its tools, MCP servers and settings switched off, and Switchyard refuses to start one it cannot lock down. Test: "refuses a CLI it cannot lock down".
+- **Two vendors, so one outage doesn't stop the room.** The two invoice checkers run on different vendors (Claude and Gemini), and every agent step has a backup on another vendor. On case `94221172` the Claude checker hit its real usage limit mid-run, and the case still went to a person with the evidence it had.
+
+## Run it live on Switch and Slack
+
+You need Node 24, Docker (for Mailpit, a local mail catcher), and a Switch server with a chat app connected. We used Switch Console 0.40.1's local server with Slack.
+
+```bash
+npm install
+docker compose up -d                     # Mailpit: local SMTP on :1025, inbox at http://localhost:8025
+cp switchyard.example.yaml switchyard.yaml
+# Registers @yard and the agents, creates #finance (on Slack with --bridge) and writes switchyard.yaml.
+# It signs in as the server's local admin, read from the environment and never printed.
+# bank-change runs in the same #finance room with the same agents, so it needs no setup of its own.
+SWITCH_ADMIN_EMAIL=... SWITCH_ADMIN_PASSWORD=... \
+  npm run switchyard setup-local invoice-check -- --user <your chat username> --bridge <bridge id>
+npm run bank                             # the sandbox bank, a separate process with its own ledger
+npm run switchyard up                    # puts vendor-master and purchase-orders into the #finance room
+```
+
+In `switchyard.yaml`, map the roles to people under `people:`: `@controller`, `@ap-clerk`, `@cfo`. One person may hold several roles, but four eyes still keeps the callback and the approval apart. Then:
+
+```bash
+npm run switchyard demo send bank-change        # the look-alike email
+npm run switchyard demo send bank-change-real   # the genuine change
+npm run switchyard demo send fabrikam-invoice   # an invoice printing another account
+```
+
+Answer the cards in Slack: click the button, or reply `A1 block` in the case thread. The dashboard at `http://localhost:4100` (localhost only) draws each case from its event log. It shows the checkers on their two vendors, the code checks with the document versions they read, the approval arcs with their hashes, and the receipts. The sandbox bank's ledger is at `http://localhost:4300`.
+
+In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel`, `reassign`, `resume`, and `edit <document> "old" "new"`. `edit` is for people who hold a role, and the room is told the old and new versions. It is refused for any document a code check reads, such as `vendor-master` and `purchase-orders`: those decide payments by themselves, so they change only through a flow with its own checks and four eyes.
+
+## What is real and what is simulated
+
+- **Real:**
+  - Switch (agent protocol, rooms, threads, cards, room documents) and Slack.
+  - The agents: Claude Haiku and Gemini Flash Lite, through the `claude` and `pi` CLIs.
+  - The emails, delivered through Mailpit.
+  - The engine, its event log and its checks.
+- **Simulated, and labelled so:**
+  - The bank. A local sandbox, `src/sandbox/bank.ts`; no real money moves.
+  - The suppliers, their `.test` domains and IBANs. They are fictitious, with valid check digits.
+- **One person.** The live run had one Slack user holding every role. There, four eyes shows as the refusal. The approval by a second person is shown in `demo:offline` and in the tests.
+
+## The same engine runs other flows
+
+Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 
 | Flow | Comes in by | People decide | Switchyard does |
 |---|---|---|---|
+| `invoice-check` | signed webhook | the controller, escalating to the CFO | pays through the bank, read back |
+| `bank-change` | email to `ap@` | AP clerk (callback), then a different approver | writes the vendor master |
 | `expense` | web form | manager, escalating to finance | ledger row |
-| `client-quote` | email to `quotes@` | owner approves the price | emails the approved quote, and a follow-up 3 days later |
+| `client-quote` | email to `quotes@` | owner approves the price | emails the quote, then a follow-up 3 days later |
 | `weekly-report` | every Monday 09:00 | manager publishes | posts to `#leadership` and emails it |
-| `front-desk` | chat widget on your site | support reviews anything flagged | replies to the visitor |
+| `front-desk` | chat widget on a website | support reviews anything flagged | replies to the visitor |
 | `onboarding` | web form | manager signs off | welcome email and access-request rows |
-| `invoice-check` | signed webhook from accounting | controller, escalating to the CFO | payables row (auto only when **two checkers on different vendors** both find a PO match under 10k) |
 
-Each flow comes with a **Switch template** in `templates/`. A template creates the room, the agents and the room documents (policy, rate sheet, FAQ, purchase orders), in one step from Switch Console. Every agent has a **backup agent on a different vendor**, so if Claude hits a usage limit, Codex picks up the step.
+## What Switch could add (found while building this)
 
-## How Switchyard uses Switch
-
-Switchyard is a Switch agent. It is registered with the agent protocol, and everything it does goes through Switch:
-
-| Switchyard needs | Switch provides |
-|---|---|
-| a place for each case | a room per flow, and a **thread** per case (`post_message` with `thread_id`) |
-| work done by agents | managed agents from any vendor in that room, asked with `send_targeted_message` |
-| agent replies | the room's event stream (`GET /agents/{id}/events`, SSE, resumable) |
-| a human decision | **approval cards** on Slack, Teams, Discord and Mattermost (`/agent-sessions/{id}/approvals`) |
-| who decided | the card's `answered_by`, matched against `list_participants` |
-| the material agents work from | **room documents**, created by the templates |
-| one-step setup | **Switch templates** (`version: 1`), with provider fallback lists |
-
-Without Switch there is nowhere for the agents and people to meet, nobody to ask, and no card to approve.
-
-## Run it with no accounts at all (local Mattermost)
-
-The Switch repository's dev stack includes Mattermost. Switchyard can set everything up against it, and run the agents itself through a coding-agent CLI (`claude -p`, `pi -p`, `codex exec`), so you don't need Switch Console.
-
-```bash
-# in a Switch checkout: Postgres + Mattermost, then switch-core
-just up && just run
-# in this repo
-npm install
-SWITCH_ADMIN_EMAIL=... SWITCH_ADMIN_PASSWORD=... \
-  npm run switchyard setup-local expense -- --user user --agent "claude -p --model haiku"
-npm run switchyard up
-```
-
-Add `--bridge <id>` to create the rooms on a specific chat app instead of the server's default. For example, Slack on a Switch Console server that also runs its own Mattermost. `setup-local` signs in as the local admin and mints an API key. It then registers `@yard` and the flow's agents, creates `#ops-requests` in Mattermost with you in it, and writes `switchyard.yaml`. Each agent's instructions and its room documents are taken from the same template Console would install. In `switchyard.yaml`, set a backup agent to another CLI (for example `pi -p`) so it runs on a different vendor.
-
-Open `http://localhost:4100/f/expense`, submit an expense over 500, and answer the card in Mattermost. Click the button, or reply `A1 yes` in the thread.
-
-## Run it with Switch Console
-
-You need **Node 24**, **Docker**, and **Switch Console** with its local server running and one chat app connected (Slack, Discord or Mattermost).
-
-```bash
-git clone <this repo> switchyard && cd switchyard
-npm install
-docker compose up -d                      # Mailpit: local inbox at http://localhost:8025
-cp switchyard.example.yaml switchyard.yaml
-cp .env.example .env                      # put a Switch personal API key in SWITCH_REGISTRATION_TOKEN
-npm run switchyard register               # registers @yard; its key is saved to .env
-```
-
-Then, for each flow you want:
-
-1. In Switch Console, create from `templates/<flow>.template.yaml`. This makes the room, the agents and the documents.
-2. Add **@yard** to that room, and put the room's id in `switchyard.yaml` under `rooms:`.
-3. In `switchyard.yaml` under `people:`, map the roles the flow names (`@manager`, `@owner`, …) to real chat handles. While you're trying it out, one person can fill every role.
-
-```bash
-npm run switchyard up
-```
-
-- Forms: `http://localhost:4100/f/expense` and `http://localhost:4100/f/onboarding`
-- Chat widget: `http://localhost:4100/chat` (embed it with an `<iframe>`)
-- Webhooks: `POST http://localhost:4100/in/invoice-check`, signed as `X-Switchyard-Signature: sha256=<hmac>`
-- Email: anything sent to `quotes@acme.test` through Mailpit's SMTP (`localhost:1025`)
-- Dashboard (localhost only): `http://localhost:4100/`
-
-In the room, `@yard help` lists the chat commands: `flows`, `cases`, `status <case>`, `start <flow> key=value`, `cancel <case>`, `reassign <case> @agent`, `resume <case>`.
-
-## Verified live
-
-All six flows have been run end to end on Slack, through Switch Console's local server, and on a Switch server with Mattermost. The agents were Claude Haiku and, as backups, Gemini (through the `claude` and `pi` CLIs), and the results were real:
-- a ledger row and a payables row
-- the client's quote email and the onboarding email
-- the access-request row
-- the report posted to `#leadership`
-- an injection attempt held for staff
-- a provider outage handled by the backup agent
-
-The cases and outcomes are in [docs/DEMO.md](docs/DEMO.md), which is also the demo script. To show failover without waiting for a real outage, run `SWITCHYARD_OUTAGE=policy npm run switchyard up`. The named CLI agents then fail the way a rate-limited provider does, and say that the outage is simulated.
-
-## Safety model
-
-- **Outside text is data, not instructions.** Emails, forms, webhooks and visitors' messages reach agents only inside `<untrusted-data>`, with their source. Instructions come only from the flow file.
-- **Two independent checks at the front desk.** A deterministic screen (`src/inlets/screen.ts`) flags injection patterns before any model sees the text, and the agent reports its own suspicion. An answer goes straight to the visitor only when both checks are clean. Otherwise a person reviews it. The test `holds an injection attempt for staff even when the agent is fooled` covers the case where the model is fooled and the screen still holds the reply.
-- **Agents cannot act.** Agents facing outsiders have no tools. Only Switchyard's outlets touch the outside world, and an outlet runs only after a gate approval or an `auto_approve` rule written in the flow.
-- **What you approved is what is sent.** The approval binds to a hash of the rendered action. If anything changes in between, such as an agent rewriting the email body after approval, the outlet refuses to run (`refuses to act when the action changed after approval`).
-- **The right person decides.** A card can be clicked by anyone in the room, but only the gate's approver counts, plus the backup once the gate has escalated. Any other answer is refused, and the card is re-opened.
-- **The dashboard is read-only**, and it is served only on localhost or with `SWITCHYARD_DASHBOARD_TOKEN`.
-
-## Reliability
-
-- **Every change to a case is appended to an event log** (SQLite) before the next step runs. State is never stored, only rebuilt from the log. After a crash or a laptop sleep, `up` carries on where it stopped, and nothing is repeated:
-  - Reminders, escalations and outlets are logged.
-  - CSV rows and visitor replies carry an idempotency key.
-  - Emails carry a stable Message-ID.
-- **Each inlet item is opened once**, even across restarts: an email id, a schedule slot.
-- **The Switch connection** beats every 2 seconds, resumes from `Last-Event-ID`, and reopens when Switch drops it.
-
-## Write your own flow
-
-See [FLOWS.md](FLOWS.md). It is also written so any agent can use it: ask switch-buddy, or any agent in a room, to "write a Switchyard flow for our purchase requests", then run `npm run lint` on the result.
+- **Approval outcomes on the event stream.** Today they are polled, so a decision can take a poll interval to land.
+- **A stable handle in `answered_by`.** Today it is a bridge-specific id that has to be matched back to a participant by username.
+- **A version precondition on `update_room_document`.** Today a write replaces the content unconditionally. Switchyard re-reads and compares just before it writes, which leaves a small race window that only Switch can close.
+- **Inbound webhooks and schedules for agents.** Today Switchyard provides these itself.
+- **A room-document view in Console.** 0.40.1 has none, which is why rules are edited with `@yard edit`.
 
 ## Tests
 
 ```bash
-npm test          # 90 tests
+npm test             # 200 tests
 npm run typecheck
-npm run lint      # checks every flow in flows/
+npm run lint         # every flow in flows/
+npm run demo:offline
 ```
 
-The suite includes a fake Switch server that speaks the real wire protocol: SSE frames, heartbeats, operations with a connection id, and approvals answered by polling. The expense flow runs through it end to end, from an HTTP form post to the ledger row.
+CI runs all four on pushes to main and on pull requests. The suite includes a fake Switch server that speaks the real wire protocol (SSE frames, heartbeats, operations with a connection id, approvals answered by polling), and the sandbox bank over real HTTP.
 
 ## Layout
 
-```
-src/engine/    flow schema + lint, expressions, contracts, gates, runner, event store, chat commands
-src/switch/    the Switch agent-protocol client (SSE, heartbeat, ops, approvals)
+```text
+src/engine/    flow schema and lint, expressions, contracts, gates, runner, event store, code checks, chat commands
+src/switch/    the Switch agent-protocol client (SSE, heartbeat, ops, approvals, room documents)
+src/agents/    locked-down CLI agents, and the fixture agent for offline runs
 src/inlets/    form, webhook, email (Mailpit), schedule, front-desk screen
-src/outlets/   csv, email, webhook, room post, visitor reply; payload hashing
-src/web/       dashboard and chat widget
-flows/         the six starter flows
-templates/     a Switch template per flow
+src/outlets/   bank payment, room document, csv, email, webhook, room post, visitor reply; payload hashing
+src/sandbox/   the sandbox bank
+src/web/       the dashboard and the chat widget
+flows/         the flows; templates/ has a Switch template for each
 ```
 
 ## License

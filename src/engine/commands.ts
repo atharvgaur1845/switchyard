@@ -153,6 +153,16 @@ export class Commands {
     if (roles.length === 0) return `${message.sender} cannot change this room's rules: only people who fill an approver role can.`;
     if (!this.chat.documents || !this.chat.updateDocument) return "This Switch connection cannot change room documents.";
 
+    // A document a code check reads decides payments by itself (the account
+    // on file, the PO amount), so one person may not change it from chat:
+    // it changes only through a flow with its own checks and four eyes.
+    const checkedBy = this.flows
+      .filter((f) => f.room === message.room)
+      .flatMap((f) => f.steps.filter((s) => "verify" in s && s.verify.doc === name).map((s) => `${f.flow}.${s.id}`));
+    if (checkedBy.length) {
+      const via = this.flows.find((f) => f.room === message.room && f.steps.some((s) => "outlet" in s && "document" in s.outlet && s.outlet.document.name === name));
+      return `\`${name}\` is read by code checks (${checkedBy.join(", ")}), so it cannot be edited from chat${via ? `; changes go through a \`${via.flow}\` case (a callback and a second approver)` : ""}.`;
+    }
     const doc = (await this.chat.documents(message.room)).find((d) => d.name === name);
     if (!doc) return `No document \`${name}\` here. \`@yard docs\` lists them.`;
     const count = doc.content.split(oldText).length - 1;
