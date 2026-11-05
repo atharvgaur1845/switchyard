@@ -87,6 +87,7 @@ You need Node 24, Docker (for Mailpit, a local mail catcher), and a Switch serve
 npm install
 docker compose up -d                     # Mailpit: local SMTP on :1025, inbox at http://localhost:8025
 cp switchyard.example.yaml switchyard.yaml
+cp .env.example .env                     # set INVOICE_HOOK_SECRET to any long random string
 # Registers @yard and the agents, creates #finance (on Slack with --bridge) and writes switchyard.yaml.
 # It signs in as the server's local admin, read from the environment and never printed.
 # bank-change runs in the same #finance room with the same agents, so it needs no setup of its own.
