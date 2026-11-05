@@ -9,7 +9,7 @@ import type { Outlets, OutletResult } from "../src/engine/ports.ts";
 import { Commands } from "../src/engine/commands.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
-import { basisHash, CHECKS, editDistance, ibanValid, setTableRow } from "../src/engine/verifiers.ts";
+import { basisHash, CHECKS, editDistance, ibanValid, rowHash, setTableRow } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
 import { startBank } from "../src/sandbox/bank.ts";
@@ -205,8 +205,11 @@ describe("paying an invoice", () => {
     const id = await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0914", amount: 3150, po: "PO-1043", iban: NEW_IBAN }, "webhook");
     await chat.deliver((m) => runner.onMessage(m));
     const before = basisHash(MASTER, "Fabrikam Print");
-    // A bank-change case (or an insider) rewrites Fabrikam's row while the card is open.
-    chat.docs.get("finance")![1].content = setTableRow(MASTER, ["Fabrikam Print", "fabrikam.test", NEW_IBAN, "accounts@fabrikam.test", "+49 30 5550 1003", "2026-11-05", "callback by @clerk"]);
+    // A bank-change case rewrites Fabrikam's row while the card is open (and
+    // attests it, as the document outlet does).
+    const row = ["Fabrikam Print", "fabrikam.test", NEW_IBAN, "accounts@fabrikam.test", "+49 30 5550 1003", "2026-11-05", "callback by @clerk"];
+    chat.docs.get("finance")![1].content = setTableRow(MASTER, row);
+    store.attest("finance", "vendor-master", "Fabrikam Print", rowHash(`| ${row.join(" | ")} |`, "Fabrikam Print"), "case bank-change");
     await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "pay", answeredBy: "mx:@controller" });
 
     expect(store.events(id).some((e) => e.type === "executed")).toBe(false);
@@ -216,6 +219,19 @@ describe("paying an invoice", () => {
     expect(chat.cards[1].requestId).toMatch(/-v2$/);
     expect(chat.cards[1].detail).toContain(`Account: ${NEW_IBAN}`);
     expect(chat.cards[1].detail).toMatch(/changed 2026-11-05 \(first payment since: a person approves\)/);
+  });
+
+  it("an insider's edit while the card is open voids the approval and holds the invoice", async () => {
+    const { store, chat, runner } = setup(matched);
+    const id = await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0915", amount: 3150, po: "PO-1043", iban: NEW_IBAN }, "webhook");
+    await chat.deliver((m) => runner.onMessage(m));
+    // The same edit, made in the room directly: nothing attests it.
+    chat.docs.get("finance")![1].content = setTableRow(MASTER, ["Fabrikam Print", "fabrikam.test", NEW_IBAN, "accounts@fabrikam.test", "+49 30 5550 1003", "2026-11-05", "callback by @clerk"]);
+    await runner.onApproval({ requestId: chat.cards[0].requestId, answer: "pay", answeredBy: "mx:@controller" });
+
+    expect(store.events(id).some((e) => e.type === "executed")).toBe(false);
+    expect(store.events(id).some((e) => e.type === "rewound")).toBe(true);
+    expect(chat.cards.at(-1)!.title).toMatch(/hold Fabrikam Print invoice FP-0915: their row in the vendor master was edited in the room/);
   });
 
   it("is paid at most once per key, and refuses a different payment under the same key", async () => {

@@ -140,7 +140,7 @@ export async function demoSend(what: string, config: Config): Promise<void> {
 // in memory (seeded from the templates), payments go to a sandbox bank
 // started in this process, and other outlets only print what they would do.
 // Everything else is the real engine: contracts, gates, hashes, re-checks.
-export async function demoOffline(root = process.cwd()): Promise<void> {
+export async function demoOffline(root = process.cwd(), options: { serve?: number } = {}): Promise<void> {
   const flows = readdirSync(join(root, "flows")).map((f) => loadFlow(readFileSync(join(root, "flows", f), "utf8")));
   const replies = parse(readFileSync(join(root, "fixtures", "replies.yaml"), "utf8"));
   const color = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -263,6 +263,23 @@ export async function demoOffline(root = process.cwd()): Promise<void> {
       console.log(`${dim("        receipt:")} approved ${approved} · sent ${paid.hash} · read back from the bank ${paid.readback} ${match ? bold("= all three match") : red("MISMATCH")}`);
     }
 
+    scene("5. Someone edits the vendor master in the room directly, outside any case");
+    // An insider (or a stolen account) with write access to the document
+    // swaps Northwind's account, keeps the old date and the word "callback".
+    const master = (docs.get("finance") ?? []).find((d) => d.name === "vendor-master")!;
+    master.content = master.content.replace("DE89370400440532013000", "DE68370400440532099999");
+    console.log(`${dim("        vendor-master edited:")} ${masterRow("Northwind")}`);
+    const northwind = await runner.open("invoice-check", { supplier: "Northwind Paper", number: "NW-118", amount: 1240, po: "PO-1041" }, "webhook");
+    await settle();
+    await click(/hold Northwind Paper invoice NW-118/, "investigate", "@controller");
+    const toMule = store.events(northwind).some((e) => e.type === "executed" && e.step === "schedule_payment");
+    console.log(`${dim("        bank:")} ${toMule ? red("PAID the edited account") : bold("nothing paid; the row is not one any case wrote")}`);
+    master.content = master.content.replace("DE68370400440532099999", "DE89370400440532013000");
+
+    scene("6. A second invoice for the same order, under a new number");
+    await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0913", amount: 3150, po: "PO-1043" }, "webhook");
+    await settle();
+
     scene("The same engine also runs: an expense over 500, with a refused click");
     await runner.open("expense", { name: "Priya", email: "priya@example.test", amount: 950, category: "travel", reason: "Hotel, receipt attached" }, "web form");
     await settle();
@@ -276,6 +293,13 @@ export async function demoOffline(root = process.cwd()): Promise<void> {
     await click(/./, "handle-myself", "@support");
   } finally {
     bank.close();
+  }
+
+  if (options.serve) {
+    const { startServer } = await import("./server.ts");
+    startServer({ port: options.serve, flows, runner, store });
+    console.log(`\n${bold(`Dashboard of this offline run: http://localhost:${options.serve}`)} ${dim("(Ctrl-C to stop)")}`);
+    return;
   }
 
   console.log(`\n${bold("Done.")} Real engine, contracts, hashes, re-checks and a sandbox bank with its own ledger; no Switch, no model, no account. Run it for real with \`npm run switchyard up\`.`);

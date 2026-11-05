@@ -94,6 +94,9 @@
 .receipt { border: 1px solid color-mix(in srgb, var(--act) 35%, var(--line)); background: linear-gradient(180deg, var(--act-soft), transparent 70%); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
 .receipt.bad { border-color: color-mix(in srgb, var(--stop) 40%, var(--line)); background: linear-gradient(180deg, var(--stop-soft), transparent 70%); }
 .receipt h4 { margin: 0 0 4px; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+.receipt .where { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 8px 16px; margin: 10px 0 12px; padding: 10px 12px; border-radius: var(--radius); background: var(--surface); border: 1px dashed var(--line); }
+.receipt .where code { font-size: 13px; overflow-wrap: anywhere; }
+.receipt .where .fine { grid-column: 1 / -1; margin: 0; }
 .receipt p { margin: 0 0 12px; color: var(--ink-2); font-size: 13px; }
 .hashes { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
 .hash { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; }
@@ -126,7 +129,7 @@
 .flow-card .links a { font-size: 12.5px; font-weight: 600; text-decoration: none; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
 .flow-card .links a:hover { background: var(--surface-2); }
 
-.receipts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 18px; }
+.receipts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 18px;  align-items: start; }
 .receipts .receipt { margin: 0; }
 .d-head > .pill { margin-top: 4px; }
 .flags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; font-weight: 600; color: var(--stop); margin-bottom: 8px; }
@@ -341,5 +344,5 @@ code, .mono, .rawtable, .dg .sub, .dg .cond, .dg .vt, .dg .hashtext, .dg .arc-la
 .hashes .hash { flex: 1 1 170px; min-width: 0; }
 .hashes .hash code { word-break: break-all; }
 /* Phones: receipts never wider than the panel, and a tighter panel padding. */
-.receipts { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+.receipts { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));  align-items: start; }
 @media (max-width: 560px) { .detail { padding: 18px 16px; } .receipt { padding: 12px; } }

@@ -54,7 +54,7 @@ switch (command) {
     await up();
     break;
   case "demo": {
-    if (args[0] === "offline") await demoOffline();
+    if (args[0] === "offline") await demoOffline(process.cwd(), { serve: args.includes("--serve") ? 4101 : undefined });
     else if (args[0] === "send" && args[1]) await demoSend(args[1], config);
     else throw new Error(`usage: switchyard demo offline | demo send <${DEMO_INPUTS.join("|")}>`);
     break;

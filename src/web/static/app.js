@@ -90,15 +90,17 @@ function statusPill(c, compact = false) {
 // ---------- summary strip ----------
 
 function renderKpis() {
-  const executed = state.cases.reduce((n, c) => n + c.events.filter((e) => e.type === "executed").length, 0);
-  const verified = state.cases.reduce((n, c) => n + receiptsOf(c).filter((r) => r.kind === "executed" && r.match !== false).length, 0);
-  const held = state.cases.filter((c) => c.data.flagged).length;
+  // Only what is proven counts: a payment matches when the bank's own copy
+  // hashes to the approved action, not when a rule ran and nothing was read.
+  const payments = state.cases.flatMap((c) => receiptsOf(c).filter((r) => r.kind === "executed" && r.payload?.pay));
+  const proven = payments.filter((r) => r.readback !== undefined && r.readback === r.hash).length;
+  const stopped = state.cases.filter((c) => /^(Blocked|Held|Callback failed)/.test(c.outcome?.label ?? "")).length;
   const tiles = [
     ["open", state.cases.filter((c) => c.status === "open").length, "yard"],
     ["need a person", state.cases.filter((c) => bucket(c) === "person").length, "person"],
-    ["actions executed", executed, "act"],
-    ["receipts match", `${verified}/${executed}`, "act"],
-    ["injections held", held, "stop"],
+    ["payments sent", payments.length, "act"],
+    ["bank copy = approval", `${proven}/${payments.length}`, "act"],
+    ["stopped before money moved", stopped, "stop"],
   ];
   document.getElementById("kpis").innerHTML = tiles
     .map(([label, value, tone]) => `<div class="kpi"><span class="value t-${tone}">${value}</span><span class="label">${label}</span></div>`)
@@ -422,8 +424,19 @@ function receiptsHtml(c) {
       ? `<div class="hash"><div class="k">Approved by ${asRole(r.approval.by, stepOf(c, r.approval.gate)?.who)}</div><code>${esc(r.approval.hash)}</code></div>`
       : `<div class="hash"><div class="k">Rule</div><code class="rule">${esc(r.rule === true ? "always" : (r.rule ?? "auto"))}</code></div>`;
     const sign = r.approval ? (r.match ? icon("lock", "t-act") : icon("x", "t-stop")) : icon("reroute", "t-muted");
+    // Where the money went, next to where the invoice asked for it to go.
+    const pay = r.payload?.pay;
+    const asked = typeof c.data.iban === "string" && c.data.iban.trim() ? c.data.iban.replace(/\s+/g, "").toUpperCase() : null;
+    const where = pay
+      ? `<div class="where">
+          <div><div class="k">The invoice asked for</div><code>${esc(asked ?? "no account printed")}</code></div>
+          <div><div class="k">Paid to${r.readback === r.hash ? ", as the bank holds it" : ""}</div><code>${esc(pay.to)}</code> <span class="pill act">vendor master</span></div>
+          ${asked && asked !== pay.to ? `<p class="fine">The invoice's account was not used: payments go only to the account on file.</p>` : ""}
+        </div>`
+      : "";
     return `<div class="receipt ${r.match === false ? "bad" : ""}">
       <h4>${icon(r.match === false ? "x" : "check")} ${label}: ${esc(r.receipt)}</h4>
+      ${where}
       <div class="hashes">${approved}<span class="eq" aria-label="${r.match ? "matches" : r.match === false ? "does not match" : "by rule"}">${sign}</span>
         <div class="hash"><div class="k">Sent</div><code>${esc(r.hash)}</code></div>
         ${r.readback ? `<span class="eq">${r.readback === r.hash ? icon("lock", "t-act") : icon("x", "t-stop")}</span><div class="hash"><div class="k">Read back from the bank <span class="pill neutral">sandbox</span></div><code>${esc(r.readback)}</code></div>` : ""}</div>

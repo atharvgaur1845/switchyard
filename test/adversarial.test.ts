@@ -115,7 +115,7 @@ describe("attacks on paying an invoice", () => {
 });
 
 describe("attacks on the vendor master from inside the room", () => {
-  it("an account swapped in the room directly is never paid, even when a person clicks pay", async () => {
+  it("an account swapped in the room directly is never paid, and no pay card is offered", async () => {
     const { chat, store, runner, doc, open, paid } = await rig();
     // Someone with write access to the document swaps the IBAN, keeps the old
     // change date and types "callback", so every field looks verified.
@@ -128,7 +128,10 @@ describe("attacks on the vendor master from inside the room", () => {
       attested: false,
       detail: expect.stringMatching(/^Fabrikam Print's row in vendor-master is not what Switchyard last wrote there \(first seen at start\): it was changed in the room directly/),
     });
-    await runner.onApproval({ requestId: chat.cards.at(-1)!.requestId, answer: "pay", answeredBy: "mx:@controller" });
+    // No pay card is shown for it: the card says the invoice is held, and why.
+    expect(chat.cards.at(-1)!.title).toMatch(/hold Fabrikam Print invoice FP-3001: their row in the vendor master was edited in the room, outside any case/);
+    expect(chat.cards.some((c) => /^.*pay Fabrikam Print invoice FP-3001/.test(c.title))).toBe(false);
+    await runner.onApproval({ requestId: chat.cards.at(-1)!.requestId, answer: "investigate", answeredBy: "mx:@controller" });
     expect(paid(id)).toHaveLength(0);
     expect(paidInLedger().some((p) => p.to === MULE)).toBe(false);
     expect(caseSummaries(store, flows).find((c) => c.id === id)?.outcome).toEqual({ label: "Held · row edited in the room", tone: "stop" });

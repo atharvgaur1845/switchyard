@@ -30,8 +30,19 @@ steps:
   - id: bank_check
     verify: { check: vendor_bank, doc: vendor-master, vendor: "{case.supplier}", iban: "{case.iban}" }
 
+  # A vendor row edited in the room outside any case is not one anybody
+  # approved: nothing is paid on it, and a person is told why.
+  - id: held
+    when: bank_check.attested == false
+    gate:
+      approver: "@controller"
+      backup: "@cfo"
+      title: "hold {case.supplier} invoice {case.number}: their row in the vendor master was edited in the room, outside any case, so nothing is paid on it"
+      options: [investigate, close]
+      deadline: 1d
+
   - id: finance
-    when: po_check.ok == false or match.agreed == false or bank_check.ok == false or bank_check.recent == true or case.amount > 10000
+    when: bank_check.attested != false and (po_check.ok == false or match.agreed == false or bank_check.ok == false or bank_check.recent == true or case.amount > 10000)
     gate:
       approver: "@controller"
       backup: "@cfo"
