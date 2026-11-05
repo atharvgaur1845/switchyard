@@ -233,11 +233,11 @@ export class Store {
   }
 
   // Events with the time each was recorded, for timelines.
-  timeline(caseId: string): (CaseEvent & { at_iso: string })[] {
+  timeline(caseId: string): (CaseEvent & { at_iso: string; seq: number })[] {
     return this.db
-      .prepare("SELECT at, body FROM events WHERE case_id = ? ORDER BY seq")
+      .prepare("SELECT seq, at, body FROM events WHERE case_id = ? ORDER BY seq")
       .all(caseId)
-      .map((row) => ({ ...(JSON.parse(row.body as string) as CaseEvent), at_iso: row.at as string }));
+      .map((row) => ({ ...(JSON.parse(row.body as string) as CaseEvent), at_iso: row.at as string, seq: Number(row.seq) }));
   }
 
   events(caseId: string): CaseEvent[] {

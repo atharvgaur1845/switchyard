@@ -5,14 +5,14 @@
   --surface-2: #faf9f6;
   --ink: #17171a;
   --ink-2: #4a4a52;
-  --muted: #8a8a93;
+  --muted: #6b6b74;
   --line: #e6e4de;
   --line-strong: #d4d1c8;
   --focus: #3b5bdb;
 
   --agent: #6d4fe0;      /* agents do the work */
   --agent-soft: #efeafe;
-  --person: #c47a0a;     /* people decide */
+  --person: #9a5f00;     /* people decide (AA on its soft tint) */
   --person-soft: #fdf3e1;
   --act: #1a8a4e;        /* Switchyard acts */
   --act-soft: #e3f5ea;
@@ -20,6 +20,7 @@
   --stop-soft: #fbe9e4;
   --yard: #3d4a5c;       /* @yard itself */
   --yard-soft: #e9edf2;
+  --on-act: #ffffff;     /* ink on a green fill */
 
   --radius: 12px;
   --radius-sm: 8px;
@@ -33,7 +34,7 @@
     --bg: #111114; --surface: #18181c; --surface-2: #1d1d22; --ink: #ededf0; --ink-2: #b9b9c2;
     --muted: #7d7d88; --line: #2a2a31; --line-strong: #383840; --focus: #8ea5ff;
     --agent: #a993ff; --agent-soft: #241e3d; --person: #f0b44c; --person-soft: #33270f;
-    --act: #4fd18a; --act-soft: #10291c; --stop: #ff7a5c; --stop-soft: #331611; --yard: #aab6c8; --yard-soft: #1f252e;
+    --act: #4fd18a; --act-soft: #10291c; --on-act: #0b2a18; --stop: #ff7a5c; --stop-soft: #331611; --yard: #aab6c8; --yard-soft: #1f252e;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -56,6 +57,7 @@ button { font: inherit; color: inherit; }
 .pill.person { background: var(--person-soft); color: var(--person); }
 .pill.act { background: var(--act-soft); color: var(--act); }
 .pill.stop { background: var(--stop-soft); color: var(--stop); }
+.pill.neutral { background: var(--yard-soft); color: var(--yard); }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill .dot.pulse { animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .3; } }
@@ -81,3 +83,7 @@ button { font: inherit; color: inherit; }
 .notice.error { background: var(--stop-soft); border-color: color-mix(in srgb, var(--stop) 30%, transparent); color: var(--stop); }
 .notice.ok { background: var(--act-soft); border-color: color-mix(in srgb, var(--act) 30%, transparent); color: var(--act); }
 .fineprint { color: var(--muted); font-size: 12px; margin-top: 18px; display: flex; gap: 8px; align-items: flex-start; }
+
+.ico { width: 16px; height: 16px; flex: none; vertical-align: -3px; }
+.t-act { color: var(--act); } .t-stop { color: var(--stop); } .t-person { color: var(--person); }
+.t-agent { color: var(--agent); } .t-yard { color: var(--yard); } .t-muted { color: var(--muted); }

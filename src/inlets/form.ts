@@ -43,7 +43,15 @@ export function readSubmission(
   return { ok: true, data };
 }
 
-export function renderForm(flow: string, title: string, fields: FormField[], message?: string): string {
+// What the requester is promised, true to the flow: if some requests are
+// handled by a rule without a person, the form says so.
+export function fineprint(autoRules: string[]): string {
+  return autoRules.length > 0
+    ? "Agents check every request. Simple ones that meet the rules are handled automatically; everything else is decided by a person."
+    : "Agents check every request, and a person decides before anything is done.";
+}
+
+export function renderForm(flow: string, title: string, fields: FormField[], message?: string, promise = fineprint([])): string {
   const inputs = fields
     .map((field) => {
       const id = `f-${field.name}`;
@@ -57,14 +65,14 @@ export function renderForm(flow: string, title: string, fields: FormField[], mes
     .join("\n");
   return page(
     title,
-    `<form class="form-card card" method="post" action="/f/${flow}">
+    `<form class="form-card card" method="post" action="/f/${flow}" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Sending…'">
   ${brandRow()}
   <h1>${escapeHtml(title)}</h1>
   <p class="lede">Fill this in and the team picks it up in their chat right away.</p>
   ${message ? `<div class="notice error" role="alert">${escapeHtml(message)}</div>` : ""}
   ${inputs}
   <div style="margin-top:22px"><button class="btn" type="submit">Submit request</button></div>
-  <p class="fineprint">${LOCK} Agents help review this, but every decision and anything sent back is approved by a person.</p>
+  <p class="fineprint">${LOCK} ${escapeHtml(promise)}</p>
 </form>`,
   );
 }
@@ -76,7 +84,7 @@ export function receivedPage(title: string, caseId: string): string {
   ${brandRow()}
   <h1>Request received</h1>
   <div class="notice ok">Your request is case <b class="mono">${escapeHtml(caseId)}</b>. The team has it now.</div>
-  <p class="fineprint">${LOCK} You'll hear back once a person has reviewed it.</p>
+  <p class="fineprint">${LOCK} The team works on it in their chat; you'll hear back when it's decided.</p>
   <p style="margin-top:18px"><a href="">Submit another</a></p>
 </div>`,
   );

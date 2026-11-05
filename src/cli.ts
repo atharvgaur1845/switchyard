@@ -23,6 +23,7 @@ const USAGE = `switchyard <command>
   lint [file...]   check flow files (default: every flow in the flows folder)
   register         register @yard with Switch (needs SWITCH_REGISTRATION_TOKEN)
   up               run the engine, forms, webhooks and timers
+  cancel <case>    cancel a case from the command line (e.g. one stuck in a removed room)
   demo offline     run three flows in this process: no Switch, no model, no account
   demo send <what> send a recorded demo input to a running Switchyard
                    (${DEMO_INPUTS.join(", ")})
@@ -53,6 +54,15 @@ switch (command) {
     if (args[0] === "offline") await demoOffline();
     else if (args[0] === "send" && args[1]) await demoSend(args[1], config);
     else throw new Error(`usage: switchyard demo offline | demo send <${DEMO_INPUTS.join("|")}>`);
+    break;
+  }
+  case "cancel": {
+    // For a case stuck in a room that is no longer configured, where
+    // `@yard cancel` in chat cannot reach it. Only touches the local log.
+    const store = new Store(join(config.data, "switchyard.db"));
+    if (!args[0] || !store.caseIds().includes(args[0])) throw new Error(`usage: switchyard cancel <case id>`);
+    store.append(args[0], { type: "cancelled", by: "switchyard cancel (CLI)" });
+    console.log(`Cancelled case ${args[0]}.`);
     break;
   }
   case "setup-local": {
@@ -189,7 +199,15 @@ async function up(): Promise<void> {
   client.onApproval((outcome) => runner.onApproval(outcome));
   await client.start();
   await runner.resumeAll();
-  startServer({ port: config.port, flows, runner, store, available: all.filter((f) => !flows.includes(f)) });
+  const vendors = Object.fromEntries(agents.map(({ name, agent }) => [`@${name}`, vendorOf(agent.command) ?? "unknown"]));
+  startServer({
+    port: config.port,
+    flows,
+    runner,
+    store,
+    available: all.filter((f) => !flows.includes(f)),
+    extras: { vendors, people: config.people },
+  });
   new MailpitInbox(config.mailpit.url, flows, runner, store).start();
   startSchedules(flows, runner, store);
   setInterval(() => void runner.tick().catch((e) => console.error("[switchyard] tick:", e)), config.tick_seconds * 1000);

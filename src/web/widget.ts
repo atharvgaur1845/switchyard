@@ -76,7 +76,14 @@ function typing() {
 async function waitFor(caseId, note) {
   for (let i = 0; i < 400; i++) {
     await new Promise((r) => setTimeout(r, 1500));
-    const res = await fetch("/chat/" + encodeURIComponent(caseId));
+    let res;
+    try {
+      res = await fetch("/chat/" + encodeURIComponent(caseId));
+    } catch {
+      note.className = "status review";
+      note.textContent = "Connection lost, retrying…";
+      continue;
+    }
     if (!res.ok) continue;
     const { replies, status } = await res.json();
     if (replies.length > 0) {
@@ -105,7 +112,13 @@ document.getElementById("ask").addEventListener("submit", async (event) => {
   box.value = "";
   add("msg me", question);
   const note = typing();
-  const res = await fetch("/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+  let res;
+  try {
+    res = await fetch("/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) });
+  } catch {
+    note.textContent = "Sorry, that didn't go through. Please check your connection and try again.";
+    return;
+  }
   if (!res.ok) { note.textContent = "Sorry, that didn't go through. Please try again."; return; }
   const { case: caseId } = await res.json();
   waitFor(caseId, note);

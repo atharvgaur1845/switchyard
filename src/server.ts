@@ -2,14 +2,15 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Flow } from "./engine/flow-schema.ts";
 import type { Runner } from "./engine/runner.ts";
 import type { Store } from "./engine/store.ts";
-import { formFields, readSubmission, receivedPage, renderForm } from "./inlets/form.ts";
+import { fineprint, formFields, readSubmission, receivedPage, renderForm } from "./inlets/form.ts";
 import { screen } from "./inlets/screen.ts";
 import { mapPayload, verifySignature, webhookInlet } from "./inlets/webhook.ts";
 import { readFile } from "node:fs/promises";
-import { caseSummaries, overview } from "./web/api.ts";
+import { caseSummaries, type Extras, overview } from "./web/api.ts";
 import { widgetPage } from "./web/widget.ts";
 
 const MAX_BODY = 256 * 1024;
+const STARTED = Date.now().toString(36);
 
 // The only files served from disk, by exact name.
 const STATIC: Record<string, string> = {
@@ -28,6 +29,7 @@ export function startServer(opts: {
   store: Store;
   // Flows on disk that are not running yet, shown on the dashboard only.
   available?: Flow[];
+  extras?: Extras;
   env?: NodeJS.ProcessEnv;
 }): Server {
   const flows = new Map(opts.flows.map((f) => [f.flow, f]));
@@ -59,11 +61,12 @@ export function startServer(opts: {
       const fields = formFields(flow.inlet);
       if (!fields) return send(res, 404, "text/plain", "This flow has no form.");
       const title = flow.description ?? flow.flow;
-      if (req.method === "GET") return send(res, 200, "text/html", renderForm(flow.flow, title, fields));
+      const promise = fineprint(flow.steps.flatMap((s) => ("auto_approve" in s && s.auto_approve !== false ? [String(s.auto_approve)] : [])));
+      if (req.method === "GET") return send(res, 200, "text/html", renderForm(flow.flow, title, fields, undefined, promise));
       if (req.method !== "POST") return send(res, 405, "text/plain", "Use GET or POST.");
 
       const submitted = readSubmission(fields, new URLSearchParams(await readBody(req)));
-      if (!submitted.ok) return send(res, 400, "text/html", renderForm(flow.flow, title, fields, submitted.error));
+      if (!submitted.ok) return send(res, 400, "text/html", renderForm(flow.flow, title, fields, submitted.error, promise));
       const id = await opts.runner.open(flow.flow, submitted.data, "web form");
       return send(res, 200, "text/html", receivedPage(title, id));
     }
@@ -123,7 +126,7 @@ export function startServer(opts: {
     }
 
     if (kind === "api" && name === "overview" && req.method === "GET") {
-      return send(res, 200, "application/json", JSON.stringify(overview(opts.flows, opts.available)));
+      return send(res, 200, "application/json", JSON.stringify(overview(opts.flows, opts.available, opts.extras)));
     }
 
     if (kind === "static" && name && STATIC[name] && req.method === "GET") {
@@ -131,7 +134,10 @@ export function startServer(opts: {
     }
 
     if (url.pathname === "/" && req.method === "GET") {
-      return send(res, 200, "text/html", await readFile(new URL("./web/static/index.html", import.meta.url), "utf8"));
+      // Stamp asset URLs with the server's start time, so an open dashboard
+      // never runs a stale script after a restart.
+      const html = await readFile(new URL("./web/static/index.html", import.meta.url), "utf8");
+      return send(res, 200, "text/html", html.replace(/(\/static\/[\w.-]+\.(?:js|css))"/g, `$1?v=${STARTED}"`));
     }
 
     if (url.pathname === "/health") return send(res, 200, "application/json", '{"ok":true}');
@@ -167,6 +173,6 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 function send(res: ServerResponse, status: number, type: string, body: string): void {
-  res.writeHead(status, { "Content-Type": `${type}; charset=utf-8` });
+  res.writeHead(status, { "Content-Type": `${type}; charset=utf-8`, "Cache-Control": "no-cache" });
   res.end(body);
 }
