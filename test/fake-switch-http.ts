@@ -8,6 +8,7 @@ export class FakeSwitchHttp {
   readonly posts: { room: string; body: string; thread_id?: string }[] = [];
   readonly cards: Record<string, unknown>[] = [];
   readonly beats = new Set<string>();
+  outcomePolls = 0;
   private readonly streams = new Map<string, { res: ServerResponse; room: string }>();
   private readonly outcomes: Record<string, unknown>[] = [];
   private readonly agents = new Map<string, (request: string) => string>();
@@ -86,6 +87,7 @@ export class FakeSwitchHttp {
         return json(200, { ok: true });
       }
       if (url.pathname === "/agent-sessions/approvals/outcomes") {
+        this.outcomePolls++;
         return json(200, this.outcomes.filter((o) => !o.deliveredAt));
       }
       json(404, { detail: "not found" });

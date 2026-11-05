@@ -67,6 +67,18 @@ export class SwitchClient implements Chat {
     this.outcomeTimer = setInterval(() => void this.pollOutcomes(), OUTCOME_POLL_MS);
   }
 
+  // Opens the room connections only: no approval polling, so a short-lived
+  // second process (a demo command) never takes a card's answer away from
+  // the running engine.
+  async connectOnly(): Promise<void> {
+    await this.request("GET", "/health", undefined, { auth: false });
+    for (const [name, roomId] of Object.entries(this.config.rooms)) {
+      const connection = new RoomConnection(this, name, roomId, () => undefined);
+      this.connections.set(name, connection);
+      await connection.open();
+    }
+  }
+
   stop(): void {
     clearInterval(this.outcomeTimer);
     for (const connection of this.connections.values()) connection.close();

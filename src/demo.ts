@@ -1,12 +1,12 @@
 import { createHmac } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import nodemailer from "nodemailer";
 import { parse } from "yaml";
 import { fixtureReply } from "./agents/fixture-agent.ts";
-import type { Config } from "./config.ts";
+import { type Config, requireEnv } from "./config.ts";
 import { loadFlow } from "./engine/flow-schema.ts";
 import type { ApprovalCard, Chat, InboundMessage, Outlets, RoomDocument } from "./engine/ports.ts";
 import { Runner } from "./engine/runner.ts";
@@ -15,15 +15,92 @@ import { screen } from "./inlets/screen.ts";
 import { LiveOutlets } from "./outlets/index.ts";
 import { describeOutlet } from "./outlets/payload.ts";
 import { startBank } from "./sandbox/bank.ts";
+import { SwitchClient } from "./switch/client.ts";
 
 // `switchyard demo send <what>`: the exact inputs of the recorded runs, sent
 // to a running Switchyard the way the outside world would send them.
-export const DEMO_INPUTS = ["quote", "invoices", "injection", "question", "expense", "lunch", "onboarding", "bank-change", "bank-change-real", "fabrikam-invoice"] as const;
+export const DEMO_INPUTS = [
+  "quote", "invoices", "injection", "question", "expense", "lunch", "onboarding",
+  "bank-change", "bank-change-real", "fabrikam-invoice", "fabrikam-invoice-2", "northwind-invoice", "insider-edit", "insider-restore",
+] as const;
+
+const NORTHWIND = "DE89370400440532013000";
+// A valid IBAN that is nobody's on file: the account an insider swaps in.
+const MULE = "DE68370400440532099999";
+
+// A second, short-lived connection to the #finance room as @yard, without
+// approval polling. Used only to show what someone with write access to a
+// room document can do outside any case.
+async function financeDocs(config: Config) {
+  const client = new SwitchClient({
+    baseUrl: config.switch.url,
+    agentId: requireEnv("SWITCHYARD_AGENT_ID"),
+    apiKey: requireEnv("SWITCHYARD_API_KEY"),
+    rooms: { finance: config.rooms.finance ?? "" },
+  });
+  if (!config.rooms.finance) throw new Error("switchyard.yaml has no rooms.finance; run setup-local invoice-check first");
+  await client.connectOnly();
+  return client;
+}
+
+async function editVendorMaster(config: Config, from: string, to: string): Promise<string> {
+  const client = await financeDocs(config);
+  try {
+    const doc = (await client.documents("finance")).find((d) => d.name === "vendor-master");
+    if (!doc) throw new Error("no vendor-master document in #finance; run `switchyard up` once first");
+    if (!doc.content.includes(from)) return `vendor-master does not contain ${from}; nothing changed`;
+    await client.updateDocument("finance", doc.id, doc.content.replace(from, to));
+    return `Northwind Paper's account in vendor-master is now ${to}; the date and "callback" were left as they were`;
+  } finally {
+    client.stop();
+  }
+}
+
+// `switchyard demo reset`, with Switchyard stopped: a clean slate for a
+// recording. The event log and the bank ledger are moved aside (never
+// deleted) and the two finance documents are put back to the template.
+export async function demoReset(config: Config): Promise<void> {
+  const running = await fetch(`http://localhost:${config.port}/api/cases`).then(() => true, () => false);
+  if (running) throw new Error(`Switchyard is running on :${config.port}; stop it first, so it does not attest documents halfway through the reset`);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  for (const file of ["switchyard.db", "sandbox-bank.json"]) {
+    const path = join(config.data, file);
+    if (existsSync(path)) {
+      renameSync(path, `${path}.${stamp}`);
+      console.log(`Moved ${path} to ${path}.${stamp}`);
+    }
+  }
+  const seeded = (parse(readFileSync("templates/invoice-check.template.yaml", "utf8")).room?.docs ?? []) as { name: string; content: string }[];
+  const client = await financeDocs(config);
+  try {
+    for (const doc of await client.documents("finance")) {
+      const template = seeded.find((d) => d.name === doc.name);
+      if (!template) continue;
+      await client.updateDocument("finance", doc.id, template.content);
+      console.log(`Put #finance/${doc.name} back to the template`);
+    }
+  } finally {
+    client.stop();
+  }
+  console.log("Restart the bank (`npm run bank`) and Switchyard (`npm run switchyard up`); up attests the documents as they now stand.");
+}
 
 export async function demoSend(what: string, config: Config): Promise<void> {
   const base = `http://localhost:${config.port}`;
   const form = (flow: string, fields: Record<string, string>) =>
     fetch(`${base}/f/${flow}`, { method: "POST", body: new URLSearchParams(fields) }).then((r) => r.status);
+  // A signed invoice webhook, as the supplier portal would send it.
+  const invoice = async (fields: Record<string, unknown>) => {
+    const secret = process.env.INVOICE_HOOK_SECRET;
+    if (!secret) throw new Error("INVOICE_HOOK_SECRET is not set (put it in .env)");
+    const body = JSON.stringify({ invoice: fields });
+    const res = await fetch(`${base}/in/invoice-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Switchyard-Signature": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` },
+      body,
+    });
+    return `${res.status} ${await res.text()}`;
+  };
 
   switch (what) {
     case "quote": {
@@ -93,19 +170,21 @@ export async function demoSend(what: string, config: Config): Promise<void> {
       });
       return console.log(`Sent ${fake ? "the look-alike" : "the genuine"} bank-change email to ap@acme.test.`);
     }
-    case "fabrikam-invoice": {
-      const secret = process.env.INVOICE_HOOK_SECRET;
-      if (!secret) throw new Error("INVOICE_HOOK_SECRET is not set (put it in .env)");
+    case "fabrikam-invoice":
       // Matches PO-1043 exactly, and prints the fraudster's account: the
       // payment must still go to the account on file.
-      const body = JSON.stringify({ invoice: { supplier: "Fabrikam Print", number: "FP-0912", total: 3150, po_number: "PO-1043", iban: "DE88500700100175526303" } });
-      const res = await fetch(`${base}/in/invoice-check`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Switchyard-Signature": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` },
-        body,
-      });
-      return console.log(`Fabrikam FP-0912 (printed account differs from the vendor master): ${res.status} ${await res.text()}`);
-    }
+      return console.log(`Fabrikam FP-0912 (printed account differs from the vendor master): ${await invoice({ supplier: "Fabrikam Print", number: "FP-0912", total: 3150, po_number: "PO-1043", iban: "DE88500700100175526303" })}`);
+    case "fabrikam-invoice-2":
+      // The same order again, under a new number: PO-1043 is already invoiced.
+      return console.log(`Fabrikam FP-0913 (same PO-1043, new number): ${await invoice({ supplier: "Fabrikam Print", number: "FP-0913", total: 3150, po_number: "PO-1043" })}`);
+    case "northwind-invoice":
+      // Would be paid by the rule: both checkers agree, the PO matches, the account is old.
+      return console.log(`Northwind NW-118 (would be paid by the rule): ${await invoice({ supplier: "Northwind Paper", number: "NW-118", total: 1240, po_number: "PO-1041" })}`);
+    case "insider-edit":
+      console.log("Simulating an insider: writing #finance/vendor-master directly through Switch's document API, outside any case (as anyone with write access to the document could).");
+      return console.log(await editVendorMaster(config, NORTHWIND, MULE));
+    case "insider-restore":
+      return console.log(await editVendorMaster(config, MULE, NORTHWIND));
     case "injection":
     case "question": {
       const question =

@@ -14,7 +14,7 @@ import { vendorOf } from "./agents/lockdown.ts";
 import { vendorProblems } from "./agents/vendors.ts";
 import { seedDocuments } from "./switch/seed-docs.ts";
 import { envKey, setupLocal } from "./setup-local.ts";
-import { DEMO_INPUTS, demoOffline, demoSend } from "./demo.ts";
+import { DEMO_INPUTS, demoOffline, demoReset, demoSend } from "./demo.ts";
 import { startServer } from "./server.ts";
 import { parse as parseYaml } from "yaml";
 import { SwitchClient } from "./switch/client.ts";
@@ -56,7 +56,8 @@ switch (command) {
   case "demo": {
     if (args[0] === "offline") await demoOffline(process.cwd(), { serve: args.includes("--serve") ? 4101 : undefined });
     else if (args[0] === "send" && args[1]) await demoSend(args[1], config);
-    else throw new Error(`usage: switchyard demo offline | demo send <${DEMO_INPUTS.join("|")}>`);
+    else if (args[0] === "reset") await demoReset(config);
+    else throw new Error(`usage: switchyard demo offline [--serve] | demo reset | demo send <${DEMO_INPUTS.join("|")}>`);
     break;
   }
   case "bank": {

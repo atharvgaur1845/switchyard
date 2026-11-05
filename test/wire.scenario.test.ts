@@ -84,3 +84,17 @@ describe("over the wire: web form -> Switch -> approval -> ledger", () => {
     expect(store.caseIds()).toHaveLength(0);
   });
 });
+
+describe("a second, short-lived connection", () => {
+  it("opens the room without polling for card answers, so it cannot take one from the running engine", async () => {
+    const fake = new FakeSwitchHttp();
+    const baseUrl = await fake.start();
+    const side = new SwitchClient({ baseUrl, agentId: "yard-1", apiKey: "key-1", rooms: { finance: "room-1" } });
+    await side.connectOnly();
+    await new Promise((r) => setTimeout(r, 2_500));
+    expect(fake.beats.size).toBeGreaterThan(0);
+    expect(fake.outcomePolls).toBe(0);
+    side.stop();
+    await fake.stop();
+  });
+});
