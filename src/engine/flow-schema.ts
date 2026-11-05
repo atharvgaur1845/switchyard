@@ -184,6 +184,16 @@ export function lint(flow: Flow): string[] {
     // of steps that ran before the card. A later step could change the action
     // after the approval, which the runtime hash would then refuse.
     const known = isOutlet(step) ? knownAtGate.get(step.id) : undefined;
+    // {by.<gate>} is who answered that gate. On the approving card it is not
+    // known yet for that gate or any later one, so the action would hash
+    // differently at execution and always be refused.
+    if (isOutlet(step)) {
+      for (const [, gate] of JSON.stringify(step.outlet).matchAll(/\{by\.([a-z][a-z0-9_]*)\}/g)) {
+        const target = flow.steps.find((s) => s.id === gate);
+        if (!target || !isGate(target)) problems.push(`outlet "${step.id}" uses {by.${gate}}, but "${gate}" is not a gate`);
+        else if (known && !known.has(gate)) problems.push(`outlet "${step.id}" uses {by.${gate}}, which is not known until after its approval card`);
+      }
+    }
     if (isOutlet(step) && known) {
       for (const name of placeholderNames(step.outlet)) {
         if (name !== "case" && name !== "by" && seen.has(name) && !known.has(name)) {

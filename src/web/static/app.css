@@ -340,3 +340,6 @@ code, .mono, .rawtable, .dg .sub, .dg .cond, .dg .vt, .dg .hashtext, .dg .arc-la
 .hashes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .hashes .hash { flex: 1 1 170px; min-width: 0; }
 .hashes .hash code { word-break: break-all; }
+/* Phones: receipts never wider than the panel, and a tighter panel padding. */
+.receipts { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+@media (max-width: 560px) { .detail { padding: 18px 16px; } .receipt { padding: 12px; } }

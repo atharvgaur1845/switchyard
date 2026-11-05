@@ -146,7 +146,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 211 tests
+npm test             # 214 tests
 npm run typecheck
 npm run lint         # every flow in flows/
 npm run demo:offline

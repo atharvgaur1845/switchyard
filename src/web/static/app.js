@@ -202,6 +202,17 @@ function renderDetail() {
 
 function banners(c) {
   const out = [];
+  // When code overrules what the agents said, say so first: it is why a
+  // person was asked. The latest result of each check counts (re-checks).
+  const checks = new Map();
+  for (const e of c.events) if (e.type === "verified") checks.set(e.step, e);
+  const failed = [...checks.values()].filter((e) => e.value?.ok === false);
+  if (failed.length) {
+    const agreed = c.events.some((e) => e.type === "answered" && e.value && typeof e.value === "object" && e.value.agreed === true);
+    const lead = agreed ? "The checkers agreed, but code found" : "Code found";
+    const then = c.status === "open" ? "so nothing runs on a rule: a person decides" : "so nothing ran on a rule: a person decided";
+    out.push(`<div class="banner stop">${icon("code")}<span>${lead}: ${failed.map((e) => `<b>${esc(e.value.detail)}</b>`).join("; ")}; ${then}.</span></div>`);
+  }
   if (c.data.flagged) {
     out.push(`<div class="banner stop">${icon("flag")}<span>The injection screen flagged <b>${(c.data.flags ?? []).length}</b> pattern${(c.data.flags ?? []).length === 1 ? "" : "s"}. The agent still saw the text only inside the fence, and nothing reaches the visitor without a person.</span></div>`);
   }

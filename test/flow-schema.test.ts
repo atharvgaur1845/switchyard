@@ -54,3 +54,25 @@ describe("flow loading and lint", () => {
     }
   });
 });
+
+describe("who answered a gate", () => {
+  const flow = (row: string) => `flow: f
+room: r
+steps:
+  - id: callback
+    gate: { approver: "@clerk", title: "call?", options: [confirmed, no] }
+  - id: approve
+    gate: { approver: "@controller", title: "change?", options: [approve, reject], approves: [write] }
+  - id: write
+    outlet: { csv: { file: x.csv, row: ["${row}"] } }
+`;
+  it("may be used from a gate answered before the approval card", () => {
+    expect(() => loadFlow(flow("{by.callback}"))).not.toThrow();
+  });
+  it("may not be used from the approving gate itself, which is answered after the card", () => {
+    expect(() => loadFlow(flow("{by.approve}"))).toThrow(/uses \{by.approve\}, which is not known until after its approval card/);
+  });
+  it("must name a gate", () => {
+    expect(() => loadFlow(flow("{by.nothing}"))).toThrow(/"nothing" is not a gate/);
+  });
+});
