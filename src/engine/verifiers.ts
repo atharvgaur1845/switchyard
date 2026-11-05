@@ -278,6 +278,14 @@ const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p
 export const normalizeName = norm;
 const sameName = (a: string, b: string) => norm(a) !== "" && norm(a) === norm(b);
 
+// A row's content, for attesting it: the cells of every table row whose first
+// cell names `key`, trimmed, so the same row hashes the same however the
+// room's editor spaced it. Empty when no row names `key`.
+export function rowHash(content: string, key: string): string {
+  const rows = tableRows(content).filter((cells) => sameName(cells[0] ?? "", key));
+  return rows.length === 0 ? "" : createHash("sha256").update(rows.map((cells) => cells.join("\u001f")).join("\n")).digest("hex");
+}
+
 // The version of what a result rests on: the rows named by `key`, or the
 // whole document when the result named no row.
 export function basisHash(content: string, key?: string): string {

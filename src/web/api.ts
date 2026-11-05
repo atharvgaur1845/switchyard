@@ -127,11 +127,16 @@ function outcomeOf(state: CaseState, events: CaseEvent[], flow: Flow | undefined
   // action (warning the real supplier); the decision is the outcome.
   const blocked = events.find((e) => e.type === "gate_answered" && e.approved && e.answer === "block");
   if (blocked && executed.length > 0) return { label: "Blocked · supplier warned", tone: "stop" };
+  // A check found a row edited in the room outside any case, and no money
+  // moved: the case was held, whatever the card's answer was.
+  const kindOf = (e: CaseEvent) => {
+    const step = e.type === "executed" ? flow?.steps.find((s) => s.id === e.step) : undefined;
+    return step && isOutlet(step) ? Object.keys(step.outlet)[0] : "";
+  };
+  const edited = events.some((e) => e.type === "verified" && (e.value as { attested?: boolean } | undefined)?.attested === false);
+  if (edited && !executed.some((e) => kindOf(e) === "pay")) return { label: "Held · row edited in the room", tone: "stop" };
   if (executed.length > 0) {
-    const last = executed.at(-1)!;
-    const step = last.type === "executed" ? flow?.steps.find((s) => s.id === last.step) : undefined;
-    const kind = step && isOutlet(step) ? Object.keys(step.outlet)[0] : "";
-    return { label: DONE_BY_OUTLET[kind] ?? "Done", tone: "act" };
+    return { label: DONE_BY_OUTLET[kindOf(executed.at(-1)!)] ?? "Done", tone: "act" };
   }
   if (declined && declined.type === "gate_answered") {
     return { label: DECLINED[declined.answer] ?? `Declined (${declined.answer})`, tone: "stop" };

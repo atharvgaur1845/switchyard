@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, lookup, render, type Scope } from "./expr.ts";
-import { basisHash, CHECKS, docHash, normalizeName } from "./verifiers.ts";
+import { basisHash, CHECKS, docHash, normalizeName, rowHash, tableRows, type VerifyResult } from "./verifiers.ts";
 import {
   type AgentStep,
   type Flow,
@@ -58,6 +58,11 @@ export class Runner {
   // Outlets running right now in this process: not in doubt, just slow.
   private readonly inFlight = new Set<string>();
   private readonly outletTimeoutMs: number;
+  // "room/doc" of every document a code check reads or a flow writes. Their
+  // rows are attested: a check on one passes only if the row is what
+  // Switchyard last wrote or first saw, so an edit made in the room directly
+  // (an insider, or a stolen account) cannot pass a check.
+  private readonly guarded = new Set<string>();
 
   constructor(store: Store, chat: Chat, outlets: Outlets, flows: Flow[], options: RunnerOptions = {}) {
     this.store = store;
@@ -68,6 +73,12 @@ export class Runner {
     this.people = options.people ?? {};
     this.vendors = options.vendors ?? {};
     this.outletTimeoutMs = options.outletTimeoutMs ?? 60_000;
+    for (const flow of flows) {
+      for (const step of flow.steps) {
+        if (isOutlet(step) && "document" in step.outlet) this.guarded.add(`${step.outlet.document.room}/${step.outlet.document.name}`);
+        if (isVerify(step) && typeof step.verify.doc === "string" && !step.verify.doc.includes("{")) this.guarded.add(`${flow.room}/${step.verify.doc}`);
+      }
+    }
 
     // Every way into the engine runs one call at a time. A reply, an approval
     // and the timer can arrive together; each must see the state the previous
@@ -252,6 +263,7 @@ export class Runner {
         return true;
       }
       this.store.append(state.id, { type: "executed", step: step.id, hash, receipt, payload, ...(readback ? { readback } : {}) });
+      this.attestWrite(state, payload);
       this.inFlight.delete(key);
       const by = autoApproved ? `rule "${rule === true ? "always" : rule}"` : state.approved[step.id].by;
       await this.say(state, `Done: ${receipt} (approved by ${by}, ${hash})`);
@@ -315,11 +327,15 @@ export class Runner {
     }
     const args = renderArgs(rawArgs, scopeOf(state));
     const used = typeof args.doc === "string" ? docs.filter((d) => d.name === args.doc) : [];
-    const value =
+    let value =
       used.length > 1
         ? { ok: false, detail: `${used.length} documents in this room are named "${String(args.doc)}"; a person must remove the extra one` }
         : spec.run(args, docs, this.now());
     const rows = used.length === 1 ? value.rows : undefined;
+    const key = rows?.[used[0]?.name];
+    if (key !== undefined && this.guarded.has(`${state.room}/${used[0].name}`)) {
+      value = this.checkAttested(state.room, used[0], key, value);
+    }
     this.store.append(state.id, {
       type: "verified",
       step: step.id,
@@ -329,6 +345,52 @@ export class Runner {
       ...(rows ? { rows } : {}),
     });
     await this.say(state, `${value.ok ? "✓" : "✗"} Checked by code (${check}): ${value.detail}`);
+  }
+
+  // A result resting on a row nobody wrote through Switchyard does not pass,
+  // whatever the row says: it was edited in the room directly (an insider,
+  // or a stolen account), and only a case may change it.
+  private checkAttested(room: string, doc: RoomDocument, key: string, value: VerifyResult): VerifyResult {
+    const current = rowHash(doc.content, key);
+    if (current === "") return value;
+    // The first time Switchyard reads a document it adopts it as it stands.
+    if (this.store.attestedRows(room, doc.name) === 0) this.adopt(room, doc, "first read");
+    const known = this.store.attestation(room, doc.name, key);
+    if (known?.hash === current) return { ...value, attested: true };
+    const why = known
+      ? `${key}'s row in ${doc.name} is not what Switchyard last wrote there (${known.by}): it was changed in the room directly`
+      : `${key}'s row in ${doc.name} was added in the room directly, not by a case`;
+    return { ...value, ok: false, attested: false, detail: `${why}, so nothing is paid on it until a person restores it or a case rewrites it; ${value.detail}` };
+  }
+
+  // Records what a document outlet wrote, so the next check accepts it.
+  private attestWrite(state: CaseState, payload: Outlet): void {
+    if (!("document" in payload)) return;
+    const { room, name, row } = payload.document;
+    this.store.attest(room, name, row[0], rowHash(`| ${row.join(" | ")} |`, row[0]), `case ${state.id}`, new Date(this.now()));
+  }
+
+  // At start: a written document Switchyard has never attested is adopted
+  // as it stands (a new install, or one that predates attestation). From
+  // then on, a row added or changed outside a case does not pass a check.
+  async attestRows(): Promise<string[]> {
+    if (!this.chat.documents) return [];
+    const adopted: string[] = [];
+    for (const guarded of this.guarded) {
+      const [room, name] = guarded.split("/");
+      const docs = (await this.chat.documents(room)).filter((d) => d.name === name);
+      if (docs.length === 1 && this.store.attestedRows(room, name) === 0) {
+        this.adopt(room, docs[0], "first seen at start");
+        adopted.push(`#${room}/${name}`);
+      }
+    }
+    return adopted;
+  }
+
+  private adopt(room: string, doc: RoomDocument, by: string): void {
+    for (const [key] of tableRows(doc.content)) {
+      if (key) this.store.attest(room, doc.name, key, rowHash(doc.content, key), by, new Date(this.now()));
+    }
   }
 
   private async openGate(state: CaseState, step: GateStep): Promise<void> {
@@ -658,6 +720,7 @@ export class Runner {
         return;
       }
       this.store.append(state.id, { type: "executed", step: step.id, hash, payload, receipt: `${receipt} (resent by ${answerer})`, ...(readback ? { readback } : {}) });
+      this.attestWrite(state, payload as Outlet);
     }
     await this.advance(state.id);
   }

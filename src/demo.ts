@@ -217,6 +217,7 @@ export async function demoOffline(root = process.cwd()): Promise<void> {
   const people = { "@ap-clerk": ["@clerk"], "@controller": ["@controller", "@clerk"] };
   const store = new Store();
   const runner = new Runner(store, chat, outlets, flows, { people });
+  await runner.attestRows();
   const settle = async () => {
     while (inbox.length) await runner.onMessage(inbox.shift()!);
   };
@@ -253,7 +254,7 @@ export async function demoOffline(root = process.cwd()): Promise<void> {
     scene("4. The approval on the old card no longer counts: the facts changed");
     await click(/pay Fabrikam Print invoice FP-0912/, "pay", "@controller");
     await click(/pay Fabrikam Print invoice FP-0912/, "pay", "@controller");
-    const paid = store.events(invoice).find((e) => e.type === "executed");
+    const paid = store.events(invoice).find((e) => e.type === "executed" && e.step === "schedule_payment");
     if (paid?.type === "executed") {
       // Three hashes from three places: the card the controller answered, the
       // action the engine sent, and the payment as the bank now holds it.

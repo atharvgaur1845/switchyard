@@ -212,6 +212,8 @@ async function up(): Promise<void> {
   await client.start();
   const seeded = await seedDocuments(client, flows);
   if (seeded.length) console.log(`Created room documents in Switch: ${seeded.join(", ")}`);
+  const adopted = await runner.attestRows();
+  if (adopted.length) console.log(`Attested every row of ${adopted.join(", ")}: from now on only a case may change them`);
   await runner.resumeAll();
   const vendors = Object.fromEntries(agents.map(({ name, agent }) => [`@${name}`, vendorOf(agent.command) ?? "unknown"]));
   startServer({

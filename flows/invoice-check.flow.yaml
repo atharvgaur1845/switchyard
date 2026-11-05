@@ -45,7 +45,7 @@ steps:
   # longer counts, and its PO check runs again and fails. A second invoice
   # for the same order, under any number, is never paid automatically.
   - id: reserve_po
-    when: finance != "dispute" and bank_check.iban != null and po_check.open == true
+    when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false and po_check.open == true
     auto_approve: true
     outlet:
       document:
@@ -54,8 +54,10 @@ steps:
         row: ["{po_check.po}", "{po_check.supplier}", "{po_check.amount_text}", "invoiced {case.number} (case {this.id})"]
 
   # Paid through the bank with the case as idempotency key, then read back.
+  # Never to a vendor row changed in the room outside a case, even if a
+  # person clicks pay: that account is not one any case approved.
   - id: schedule_payment
-    when: finance != "dispute" and bank_check.iban != null
+    when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false
     auto_approve: po_check.ok == true and match.agreed == true and bank_check.ok == true and bank_check.recent == false and case.amount <= 10000
     outlet:
       pay: { payee: "{bank_check.vendor}", to: "{bank_check.iban}", amount: "{case.amount}", currency: EUR, reference: "{case.number}" }

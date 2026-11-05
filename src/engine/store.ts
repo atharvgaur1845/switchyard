@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { normalizeName } from "./verifiers.ts";
 
 // Everything that happens to a case is one row in an append-only log. The
 // state of a case is never stored: it is rebuilt by folding its events, so
@@ -265,6 +266,15 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS events_case ON events (case_id, seq);
       CREATE TABLE IF NOT EXISTS marks (key TEXT PRIMARY KEY, at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS attested (
+        room TEXT NOT NULL,
+        doc  TEXT NOT NULL,
+        row  TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        by   TEXT NOT NULL,
+        at   TEXT NOT NULL,
+        PRIMARY KEY (room, doc, row)
+      );
       CREATE TABLE IF NOT EXISTS visitor_replies (
         key     TEXT PRIMARY KEY,
         case_id TEXT NOT NULL,
@@ -336,6 +346,25 @@ export class Store {
   mark(key: string, at = new Date()): boolean {
     const result = this.db.prepare("INSERT OR IGNORE INTO marks (key, at) VALUES (?, ?)").run(key, at.toISOString());
     return result.changes === 1;
+  }
+
+  // The last version of a row in a room document that Switchyard itself
+  // wrote or first saw. A row that no longer matches was changed in the room
+  // directly, outside any case. `row` is the row's first cell, normalised.
+  attest(room: string, doc: string, row: string, hash: string, by: string, at = new Date()): void {
+    this.db
+      .prepare("INSERT OR REPLACE INTO attested (room, doc, row, hash, by, at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(room, doc, normalizeName(row), hash, by, at.toISOString());
+  }
+
+  attestedRows(room: string, doc: string): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM attested WHERE room = ? AND doc = ?").get(room, doc) as { n: number }).n;
+  }
+
+  attestation(room: string, doc: string, row: string): { hash: string; by: string; at: string } | undefined {
+    return this.db.prepare("SELECT hash, by, at FROM attested WHERE room = ? AND doc = ? AND row = ?").get(room, doc, normalizeName(row)) as
+      | { hash: string; by: string; at: string }
+      | undefined;
   }
 
   // Front-desk replies waiting for the visitor's widget to fetch them. The

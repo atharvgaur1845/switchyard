@@ -147,8 +147,11 @@ describe("a bank-detail change", () => {
     expect(store.events(id).some((e) => e.type === "rewound")).toBe(true);
     expect(chat.said("a document the checks read changed after they ran")).toBe(true);
     expect(master()).not.toContain(NEW_IBAN);
-    // The checks ran again on the new version, and the callback is asked again, with the new number.
-    expect(chat.cards.at(-1)!.title).toMatch(/\+49 30 5550 9999/);
+    // The checks ran again on the new version. The phone was changed in the
+    // room, not by a case, so nobody is asked to call the new number: the
+    // change goes to the block card instead.
+    expect(chat.cards.at(-1)!.title).not.toMatch(/\+49 30 5550 9999/);
+    expect(store.load(id).results.checks).toMatchObject({ ok: false, attested: false, detail: expect.stringMatching(/^Fabrikam Print's row in vendor-master is not what Switchyard last wrote there \(first read\): it was changed in the room directly/) });
   });
 });
 
