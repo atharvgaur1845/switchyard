@@ -28,6 +28,21 @@ steps:
   - id: checks
     verify: { check: bank_change, doc: vendor-master, vendor: "{request.vendor}", sender: "{case.from}", iban: "{request.new_iban}", text: "{case.body}" }
 
+  # Across cases: was this account requested before, from elsewhere, and
+  # blocked by a person? Or is it another vendor's? Then the controller
+  # decides before anyone calls. A request from the real domain for an
+  # account a look-alike asked for is how a compromised mailbox looks.
+  - id: links
+    verify: { check: links, doc: vendor-master, vendor: "{checks.vendor}", iban: "{checks.new_iban}" }
+
+  - id: linked
+    when: checks.ok == true and links.ok == false
+    gate:
+      approver: "@controller"
+      title: "hold {checks.vendor}'s bank-detail change? {links.detail}"
+      options: [hold, call-anyway]
+      deadline: 4h
+
   - id: suspect
     when: checks.ok == false
     gate:
@@ -55,7 +70,7 @@ steps:
           Accounts payable, Acme
 
   - id: callback
-    when: checks.ok == true
+    when: checks.ok == true and (links.ok == true or linked == "call-anyway")
     gate:
       approver: "@ap-clerk"
       title: "call {checks.vendor} on {checks.phone} (the number on file, not one from the email) and have them read out their new account: it must be {checks.new_iban}"

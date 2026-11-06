@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { RoomDocument } from "./ports.ts";
+import { type Blocked, findLinks, linkDigest } from "./links.ts";
 
 // Checks done by code, not by a model. Agents read messy input and draft;
 // these confirm the facts a decision rests on (a purchase order exists and
@@ -16,12 +17,20 @@ export interface VerifyResult {
   [field: string]: unknown;
 }
 
-// `now` is the engine's clock, so checks about dates are testable.
-type Check = (args: Record<string, unknown>, docs: RoomDocument[], now?: number) => VerifyResult;
+// `now` is the engine's clock, so checks about dates are testable. `history`
+// is what earlier cases decided, for checks that look across cases.
+export interface History {
+  caseId: string;
+  blocked: Blocked[];
+}
+type Check = (args: Record<string, unknown>, docs: RoomDocument[], now?: number, history?: History) => VerifyResult;
 
 const DAY = 86_400_000;
 
-export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
+// `history`: the check needs earlier cases. `basis: false`: the document it
+// reads is not part of what the case rests on (another step already holds
+// that row); what it rests on is in its result's `watch`.
+export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basis?: boolean; run: Check }> = {
   // args: doc, po, supplier, amount. The document holds a markdown table
   // whose first column is the PO number, then supplier, amount and status.
   po_lookup: {
@@ -126,8 +135,43 @@ export const CHECKS: Record<string, { needsDoc: boolean; run: Check }> = {
         current_iban: vendor.iban,
         new_iban: iban,
         new_tail: iban.slice(-4),
+        in_email: args.text === undefined ? undefined : compactIban(String(args.text)).includes(iban),
         today: new Date(now).toISOString().slice(0, 10),
         detail: problems.length === 0 ? `${vendor.vendor}: ${maskIban(vendor.iban)} → ${maskIban(iban)}, requested from ${senderDomain}` : problems.join("; "),
+      };
+    },
+  },
+
+  // Across cases. args: doc (the vendor master), vendor, iban (the account
+  // this case would pay or write), printed (an account an invoice printed,
+  // never paid). Fails when another case or vendor is linked to an account:
+  // one a person blocked in a bank-change request, or another vendor's.
+  links: {
+    needsDoc: true,
+    history: true,
+    basis: false,
+    run(args, docs, now = Date.now(), history) {
+      const master = docs.find((d) => d.name === args.doc)?.content ?? "";
+      const iban = compactIban(String(args.iban ?? ""));
+      const found = findLinks(
+        { iban, printed: String(args.printed ?? ""), vendor: String(args.vendor ?? ""), caseId: history?.caseId },
+        master,
+        history?.blocked ?? [],
+        now,
+      );
+      const digest = linkDigest(found);
+      return {
+        ok: found.length === 0,
+        links: found,
+        linked_cases: [...new Set(found.map((l) => l.caseId).filter(Boolean))],
+        subject: iban || null,
+        digest,
+        // What an approval rests on: the kinds of link on the account it would
+        // pay or write. If that changes, the approval stops counting.
+        watch: iban ? { [`links:${iban}`]: { hash: digest, row: String(args.vendor ?? "") } } : undefined,
+        detail: found.length === 0
+          ? iban ? `no other case or vendor is linked to ${maskIban(iban)}` : "no account to link"
+          : found.map((l) => (l.role === "printed" ? `the account the invoice printed: ${l.detail}` : l.detail)).join("; "),
       };
     },
   },
@@ -300,7 +344,7 @@ function toNumber(value: unknown): number | undefined {
 const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]/gu, "");
 // For keys and comparisons outside this file: the same rule as names.
 export const normalizeName = norm;
-const sameName = (a: string, b: string) => norm(a) !== "" && norm(a) === norm(b);
+export const sameName = (a: string, b: string) => norm(a) !== "" && norm(a) === norm(b);
 
 // A row's content, for attesting it: the cells of every table row whose first
 // cell names `key`, trimmed, so the same row hashes the same however the

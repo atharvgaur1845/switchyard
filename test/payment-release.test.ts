@@ -260,6 +260,6 @@ describe("the documents payments rest on", () => {
     await commands.handle({ room: "finance", messageId: "u1", sender: "@priya", body: `@yard edit vendor-master "${FABRIKAM}" "${NEW_IBAN}"`, fromPerson: true });
 
     expect(chat.docs.get("finance")![0].content).toBe(MASTER);
-    expect(chat.posts.at(-1)!.body).toMatch(/`vendor-master` is read by code checks \(bank-change.checks, invoice-check.bank_check\), so it cannot be edited from chat; changes go through a `bank-change` case/);
+    expect(chat.posts.at(-1)!.body).toMatch(/`vendor-master` is read by code checks \(bank-change.checks, bank-change.links, invoice-check.bank_check, invoice-check.links\), so it cannot be edited from chat; changes go through a `bank-change` case/);
   });
 });

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, lookup, render, type Scope } from "./expr.ts";
 import { basisHash, CHECKS, docHash, LEGACY, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
+import { type Blocked, blockedAccount, findLinks, linkDigest } from "./links.ts";
 import {
   type AgentStep,
   type Flow,
@@ -327,24 +328,96 @@ export class Runner {
     }
     const args = renderArgs(rawArgs, scopeOf(state));
     const used = typeof args.doc === "string" ? docs.filter((d) => d.name === args.doc) : [];
+    const history = spec.history ? { caseId: state.id, blocked: this.blockedAccounts(used[0]?.content ?? "") } : undefined;
     let value =
       used.length > 1
         ? { ok: false, detail: `${used.length} documents in this room are named "${String(args.doc)}"; a person must remove the extra one` }
-        : spec.run(args, docs, this.now());
+        : spec.run(args, docs, this.now(), history);
     const rows = used.length === 1 ? value.rows : undefined;
     const key = rows?.[used[0]?.name];
     if (key !== undefined && this.guarded.has(`${state.room}/${used[0].name}`)) {
       value = this.checkAttested(state.room, used[0], key, value);
     }
+    // What the case rests on: the row (or document) the check read, and
+    // anything else the check names, such as the links on an account.
+    const watch = (value.watch ?? {}) as Record<string, { hash: string; row?: string }>;
+    const basisDocs = {
+      ...(used.length === 1 && spec.basis !== false ? { [used[0].name]: basisHash(used[0].content, rows?.[used[0].name]) } : {}),
+      ...Object.fromEntries(Object.entries(watch).map(([name, w]) => [name, w.hash])),
+    };
+    const basisRows = { ...(rows ?? {}), ...Object.fromEntries(Object.entries(watch).filter(([, w]) => w.row).map(([name, w]) => [name, w.row as string])) };
     this.store.append(state.id, {
       type: "verified",
       step: step.id,
       check,
       value,
-      ...(used.length === 1 ? { docs: { [used[0].name]: basisHash(used[0].content, rows?.[used[0].name]) } } : {}),
-      ...(rows ? { rows } : {}),
+      ...(Object.keys(basisDocs).length ? { docs: basisDocs } : {}),
+      ...(Object.keys(basisRows).length ? { rows: basisRows } : {}),
     });
     await this.say(state, `${value.ok ? "✓" : "✗"} Checked by code (${check}): ${value.detail}`);
+    if (check === "links" && Array.isArray(value.links) && value.links.length > 0) await this.announceLinks(state, value);
+  }
+
+  // Bank-change requests people blocked, as evidence for later cases (see
+  // links.ts for what is recorded and why).
+  private blockedAccounts(master: string): Blocked[] {
+    const out: Blocked[] = [];
+    for (const id of this.store.caseIds()) {
+      const timeline = this.store.timeline(id);
+      const checks = timeline.findLast((e) => e.type === "verified" && e.check === "bank_change");
+      const block = timeline.findLast((e) => e.type === "gate_answered" && e.answer === "block");
+      if (!checks || checks.type !== "verified" || !block || block.type !== "gate_answered") continue;
+      const opened = timeline.find((e) => e.type === "opened");
+      const email = opened?.type === "opened" ? String(opened.data.body ?? "") : "";
+      const found = blockedAccount(checks.value as Record<string, unknown>, email, master, { caseId: id, by: block.answeredBy, at: Date.parse(block.at_iso) });
+      if (found) out.push(found);
+    }
+    return out;
+  }
+
+  // The links on an account as they stand now, in the form a case rests on.
+  private linksNow(state: CaseState, stepId: string, iban: string, vendor: string | undefined, docs: RoomDocument[]): string {
+    const step = this.stepOf(state, stepId);
+    const name = step && isVerify(step) ? String(step.verify.doc) : "vendor-master";
+    const master = docs.filter((d) => d.name === name).map((d) => d.content).join("\n");
+    return linkDigest(findLinks({ iban, vendor, caseId: state.id }, master, this.blockedAccounts(master), this.now()));
+  }
+
+  // Says in the room which cases an account links, and in each linked case's
+  // thread which case it is now linked to. Once per pair of cases.
+  private async announceLinks(state: CaseState, value: VerifyResult): Promise<void> {
+    for (const link of value.links as { iban: string; caseId?: string; detail: string; role: string }[]) {
+      if (!link.caseId || !this.store.mark(`link:${link.caseId}:${state.id}:${link.iban}`, new Date(this.now()))) continue;
+      const other = this.store.load(link.caseId);
+      const title = (s: CaseState) => `case ${s.id} (${this.flowOf(s).description ?? s.flow})`;
+      await this.chat.post(state.room, `Linked cases: ${title(state)} and ${title(other)} share the account ${link.iban}. ${link.detail}. A person decides on ${state.id}'s card.`);
+      if (other.threadId) await this.chat.post(other.room, `Linked: ${title(state)} now names this case's account ${link.iban}.`, other.threadId);
+    }
+  }
+
+  // After a person blocks a bank-change request, every open case that rests
+  // on "no link" for that account is checked again at once, so a card shown
+  // before the block stops counting now, not only when someone clicks it.
+  private async relinkOpen(room: string): Promise<void> {
+    if (!this.chat.documents) return;
+    const docs = await this.chat.documents(room);
+    for (const open of this.store.openCases().filter((c) => c.room === room)) {
+      const drift: Record<string, [string, string]> = {};
+      for (const [name, b] of Object.entries(open.basis)) {
+        if (!name.startsWith("links:")) continue;
+        const now = this.linksNow(open, b.step, name.slice("links:".length), b.row, docs);
+        if (now !== b.hash) drift[name] = [b.hash, now];
+      }
+      if (Object.keys(drift).length === 0) continue;
+      const at = this.flowOf(open).steps.find((s) => open.pending && s.id === open.pending.step);
+      const order = this.flowOf(open).steps.map((s) => s.id);
+      const first = Math.min(...Object.keys(drift).map((doc) => order.indexOf(open.basis[doc].step)));
+      const steps = order.slice(first).filter((id) => open.finished.has(id) || id === open.pending?.step);
+      this.store.append(open.id, { type: "rewound", step: at?.id ?? order[first], steps, docs: drift });
+      const what = Object.entries(drift).map(([doc, [was, now]]) => `${doc.slice("links:".length)}: ${was} → ${now}`).join(", ");
+      await this.say(open, `A person just blocked a request naming this case's account (${what}). Checking again; the open card no longer counts.`);
+      await this.advance(open.id);
+    }
   }
 
   // A result resting on a row nobody wrote through Switchyard does not pass,
@@ -484,6 +557,11 @@ export class Runner {
     for (const [name, b] of basis) {
       // This case's own approved write moved it on purpose.
       if (state.wrote.has(name)) continue;
+      if (name.startsWith("links:")) {
+        const now = this.linksNow(state, b.step, name.slice("links:".length), b.row, docs);
+        if (now !== b.hash) drift[name] = [b.hash, now];
+        continue;
+      }
       const same = docs.filter((d) => d.name === name);
       const now = same.length === 1 ? basisHash(same[0].content, b.row) : same.length ? `(${same.length} documents)` : "(deleted)";
       if (!sameHash(b.hash, now, LEGACY.document)) drift[name] = [b.hash, now];
@@ -496,8 +574,14 @@ export class Runner {
     const first = Math.min(...Object.keys(drift).map((doc) => order.indexOf(state.basis[doc].step)));
     const steps = order.slice(first).filter((id) => state.finished.has(id));
     this.store.append(state.id, { type: "rewound", step: at.id, steps, docs: drift });
-    const what = Object.entries(drift).map(([doc, [was, now]]) => `${doc} ${shortHash(was)} → ${shortHash(now)}`).join(", ");
-    await this.say(state, `Not sending "${at.id}": a document the checks read changed after they ran (${what}). Checking again on the new version; any approval given on the old one no longer counts.`);
+    const links = Object.entries(drift).filter(([doc]) => doc.startsWith("links:"));
+    const changed = Object.entries(drift).filter(([doc]) => !doc.startsWith("links:"));
+    const what = [
+      ...changed.map(([doc, [was, now]]) => `${doc} ${shortHash(was)} → ${shortHash(now)}`),
+      ...links.map(([doc, [was, now]]) => `links on ${doc.slice("links:".length)}: ${was} → ${now}`),
+    ].join(", ");
+    const why = changed.length ? "a document the checks read changed after they ran" : "another case was linked to its account after the checks ran";
+    await this.say(state, `Not sending "${at.id}": ${why} (${what}). Checking again; any approval given before no longer counts.`);
   }
 
   private timing(step: GateStep): string {
@@ -654,6 +738,8 @@ export class Runner {
       approved: isApproval(step.gate, outcome.answer),
     });
     await this.advance(state.id);
+    // A block is evidence for other cases on the same account.
+    if (outcome.answer === "block") await this.relinkOpen(state.room);
   }
 
   async cancel(caseId: string, by: string): Promise<boolean> {

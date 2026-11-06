@@ -30,6 +30,13 @@ steps:
   - id: bank_check
     verify: { check: vendor_bank, doc: vendor-master, vendor: "{case.supplier}", iban: "{case.iban}" }
 
+  # Across cases: is the account to be paid (or one the invoice printed) one
+  # a person blocked in a bank-change request, or another vendor's? A link
+  # sends the invoice to a person; it never blocks or changes the payment.
+  # If a link appears after an approval, the approval stops counting.
+  - id: links
+    verify: { check: links, doc: vendor-master, vendor: "{bank_check.vendor}", iban: "{bank_check.iban}", printed: "{case.iban}" }
+
   # A vendor row edited in the room outside any case is not one anybody
   # approved: nothing is paid on it, and a person is told why.
   - id: held
@@ -42,7 +49,7 @@ steps:
       deadline: 1d
 
   - id: finance
-    when: bank_check.attested != false and (po_check.ok == false or match.agreed == false or bank_check.ok == false or bank_check.recent == true or case.amount > 10000)
+    when: bank_check.attested != false and (po_check.ok == false or match.agreed == false or bank_check.ok == false or bank_check.recent == true or links.ok == false or case.amount > 10000)
     gate:
       approver: "@controller"
       backup: "@cfo"
@@ -69,6 +76,6 @@ steps:
   # person clicks pay: that account is not one any case approved.
   - id: schedule_payment
     when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false
-    auto_approve: po_check.ok == true and match.agreed == true and bank_check.ok == true and bank_check.recent == false and case.amount <= 10000
+    auto_approve: po_check.ok == true and match.agreed == true and bank_check.ok == true and bank_check.recent == false and links.ok == true and case.amount <= 10000
     outlet:
       pay: { payee: "{bank_check.vendor}", to: "{bank_check.iban}", amount: "{case.amount}", currency: EUR, reference: "{case.number}" }

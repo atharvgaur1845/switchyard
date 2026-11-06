@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Flow, loadFlow } from "../src/engine/flow-schema.ts";
+import { blockedAccount } from "../src/engine/links.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
 import { basisHash, CHECKS, LEGACY, sameHash } from "../src/engine/verifiers.ts";
@@ -312,5 +313,122 @@ describe("commitments are full SHA-256", () => {
     expect(sameHash(full.slice(0, 12), `row:${full}`, LEGACY.document)).toBe(false);
     // Two full hashes must be equal.
     expect(sameHash(full, hashOutlet({ post: { room: "finance", body: "y" } }), LEGACY.action)).toBe(false);
+  });
+});
+
+describe("attacks across cases", () => {
+  const LOOKALIKE = "accounts@fabrikarn.test";
+  const REAL = "accounts@fabrikam.test";
+  const ATTACKER = "DE88 5007 0010 0175 5263 03";
+  // Both flows in one room, an agent that reads the IBAN from the email, and
+  // two people, so blocks and callbacks can be answered by the right roles.
+  const world = async () => {
+    const reading = (request: string) => {
+      const iban = /(DE\d{2}(?: ?\d{4}){4} ?\d{2})/.exec(request)?.[1] ?? "";
+      const token = /"token": "([^"]+)"/.exec(request)![1];
+      return `\`\`\`json\n${JSON.stringify({ token, vendor: "Fabrikam Print", new_iban: iban, reason: "new bank", red_flags: [] })}\n\`\`\``;
+    };
+    const verdict = { result: "match", po_amount: 3150, reasons: [] };
+    const chat = new FakeSwitch()
+      .agent("@checker", (r) => (r.includes("bank account") ? reading(r) : replyWith(verdict)(r)))
+      .agent("@checker-backup", replyWith(verdict))
+      .doc("finance", "purchase-orders", POS)
+      .doc("finance", "vendor-master", MASTER);
+    const store = new Store();
+    const outlets = new LiveOutlets({ dataDir: tmpdir(), bankUrl, smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, chat, store);
+    // Email outlets would need SMTP; record them instead.
+    const sent: string[] = [];
+    const runner = new Runner(store, chat, { execute: (o, k) => ("email" in o ? (sent.push(k), Promise.resolve(`emailed ${k}`)) : outlets.execute(o, k)), lookup: (o, k) => outlets.lookup(o, k) }, flows, {
+      people: { "@ap-clerk": ["@clerk"], "@controller": ["@controller"] },
+    });
+    attestRooms(store, chat);
+    const settle = () => chat.deliver((m) => runner.onMessage(m));
+    const email = async (from: string, iban: string) => {
+      const id = await runner.open("bank-change", { from, subject: "new bank", body: `Please pay us at ${iban} from now on.` }, `email from ${from}`);
+      await settle();
+      return id;
+    };
+    const card = (id: string) => chat.cards.findLast((c) => c.requestId.startsWith(id))!;
+    const answer = async (id: string, choice: string, who: string) => {
+      await runner.onApproval({ requestId: card(id).requestId, answer: choice, answeredBy: `mx:${who}` });
+      await settle();
+    };
+    return { chat, store, runner, email, card, answer, settle };
+  };
+
+  it("the real domain asking for an account a look-alike asked for goes to the controller before any call", async () => {
+    const { store, email, card, answer } = await world();
+    const fake = await email(LOOKALIKE, ATTACKER);
+    await answer(fake, "block", "@controller");
+    // The supplier's mailbox is compromised: the same request now comes from the real domain.
+    const real = await email(REAL, ATTACKER);
+    expect(store.load(real).results.checks).toMatchObject({ ok: true });
+    expect(store.load(real).results.links).toMatchObject({ ok: false, linked_cases: [fake] });
+    expect(card(real).title).toMatch(/^.*hold Fabrikam Print's bank-detail change\? DE88…6303 was requested for Fabrikam Print from fabrikarn.test, and @controller blocked that request/);
+    expect(card(real).title).not.toMatch(/call Fabrikam/);
+  });
+
+  it("a block voids an open callback card in another case on the same account, at once", async () => {
+    const { chat, store, runner, email, card, answer } = await world();
+    const real = await email(REAL, ATTACKER);
+    const callback = card(real);
+    expect(callback.title).toMatch(/call Fabrikam Print on \+49 30 5550 1003/);
+    // Then a look-alike asks for the same account, and the controller blocks it.
+    const fake = await email(LOOKALIKE, ATTACKER);
+    await answer(fake, "block", "@controller");
+
+    expect(store.events(real).some((e) => e.type === "rewound")).toBe(true);
+    expect(store.load(real).pending).toMatchObject({ kind: "gate", step: "linked" });
+    expect(chat.said("A person just blocked a request naming this case's account (DE88500700100175526303: none → blocked)")).toBe(true);
+    // The old callback card no longer counts: confirming it does nothing.
+    await runner.onApproval({ requestId: callback.requestId, answer: "confirmed", answeredBy: "mx:@clerk" });
+    expect(store.events(real).some((e) => e.type === "gate_answered" && e.step === "callback")).toBe(false);
+    expect(store.load(real).pending).toMatchObject({ kind: "gate", step: "linked" });
+  });
+
+  it("blocking a look-alike that names the vendor's real account does not flag that account", async () => {
+    const { store, email, answer, runner, settle } = await world();
+    const fake = await email(LOOKALIKE, "DE29 1005 0000 0190 1837 46"); // Fabrikam's account on file
+    expect(store.load(fake).results.checks).toMatchObject({ ok: false });
+    await answer(fake, "block", "@controller");
+    // Fabrikam's next ordinary invoice is still paid by the rule: the block is not evidence against its own account.
+    const invoice = await runner.open("invoice-check", fabrikam("FP-8001"), "webhook");
+    await settle();
+    expect(store.load(invoice).results.links).toMatchObject({ ok: true });
+    expect(store.events(invoice).some((e) => e.type === "executed" && e.step === "schedule_payment")).toBe(true);
+  });
+
+  it("a block whose account is not written in the email is not evidence", () => {
+    const blocked = blockedAccount({ new_iban: "DE88500700100175526303", vendor: "Fabrikam Print", sender_domain: "fabrikarn.test", domain: "fabrikam.test" }, "please pay our new account", MASTER, { caseId: "c1", by: "@controller", at: Date.now() });
+    expect(blocked).toBeUndefined();
+    const real = blockedAccount({ new_iban: "DE88500700100175526303", vendor: "Fabrikam Print", sender_domain: "fabrikam.test", domain: "fabrikam.test" }, `pay ${ATTACKER}`, MASTER, { caseId: "c2", by: "@controller", at: Date.now() });
+    expect(real).toBeUndefined(); // a block of the vendor's own domain says nothing about the account
+  });
+
+  it("a flood of blocks on one account checks an open case again only once", async () => {
+    const { store, email, answer } = await world();
+    const real = await email(REAL, ATTACKER);
+    for (let i = 0; i < 3; i++) await answer(await email(LOOKALIKE, ATTACKER), "block", "@controller");
+    expect(store.events(real).filter((e) => e.type === "rewound")).toHaveLength(1);
+    expect(store.load(real).status).toBe("open");
+  });
+
+  it("an invoice whose account on file is also another vendor's goes to a person", async () => {
+    // Two vendors on one account, both rows as Switchyard first saw them (a factoring company would look the same).
+    const shared = MASTER.replace("DE20200400000628401599", FABRIKAM);
+    const fresh = await (async () => {
+      const verdict = { result: "match", po_amount: 3150, reasons: [] };
+      const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict))
+        .doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", shared);
+      const s = new Store();
+      const r = new Runner(s, chat, new LiveOutlets({ dataDir: tmpdir(), bankUrl, smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, chat, s), flows, { now: () => Date.parse("2026-11-06") });
+      attestRooms(s, chat);
+      const id = await r.open("invoice-check", fabrikam("FP-7001"), "webhook");
+      await chat.deliver((m) => r.onMessage(m));
+      return { s, id };
+    })();
+    expect(fresh.s.load(fresh.id).results.links).toMatchObject({ ok: false, detail: expect.stringContaining("is on file for Tailspin Travel, not Fabrikam Print") });
+    expect(fresh.s.events(fresh.id).some((e) => e.type === "executed" && e.step === "schedule_payment")).toBe(false);
+    expect(fresh.s.load(fresh.id).pending?.kind).toBe("gate");
   });
 });
