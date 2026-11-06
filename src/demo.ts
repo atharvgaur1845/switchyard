@@ -21,7 +21,7 @@ import { SwitchClient } from "./switch/client.ts";
 // to a running Switchyard the way the outside world would send them.
 export const DEMO_INPUTS = [
   "quote", "invoices", "injection", "question", "expense", "lunch", "onboarding",
-  "bank-change", "bank-change-real", "fabrikam-invoice", "fabrikam-invoice-2", "northwind-invoice", "insider-edit", "insider-restore",
+  "bank-change", "bank-change-real", "bank-change-mailbox", "fabrikam-invoice", "fabrikam-invoice-2", "northwind-invoice", "insider-edit", "insider-restore",
 ] as const;
 
 const NORTHWIND = "DE89370400440532013000";
@@ -169,6 +169,24 @@ export async function demoSend(what: string, config: Config): Promise<void> {
             ].join("\n"),
       });
       return console.log(`Sent ${fake ? "the look-alike" : "the genuine"} bank-change email to ap@acme.test.`);
+    }
+    case "bank-change-mailbox": {
+      // From Fabrikam's real domain, calm and plausible, naming the account a
+      // look-alike email asked for: how a compromised supplier mailbox looks.
+      const mailer = nodemailer.createTransport({ host: config.smtp.host, port: config.smtp.port });
+      await mailer.sendMail({
+        from: "Fabrikam Accounts <accounts@fabrikam.test>",
+        to: "ap@acme.test",
+        subject: "Updated bank details",
+        text: [
+          "Hello Acme team,",
+          "",
+          "Our bank account has changed. Please pay us at IBAN DE88 5007 0010 0175 5263 03 from now on.",
+          "",
+          "Fabrikam Print, accounts",
+        ].join("\n"),
+      });
+      return console.log("Sent a bank-change email from Fabrikam's real domain, naming the look-alike's account, to ap@acme.test.");
     }
     case "fabrikam-invoice":
       // Matches PO-1043 exactly, and prints the fraudster's account: the
@@ -322,7 +340,14 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     const invoice = await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0912", amount: 3150, po: "PO-1043", iban: "DE88500700100175526303" }, "webhook");
     await settle();
 
-    scene("3. Meanwhile Fabrikam really changes banks: a callback, then a different person approves");
+    scene("3. The same account again, now from Fabrikam's real domain: the controller decides before anyone calls");
+    // A compromised supplier mailbox looks like this: the real domain, an
+    // account a person already blocked when a look-alike asked for it.
+    await runner.open("bank-change", { from: "accounts@fabrikam.test", subject: "Updated bank details", body: "Our bank account changed. Please pay us at DE88 5007 0010 0175 5263 03 from now on." }, "email from accounts@fabrikam.test");
+    await settle();
+    await click(/hold Fabrikam Print's bank-detail change/, "hold", "@controller");
+
+    scene("4. Meanwhile Fabrikam really changes banks: a callback, then a different person approves");
     await runner.open("bank-change", { from: "accounts@fabrikam.test", subject: "New bank account from 1 December", body: "Our new account is DE63 1203 0000 1064 5328 71. Confirm by phone." }, "email from accounts@fabrikam.test");
     await settle();
     await click(/call Fabrikam/, "confirmed", "@clerk");
@@ -330,7 +355,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     await click(/change Fabrikam Print's bank account/, "approve", "@controller");
     console.log(`${dim("        vendor-master now:")} ${masterRow("Fabrikam")}`);
 
-    scene("4. The approval on the old card no longer counts: the facts changed");
+    scene("5. The approval on the old card no longer counts: the facts changed");
     await click(/pay Fabrikam Print invoice FP-0912/, "pay", "@controller");
     await click(/pay Fabrikam Print invoice FP-0912/, "pay", "@controller");
     const paid = store.events(invoice).find((e) => e.type === "executed" && e.step === "schedule_payment");
@@ -343,7 +368,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
       console.log(`${dim("        receipt:")} approved ${cut(approved)} · sent ${cut(paid.hash)} · read back from the bank ${cut(paid.readback)} ${match ? bold("= all three match (full SHA-256)") : red("MISMATCH")}`);
     }
 
-    scene("5. Someone edits the vendor master in the room directly, outside any case");
+    scene("6. Someone edits the vendor master in the room directly, outside any case");
     // An insider (or a stolen account) with write access to the document
     // swaps Northwind's account, keeps the old date and the word "callback".
     const master = (docs.get("finance") ?? []).find((d) => d.name === "vendor-master")!;
@@ -356,7 +381,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     console.log(`${dim("        bank:")} ${toMule ? red("PAID the edited account") : bold("nothing paid; the row is not one any case wrote")}`);
     master.content = master.content.replace("DE68370400440532099999", "DE89370400440532013000");
 
-    scene("6. A second invoice for the same order, under a new number");
+    scene("7. A second invoice for the same order, under a new number");
     await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0913", amount: 3150, po: "PO-1043" }, "webhook");
     await settle();
 

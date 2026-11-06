@@ -135,6 +135,8 @@ function outcomeOf(state: CaseState, events: CaseEvent[], flow: Flow | undefined
   };
   const edited = events.some((e) => e.type === "verified" && (e.value as { attested?: boolean } | undefined)?.attested === false);
   if (edited && !executed.some((e) => kindOf(e) === "pay")) return { label: "Held · row edited in the room", tone: "stop" };
+  // The controller held a request linked to another case.
+  if (events.some((e) => e.type === "gate_answered" && e.answer === "hold")) return { label: "Held · linked to another case", tone: "stop" };
   if (executed.length > 0) {
     return { label: DONE_BY_OUTLET[kindOf(executed.at(-1)!)] ?? "Done", tone: "act" };
   }

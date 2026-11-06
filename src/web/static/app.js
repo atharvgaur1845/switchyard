@@ -183,6 +183,7 @@ function renderDetail() {
     </div>
     ${c.excerpt ? `<blockquote class="excerpt">${esc(c.excerpt)}</blockquote>` : ""}
     ${banners(c)}
+    ${linkedHtml(c)}
     <div class="diagram" id="diagram">${flow ? diagram(flow, c, state.vendors) : ""}</div>
     ${receiptsHtml(c)}
     <div class="dtabs" role="tablist" aria-label="Case views">
@@ -240,7 +241,7 @@ function timeline(c) {
   for (const e of c.events) {
     const at = `<time datetime="${esc(e.at_iso)}">${clock(e.at_iso)}</time>`;
     const row = (cls, actor, avatar, text, extra = "") =>
-      items.push(`<li class="ev"><span class="avatar ${cls}">${avatar}</span><div><div class="line1"><span class="actor">${actor}</span><span class="body">${text}</span>${at}</div>${extra}</div></li>`);
+      items.push(`<li class="ev"><span class="avatar ${cls}">${avatar}</span><div><div class="line1"><span class="actor">${actor}</span><span class="body">${caseLinks(text)}</span>${at}</div>${extra}</div></li>`);
     const step = e.step ? stepOf(c, e.step) : undefined;
     const name = esc(step?.label ?? e.step ?? "");
     switch (e.type) {
@@ -252,7 +253,7 @@ function timeline(c) {
         if (!e.parallel || e.attempt > 1) row("", "@yard", icon("yard"), `asked <b>${esc(e.agent)}</b> ${vendorBadge(e.agent)} for <b>${name}</b>${e.tries > 1 ? ` <span class="pill neutral">retry ${e.tries}</span>` : ""}`, docRefs(e.docs));
         break;
       case "verified":
-        row(e.value?.ok ? "act" : "stop", "code", icon("code"), `checked <b>${name}</b> (${esc(e.check)}): ${esc(e.value?.detail ?? "")}${e.docs ? ` ${Object.entries(e.docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)}${e.rows?.[d] ? ` (${esc(e.rows[d])}'s row)` : ""} ${hx(h, 12)}</span>`).join(" ")}` : ""}`);
+        row(e.value?.ok ? "act" : "stop", "code", icon("code"), `checked <b>${name}</b> (${esc(e.check)}): ${esc(e.value?.detail ?? "")}${e.docs ? ` ${Object.entries(e.docs).map(([d, h]) => (d.startsWith("links:") ? `<span class="docref">${icon("link")}links on ${esc(d.slice(6))}: <b>${esc(h === "none" ? "none" : h)}</b></span>` : `<span class="docref">${icon("doc")}${esc(d)}${e.rows?.[d] ? ` (${esc(e.rows[d])}'s row)` : ""} ${hx(h, 12)}</span>`)).join(" ")}` : ""}`);
         break;
       case "fanned_out":
         row("", "@yard", icon("fork"), `asked ${e.agents.map((a) => `<b>${esc(a)}</b> ${vendorBadge(a)}`).join(" and ")} to do <b>${name}</b> independently`);
@@ -296,7 +297,7 @@ function timeline(c) {
         row(e.approved ? "act" : "stop", asRole(e.answeredBy, step?.who), initials(e.answeredBy), `chose <b>${esc(e.answer)}</b> for <b>${name}</b>`);
         break;
       case "rewound":
-        row("stop", "@yard", icon("reroute"), `would not act on <b>${name}</b>: ${Object.entries(e.docs ?? {}).map(([d, [was, now]]) => `<b>${esc(d)}</b> changed ${hx(was, 12)} → ${hx(now, 12)}`).join(", ")} after the checks read it, so the checks run again and any earlier approval no longer counts`);
+        row("stop", "@yard", icon("reroute"), `would not act on <b>${name}</b>: ${Object.entries(e.docs ?? {}).map(([d, [was, now]]) => (d.startsWith("links:") ? `the links on <b>${esc(d.slice(6))}</b> went from <b>${esc(was)}</b> to <b>${esc(now)}</b>` : `<b>${esc(d)}</b> changed ${hx(was, 12)} → ${hx(now, 12)}`)).join(", ")} after the checks read it, so the checks run again and any earlier approval no longer counts`);
         break;
       case "executing":
         break;
@@ -332,7 +333,7 @@ function timeline(c) {
 // Which version of each room document an agent was working from.
 function docRefs(docs) {
   if (!docs || !Object.keys(docs).length) return "";
-  return `<div class="docrefs">${Object.entries(docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)} <code>${esc(h)}</code></span>`).join("")}</div>`;
+  return `<div class="docrefs">${Object.entries(docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)} ${hx(h, 12)}</span>`).join("")}</div>`;
 }
 
 // Agent results: arrays of objects become tables, text keeps its line
@@ -386,6 +387,23 @@ function exportCase(id) {
 }
 
 // ---------- receipts: what was approved, and what was done ----------
+
+// "case 1c5cc185" in any story line becomes a link when that case is here.
+function caseLinks(html) {
+  return html.replace(/\bcase ([0-9a-f]{8})\b/g, (m, id) => (state.cases.some((x) => x.id === id) ? `<a class="caselink" href="#${id}">case ${id}</a>` : m));
+}
+
+// Cases this one is linked to through an account, from its links check.
+function linkedHtml(c) {
+  const links = c.events.filter((e) => e.type === "verified" && e.check === "links").at(-1)?.value?.links ?? [];
+  if (!links.length) return "";
+  const items = links.map((l) => {
+    const other = l.caseId && state.cases.find((x) => x.id === l.caseId);
+    const target = other ? `<a class="caselink" href="#${other.id}">${esc(other.title)}</a> <span class="pill ${other.outcome?.tone ?? "neutral"}">${esc(other.outcome?.label ?? "")}</span>` : "";
+    return `<li><code>${esc(l.iban)}</code> ${l.role === "printed" ? "(printed on the invoice, never paid)" : ""}: ${caseLinks(esc(l.detail))}${target ? `<div>${target}</div>` : ""}</li>`;
+  });
+  return `<section class="linked" aria-label="Linked cases"><h4>${icon("link")} Linked across cases, by code</h4><ul>${items.join("")}</ul><p class="fine">A link never blocks a payment by itself: it sends the case to a person, and an approval given before a link appeared no longer counts.</p></section>`;
+}
 
 function receiptsOf(c) {
   const out = [];

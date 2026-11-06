@@ -118,6 +118,13 @@ request:
       new_iban: DE88 5007 0010 0175 5263 03
       reason: "An audit moved the account."
       red_flags: ["pay today", "CFO approved", "reply by email only, phones are down"]
+  # The same account, from Fabrikam's real domain: a compromised mailbox.
+  - when: { body: "0175 5263 03" }
+    reply:
+      vendor: Fabrikam Print
+      new_iban: DE88 5007 0010 0175 5263 03
+      reason: "Our bank account changed."
+      red_flags: ["new account sent by email"]
   - default:
       vendor: Fabrikam Print
       new_iban: DE63 1203 0000 1064 5328 71

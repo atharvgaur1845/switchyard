@@ -537,8 +537,10 @@ export class Runner {
         lines.push(`${value.agreed ? "✓" : "✗"} ${who} ${value.agreed ? "agreed" : "did not agree"} on ${step.id}`);
       }
     }
-    const versions = Object.entries(state.basis).map(([doc, b]) => `${doc} (${b.row ? `${b.row}'s row` : "whole document"}) ${shortHash(b.hash)}`);
-    if (versions.length) lines.push(`Checked against room documents: ${versions.join(", ")}. If one changes before anything is released, the checks run again and this card is replaced.`);
+    const entries = Object.entries(state.basis);
+    const versions = entries.filter(([doc]) => !doc.startsWith("links:")).map(([doc, b]) => `${doc} (${b.row ? `${b.row}'s row` : "whole document"}) ${shortHash(b.hash)}`);
+    const linked = entries.filter(([doc]) => doc.startsWith("links:")).map(([doc, b]) => `${doc.slice("links:".length)} (${b.hash === "none" ? "no links" : b.hash})`);
+    if (versions.length) lines.push(`Checked against room documents: ${versions.join(", ")}${linked.length ? `; links between cases on ${linked.join(", ")}` : ""}. If one changes before anything is released, the checks run again and this card is replaced.`);
     return lines.length ? `Evidence:\n${lines.join("\n")}` : "";
   }
 
