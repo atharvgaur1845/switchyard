@@ -49,9 +49,10 @@ describe("the held-out scenarios", () => {
     expect(results.filter((r) => !r.baseline.pass).map((r) => r.scenario.id)).toEqual([]);
     expect(results.filter((r) => !r.links.pass).map((r) => r.scenario.id)).toEqual(["H05"]);
     expect(results.reduce((n, r) => n + r.baseline.toAttacker + r.links.toAttacker, 0)).toBe(0);
-    // With every callback fooled, these single-case attacks get through, links or not.
+    // With every callback fooled, these single-case attacks get through, links
+    // or not. (H02 and H18 did too, until a Reply-To on another domain counted.)
     const fooled = results.filter((r) => r.fooled.links > 0).map((r) => r.scenario.id);
-    expect(fooled).toEqual(["H02", "H04", "H13", "H15", "H18"]);
+    expect(fooled).toEqual(["H04", "H13", "H15"]);
     expect(results.every((r) => r.fooled.links === r.fooled.baseline)).toBe(true);
   }, 60_000);
 });

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { RoomDocument } from "./ports.ts";
+import { authenticated, type MailAuth } from "../inlets/mail-auth.ts";
 import { type Blocked, findLinks, linkDigest } from "./links.ts";
 
 // Checks done by code, not by a model. Agents read messy input and draft;
@@ -178,6 +179,8 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
       if (!vendor.domain) return { ok: false, detail: `${vendor.vendor} has no domain on file, so the sender cannot be checked` };
       const distance = editDistance(senderDomain, vendor.domain);
       const iban = compactIban(String(args.iban ?? ""));
+      const auth = args.auth && typeof args.auth === "object" ? (args.auth as MailAuth) : undefined;
+      const replyDomain = String(args.reply_to ?? "").toLowerCase().split("@")[1]?.replace(/>$/, "") ?? "";
       const problems = [
         senderDomain !== vendor.domain &&
           (distance <= 2
@@ -187,7 +190,18 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
         iban === vendor.iban && "the new account is the one already on file",
         // The agent read the account from the email; code confirms it is there.
         args.text !== undefined && iban !== "" && !compactIban(String(args.text)).includes(iban) && `${maskIban(iban)} does not appear in the email, so the agent's reading of it cannot be confirmed`,
+        // Replies would go somewhere other than the sender's domain.
+        replyDomain && replyDomain !== senderDomain && !replyDomain.endsWith(`.${senderDomain}`) && `replies to it go to ${replyDomain}, not ${senderDomain}`,
+        // The company's mail gateway says the From address is forged.
+        auth?.available && auth.dmarc === "fail" && `the mail gateway ${auth.gateway} reports DMARC failed for ${senderDomain}: the From address is forged`,
+        auth?.available && auth.dmarc === undefined && auth.spf !== "pass" && !authenticated(auth, senderDomain) && `the mail gateway ${auth.gateway} could not verify ${senderDomain} by SPF or DKIM`,
       ].filter(Boolean);
+      const vouched = authenticated(auth, senderDomain);
+      const authText = !auth
+        ? "sender not authenticated (no mail gateway result)"
+        : auth.available
+          ? vouched ? `sender authenticated by ${auth.gateway}` : `sender not authenticated by ${auth.gateway}`
+          : `sender not authenticated (${auth.reason})`;
       return {
         ok: problems.length === 0,
         rows: { [String(args.doc)]: vendor.vendor },
@@ -201,8 +215,13 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
         new_iban: iban,
         new_tail: iban.slice(-4),
         in_email: args.text === undefined ? undefined : compactIban(String(args.text)).includes(iban),
+        // Evidence, never a pass on its own: absent means "not authenticated".
+        authenticated: vouched,
+        // The gateway says the From address is forged: the domain is not who sent it.
+        forged: Boolean(auth?.available && auth.dmarc === "fail"),
+        auth: authText,
         today: new Date(now).toISOString().slice(0, 10),
-        detail: problems.length === 0 ? `${vendor.vendor}: ${maskIban(vendor.iban)} → ${maskIban(iban)}, requested from ${senderDomain}` : problems.join("; "),
+        detail: problems.length === 0 ? `${vendor.vendor}: ${maskIban(vendor.iban)} → ${maskIban(iban)}, requested from ${senderDomain}; ${authText}` : problems.join("; "),
       };
     },
   },

@@ -1,6 +1,7 @@
 import type { Flow } from "../engine/flow-schema.ts";
 import type { Runner } from "../engine/runner.ts";
 import type { Store } from "../engine/store.ts";
+import { mailAuth } from "./mail-auth.ts";
 
 // `inlet.email` in a flow:
 //   email: { to: quotes@acme.test }
@@ -10,6 +11,9 @@ import type { Store } from "../engine/store.ts";
 // the whole loop runs without a real mail account.
 export interface EmailInlet {
   to: string;
+  // The authserv-id of the company's own mail gateway, whose
+  // Authentication-Results header Switchyard believes (mail-auth.ts).
+  trusted_gateway?: string;
 }
 
 export function emailInlet(flow: Flow): EmailInlet | undefined {
@@ -24,6 +28,7 @@ interface MailpitSummary {
 interface MailpitMessage {
   ID: string;
   From: { Name: string; Address: string };
+  ReplyTo?: { Name: string; Address: string }[];
   Subject: string;
   Text: string;
   Date: string;
@@ -65,6 +70,8 @@ export class MailpitInbox {
       if (!match || !this.store.mark(`email:${summary.ID}`)) continue;
 
       const message = await this.get<MailpitMessage>(`/api/v1/message/${summary.ID}`);
+      const headers = await this.get<Record<string, string[]>>(`/api/v1/message/${summary.ID}/headers`).catch(() => ({}));
+      const replyTo = message.ReplyTo?.[0]?.Address;
       await this.runner.open(
         match.flow.flow,
         {
@@ -73,6 +80,8 @@ export class MailpitInbox {
           subject: message.Subject,
           body: message.Text.slice(0, 20_000),
           received: message.Date,
+          ...(replyTo ? { reply_to: replyTo } : {}),
+          auth: mailAuth(headers, match.inlet.trusted_gateway),
         },
         `email from ${message.From.Address}`,
       );

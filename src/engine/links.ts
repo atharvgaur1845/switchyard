@@ -63,7 +63,10 @@ export function blockedAccount(
   // compromised mailbox is found out.
   const domain = String(checks.domain ?? "").toLowerCase();
   const how = meta.how ?? "block";
-  if (how === "block" && sender && domain && (sender.toLowerCase() === domain || sender.toLowerCase().endsWith(`.${domain}`))) return undefined;
+  // A From address the company's mail gateway called forged is not the
+  // vendor's domain speaking, so that block is evidence too.
+  const own = sender && domain && (sender.toLowerCase() === domain || sender.toLowerCase().endsWith(`.${domain}`));
+  if (how === "block" && own && checks.forged !== true) return undefined;
   return { iban, caseId: meta.caseId, vendor, sender, by: meta.by, at: meta.at, how };
 }
 

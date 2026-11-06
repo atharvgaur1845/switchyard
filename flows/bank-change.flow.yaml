@@ -24,9 +24,11 @@ steps:
     bench: "@checker-backup"
 
   # Code, not the model: is the sender the supplier's own domain, is the
-  # account a valid IBAN that the email itself contains, is it really a change.
+  # account a valid IBAN that the email itself contains, is it really a change,
+  # do replies go elsewhere, and does the company's mail gateway (if one is
+  # trusted in the inlet) say the From address is forged.
   - id: checks
-    verify: { check: bank_change, doc: vendor-master, vendor: "{request.vendor}", sender: "{case.from}", iban: "{request.new_iban}", text: "{case.body}" }
+    verify: { check: bank_change, doc: vendor-master, vendor: "{request.vendor}", sender: "{case.from}", iban: "{request.new_iban}", text: "{case.body}", reply_to: "{case.reply_to}", auth: "{case.auth}" }
 
   # Across cases: was this account requested before, from elsewhere, and
   # blocked by a person? Or is it another vendor's? Then the controller

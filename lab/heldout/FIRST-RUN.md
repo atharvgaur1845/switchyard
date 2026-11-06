@@ -34,3 +34,12 @@ The other 16 scenarios met every expectation with links off and on.
 
 After these changes, links off meets 20/20 and links on 19/20. Those numbers
 are no longer held out: the engine was changed after seeing the failures.
+
+## Later
+
+With every callback fooled, the first run's scenarios paid 26,930 EUR to
+attacker accounts, with links off and on alike: these are single-case
+attacks, and a callback is what stops them. Two of them (H02, H18) set a
+Reply-To on another domain. Since a Reply-To that does not match the sender
+counts as a failed check, the fooled-callback total is 16,790 EUR, again the
+same with links off and on.
