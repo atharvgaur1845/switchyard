@@ -17,7 +17,7 @@ steps: [ ... ]                # run top to bottom
 | Inlet | Example | The case data is |
 |---|---|---|
 | `form` | `form: { fields: [name, email:email, amount:number, details:long] }` | the submitted fields; types are `text` (default), `email`, `number`, `long` |
-| `email` | `email: { to: quotes@acme.test }` | `from`, `from_name`, `subject`, `body`, `received` |
+| `email` | `email: { to: quotes@acme.test, trusted_gateway: mx.acme.test }` | `from`, `from_name`, `subject`, `body`, `received`, `reply_to`, and `auth`: what the trusted gateway's topmost `Authentication-Results` header says (SPF, DKIM, DMARC), or why it is unavailable |
 | `schedule` | `schedule: { cron: "0 9 * * MON", data: { period: last week } }` | `data` plus `scheduled_for` |
 | `webhook` | `webhook: { secret_env: HOOK_SECRET, map: { amount: order.total } }` | the JSON body, or the `map`ped fields |
 | `frontdesk` | `frontdesk: { title: Ask us }` | `question`, plus `flagged` and `flags` from the screen |
@@ -49,7 +49,27 @@ Every step has an `id` (lower case, `_` allowed) and an optional `when:` conditi
   sla: 10m                         # a missing answer by then -> a person
 ```
 
-The result holds each agent's answer under its name (`match.checker.result`), plus `match.agreed`. That is true when every agent gave the same value for every enum field. A typical rule: `when: match.agreed == false` sends the case to a person.
+The result holds each agent's answer under its name (`match.checker.result`), plus `match.agreed` and `match.complete`. `agreed` is true when every agent gave the same value for every enum and number field; `complete` when every agent answered. A typical rule: `when: match.agreed == false` sends the case to a person.
+
+With `roles`, the agents still work at once but each has its own job. A role's `ask` comes before the shared one, and its `expect` adds to the shared fields. Agents with different jobs are not compared, so follow the step with a code check that weighs what they said. The invoice flow does this with `agent_evidence`, which keeps a quote only if it is in the invoice.
+
+```yaml
+- id: review
+  parallel: ["@checker", "@checker-backup"]
+  ask: Every quote you give must be copied word for word from the invoice data.
+  expect: {}
+  roles:
+    "@checker":
+      title: invoice reader
+      ask: Report the supplier, number, amount, account and PO, with quotes.
+      expect: { supplier: str, number: str, amount: number, iban: str?, po: str?, quotes: list }
+    "@checker-backup":
+      title: fraud investigator
+      ask: Look for signs that this invoice is an attack, each with a quote.
+      expect: { verdict: [clear, suspicious], findings: list }
+- id: evidence
+  verify: { check: agent_evidence, forensics: "{review.checker}", investigator: "{review.checker-backup}", supplier: "{case.supplier}", number: "{case.number}", amount: "{case.amount}", iban: "{case.iban}", po: "{case.po}", text: "{case.text}" }
+```
 
 **Wait.** Pauses the case, e.g. before a follow-up. A person can end it early with `@yard resume <case>`.
 
@@ -90,7 +110,7 @@ The result holds each agent's answer under its name (`match.checker.result`), pl
 - `<step id>` is that step's result:
   - for an agent step, its JSON fields (`check.verdict`);
   - for a gate, the chosen option (`manager == "reject"`);
-  - for a parallel step, each agent's answer by name plus `agreed`.
+  - for a parallel step, each agent's answer by name plus `agreed` and `complete`.
 - A name may only point at `case` or at a step **above** it. Lint rejects anything else.
 
 Placeholders `{like.this}` work in `ask`, gate titles and outlet fields. Conditions use `==`, `!=`, `>`, `>=`, `<`, `<=`, `and`, `or`, `not`, parentheses, numbers and quoted strings.

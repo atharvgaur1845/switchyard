@@ -6,12 +6,16 @@ Screen: Slack (`#finance`) on the left, the dashboard (`localhost:4100`) on the 
 
 Disclose on screen from the first frame:
 
-> Slack, Switch, the agents (Claude Haiku and Gemini) and the emails are real. The bank and the suppliers are a local sandbox. The insider's edit is made by a script, through Switch's document API.
+> Slack, Switch, the agents (Claude Haiku and Gemini) and the emails are real, and so are the two people. The bank and the suppliers are a local sandbox.
 
 ## Before recording
 
-1. Switch Console's local server is running with Slack connected, and `#finance` was created with `setup-local invoice-check --bridge <slack bridge id>`.
-2. **People.** Map the roles in `switchyard.yaml`. One Slack user can hold every role for scenes 1 to 4. The four-eyes approval needs a second user; without one it runs offline (scene 5).
+1. Switch Console's local server is running with Slack connected, and `#finance` was created with `setup-local invoice-check --bridge <slack bridge id>`. Re-running `setup-local` updates the two agents' descriptions to their new jobs; it is optional, since each step's request carries the job.
+2. **Two people, two Slack users, both in `#finance`.** In `switchyard.yaml` under `people:`:
+   - `@ap-clerk`: person A (makes the callbacks);
+   - `@controller` and `@cfo`: person B (blocks, holds, approves, pays).
+
+   The handles are their Switch usernames. Check that each sees the other's answers on the cards.
 3. **A clean slate.** With Switchyard stopped, run:
 
    ```bash
@@ -28,85 +32,97 @@ Disclose on screen from the first frame:
    ```
 
    After a reset, `#finance` gets one message per document listing the rows Switchyard attested.
-5. Warm up the agents: send one input and check that both checkers answer. Gemini's free tier can return 429. If it does, the case still works; it just shows "split".
+5. Warm up the agents: send one input and check that both answer. Gemini's free tier can return 429. If it does, the case still works: the invoice goes to a person with "the investigator could not answer".
 6. Agent replies take 10–20 s. Cut the waits in the edit but keep the timestamps visible. Never call a cut "live".
 
 ---
 
-## 0:00 – The problem (20 s)
+## 0:00 – The problem (15 s)
 
-> "A supplier's mailbox gets taken over. The email comes from their real domain and passes every check. How would anyone know? Because an hour earlier, someone tried the same account from a look-alike domain, and a person blocked it."
+> "A supplier's mailbox gets taken over. The email comes from their real domain and passes every check. How would anyone know? Because someone already tried that account from a look-alike domain, and a person blocked it."
 
-## 0:20 – The real domain asks for a new account (40 s)
+## 0:15 – The real domain asks for a new account (35 s)
 
 ```bash
 npm run switchyard demo send bank-change-mailbox
 ```
 
-- **Slack, case thread:** the agent reads the email. Code checks the sender's domain (fabrikam.test, on file), the IBAN and that it really changes: all pass.
-- **The callback card** goes to the AP clerk: "call Fabrikam Print on +49 30 5550 1003 … it must be DE88500700100175526303". **Leave it open.**
+- **Slack, case thread:** the agent reads the email. Code checks the domain (fabrikam.test, on file), the IBAN, and that the account is written in the email: all pass. The card also says "sender not authenticated": there is no mail gateway here, and Switchyard says so rather than assume.
+- **The callback card goes to person A:** "call Fabrikam Print on +49 30 5550 1003 … it must be DE88500700100175526303". **A leaves it open.**
 
-> "Alone, this request is fine. A person would make the call."
+> "Alone, this request is fine. A would make the call."
 
-## 1:00 – A look-alike asks for the same account (50 s)
+## 0:50 – A look-alike asks for the same account (55 s)
 
 ```bash
 npm run switchyard demo send bank-change
 ```
 
-- **Slack:** "✗ the request came from fabrikarn.test, 2 characters away from fabrikam.test on file: a look-alike domain". The agent lists the red flags. Click **block** on the card.
-- **Slack, right after the click:**
+- **Slack:** "✗ the request came from fabrikarn.test, 2 characters away from fabrikam.test on file: a look-alike domain". **Person B clicks block.**
+- **Right after the click:**
   - In the first case's thread: "A person just blocked a request naming this case's account (…: none → blocked). Checking again; the open card no longer counts."
   - In the room: "Linked cases: case … and case … share the account DE885007…".
-  - A new card for the controller: "hold Fabrikam Print's bank-detail change? DE88…6303 was requested for Fabrikam Print from fabrikarn.test, and @… blocked that request". Click **hold**.
-- **Try the old callback card:** click **confirmed**. Nothing happens; it no longer counts.
-- **Dashboard:** the case's "Linked across cases, by code" panel, with a link to the blocked case.
+  - A new card for B: "hold Fabrikam Print's bank-detail change? … @B blocked that request".
+- **A and B talk in the thread**, briefly and in their own words: A says the supplier's number on file is the one to call; B says the account was just blocked from a look-alike, so nobody calls yet. **B clicks hold.**
+- **A clicks confirmed on the old callback card.** Nothing happens: it no longer counts.
 
-> "One decision in one case changed what is allowed in another, before anyone picked up the phone."
+> "One person's decision in one case changed what another person is allowed to do in another, before anyone picked up the phone."
 
-## 1:50 – The invoice that prints that account (35 s)
+## 1:45 – The invoice that prints that account (40 s)
 
 ```bash
 npm run switchyard demo send fabrikam-invoice
 ```
 
-- **Slack card:** "pay Fabrikam Print invoice FP-0912 for 3150?". Two checks are ✗: the invoice asks for DE88…6303 but DE29…3746 is on file, and that account is the one a person blocked. Its account is the one **on file**. Click **pay**.
+- **Slack thread:** two agents on two vendors, two jobs. The reader quotes the invoice's supplier, number and amount. The investigator flags "Please note our new bank details", with that quote. Code: "✗ the investigator found: …", and confirms the quote is in the invoice.
+- **Card for B:** "pay Fabrikam Print invoice FP-0912 for 3150?". Code also says the invoice asks for DE88…6303, but DE29…3746 is on file, and that account is the one a person blocked. **B clicks pay.**
 - **Dashboard, receipt:** "The invoice asked for DE88…" next to "Paid to, as the bank holds it: DE29…", and three equal hashes: approved, sent, read back.
 
-## 2:25 – The insider (35 s)
+> "The models read and flag. They quote the invoice, and code checks the quotes. The money goes where the vendor master says."
+
+## 2:25 – Investigations (30 s)
+
+**Dashboard → Investigations.**
+- The group: "DE88…6303: blocked by a person, named again in 2 other cases".
+- **Click the red line** "blocked by @B": the evidence names the case, the sender (fabrikarn.test), who decided and when, and the status "suspected, not confirmed fraud".
+- Impact: 3,150 invoiced, 3,150 paid to the account on file, one approval that stopped counting, and what was held.
+
+> "Every line here is a fact someone can check, from the event log. Nothing is scored."
+
+## 2:55 – Four eyes, with two real people (30 s)
 
 ```bash
-npm run switchyard demo send insider-edit
-npm run switchyard demo send northwind-invoice
+npm run switchyard demo send bank-change-real
 ```
 
-Say: "Switch has no per-document permissions, so anyone with write access can edit the vendor master. This script does that, through Switch's own API."
+- **A** calls (the card says the number on file) and clicks **confirmed**.
+- **A** tries to approve the change too: "@A answered "callback", so a different person must decide "approve"". The card re-opens.
+- **B** clicks **approve**. Switchyard writes the new account into `vendor-master` in the room; the thread shows the row.
 
-- **Slack card:** "hold Northwind Paper invoice NW-118: their row in the vendor master was edited in the room, outside any case, so nothing is paid on it". There is no pay button. **Bank tab:** nothing paid.
-
-Afterwards: `npm run switchyard demo send insider-restore`.
-
-## 3:00 – Offline montage (30 s, labelled "offline: the same engine with scripted clicks")
+## 3:25 – Offline, labelled "offline: the same engine with scripted clicks" (15 s)
 
 ```bash
-npm run demo:offline -- --serve
 npm run lab
+npm run lab -- --heldout
 ```
 
-- **Four eyes:** the clerk who made the callback tries to approve and is refused. (Live instead if you have a second Slack user: `demo send bank-change-real`.)
-- **An approval on old facts:** `localhost:4101`, case FP-0912: "would not act on reserve po: vendor-master changed … after the checks read it".
-- **The lab table:** when the callback is skipped or fooled, the two compromised-mailbox scenarios pay the attacker 3,150 EUR each with links off, and nothing with links on. Say what it is: nine scenarios we wrote, run with links off and on, counted from the bank's ledger. Point at the cost rows too: the factoring account's extra card and the held genuine change.
+- **The held-out set:** 20 scenarios from a separate author who never saw the code. The first run found two real bugs, both now fixed. Say the honest part: on those 20, people doing their job stop every attack with or without links, and with every callback fooled three single-case attacks get through. What links add is the compromised mailbox after a refusal, the story just shown.
 
-## 3:30 – Close (20 s)
+## 3:40 – Close (10 s)
 
-> "The vendor master and the purchase orders are Switch room documents. The decisions are Switch cards, with a name on each answer, and the investigation happens in the room. Switchyard keeps the room honest across cases: an approval on old facts, a row edited behind its back, the same order billed twice, or an account a person already blocked never pays without a person deciding again."
+> "The vendor master and the purchase orders are Switch room documents. The decisions are Switch cards, with a name on each answer, made by two people in the room. Switchyard keeps the room honest across cases."
 
 ---
+
+## Also live, if time allows
+
+- **The insider.** `demo send insider-edit`, then `demo send northwind-invoice`: "hold Northwind Paper invoice NW-118: their row in the vendor master was edited in the room, outside any case". There is no pay button. Afterwards: `demo send insider-restore`.
+- **The same PO again.** `demo send fabrikam-invoice-2`: "hold Fabrikam Print invoice FP-0913: PO-1043 is already invoiced FP-0912 …, and each PO is paid once". There is no pay button.
 
 ## Recorded evidence (before this version)
 
 - **`1c5cc185`:** the look-alike bank-change email, live on Slack. Claude listed seven red flags, code found the look-alike domain, and the block card went to Slack.
-- **`60c4c081`:** the Fabrikam invoice printing another account, live. Gemini failed with a provider error and Claude called it a mismatch, so the case shows "split". Code caught the account, and the card paid the account on file.
+- **`60c4c081`:** the Fabrikam invoice printing another account, live, when both agents still did the same job. Gemini failed with a provider error and Claude called it a mismatch ("split"). Code caught the account, and the card paid the account on file.
 - **`94221172`:** an earlier invoice where the Claude checker hit the account's real usage limit mid-run. The case still reached a person with the evidence it had.
 
 `demo reset` moves this log aside; the old file stays in `data/`.
