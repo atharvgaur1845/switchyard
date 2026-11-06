@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, lookup, render, type Scope } from "./expr.ts";
-import { basisHash, CHECKS, docHash, normalizeName, rowHash, tableRows, type VerifyResult } from "./verifiers.ts";
+import { basisHash, CHECKS, docHash, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
 import {
   type AgentStep,
   type Flow,
@@ -184,7 +184,7 @@ export class Runner {
       const autoApproved = rule === true || (typeof rule === "string" && Boolean(compile(rule)(scopeOf(state))));
       if (!autoApproved) {
         const approval = state.approved[step.id];
-        if (!approval || approval.hash !== hash) {
+        if (!approval || !sameHash(approval.hash, hash)) {
           const reason = approval
             ? `the action changed after it was approved (${approval.hash} approved, ${hash} now)`
             : "nobody approved it";
@@ -259,14 +259,14 @@ export class Runner {
       if (readback !== undefined && readback !== hash) {
         // The other system holds something other than what was approved.
         this.inFlight.delete(key);
-        await this.openDoubt(this.store.load(state.id), step, hash, payload, `read back ${readback}, approved ${hash}`);
+        await this.openDoubt(this.store.load(state.id), step, hash, payload, `read back ${short(readback)}, approved ${short(hash)}`);
         return true;
       }
       this.store.append(state.id, { type: "executed", step: step.id, hash, receipt, payload, ...(readback ? { readback } : {}) });
       this.attestWrite(state, payload);
       this.inFlight.delete(key);
       const by = autoApproved ? `rule "${rule === true ? "always" : rule}"` : state.approved[step.id].by;
-      await this.say(state, `Done: ${receipt} (approved by ${by}, ${hash})`);
+      await this.say(state, `Done: ${receipt} (approved by ${by}, ${short(hash)})`);
       return false;
     }
     return false;
@@ -437,7 +437,7 @@ export class Runner {
       const outlet = this.flowOf(state).steps.find((s) => s.id === target);
       if (!outlet || !isOutlet(outlet)) return [];
       const payload = renderOutlet(outlet.outlet, scope);
-      return [`${describeOutlet(payload)}\n(approval ${hashOutlet(payload)})`];
+      return [`${describeOutlet(payload)}\n(approval ${short(hashOutlet(payload))})`];
     });
     const action = previews.join("\n\n") || "No outside action depends on this answer.";
     const sections = [note, action, this.evidence(state), this.timing(step)].filter(Boolean);
@@ -486,7 +486,7 @@ export class Runner {
       if (state.wrote.has(name)) continue;
       const same = docs.filter((d) => d.name === name);
       const now = same.length === 1 ? basisHash(same[0].content, b.row) : same.length ? `(${same.length} documents)` : "(deleted)";
-      if (now !== b.hash) drift[name] = [b.hash, now];
+      if (!sameHash(b.hash, now)) drift[name] = [b.hash, now];
     }
     return Object.keys(drift).length ? drift : undefined;
   }
@@ -686,7 +686,7 @@ export class Runner {
 
   private doubtCard(state: CaseState, stepId: string, requestId: string, hash: string, payload: Outlet, note?: string): ApprovalCard {
     const approver = this.approverOf(state, stepId);
-    const detail = `${describeOutlet(payload)}\n(approval ${hash})\n\nCheck the recipient's side before answering. "send it again" repeats exactly this action.`;
+    const detail = `${describeOutlet(payload)}\n(approval ${short(hash)})\n\nCheck the recipient's side before answering. "send it again" repeats exactly this action.`;
     return {
       requestId,
       room: state.room,
@@ -727,10 +727,10 @@ export class Runner {
         await this.openDoubt(this.store.load(state.id), step, hash, payload as Outlet, `could not ask the bank (${(error as Error).message})`);
         return;
       }
-      if (!held || typeof held === "string" || held.readback !== hash) {
+      if (!held || typeof held === "string" || held.readback === undefined || !sameHash(hash, held.readback)) {
         const reason = !held
           ? `${answerer} said it went out, but the bank holds no payment under ${state.id}/${step.id}`
-          : `${answerer} said it went out, but the bank holds a different payment under that key (read back ${typeof held === "string" ? "?" : held.readback}, approved ${hash})`;
+          : `${answerer} said it went out, but the bank holds a different payment under that key (read back ${typeof held === "string" || !held.readback ? "?" : short(held.readback)}, approved ${short(hash)})`;
         await this.openDoubt(this.store.load(state.id), step, hash, payload as Outlet, reason);
         return;
       }
@@ -748,8 +748,8 @@ export class Runner {
       }
       const receipt = typeof result === "string" ? result : result.receipt;
       const readback = typeof result === "string" ? undefined : result.readback;
-      if (readback !== undefined && readback !== hash) {
-        await this.openDoubt(this.store.load(state.id), step, hash, payload as Outlet, `read back ${readback}, approved ${hash}`);
+      if (readback !== undefined && !sameHash(hash, readback)) {
+        await this.openDoubt(this.store.load(state.id), step, hash, payload as Outlet, `read back ${short(readback)}, approved ${short(hash)}`);
         return;
       }
       this.store.append(state.id, { type: "executed", step: step.id, hash, payload, receipt: `${receipt} (resent by ${answerer})`, ...(readback ? { readback } : {}) });
@@ -945,4 +945,4 @@ function onceKey(flow: Flow, data: Record<string, unknown>): string | undefined 
 }
 
 // Row hashes are stored as "row:<hash>"; people read just the hash.
-const shortHash = (h: string) => h.replace(/^row:/, "");
+const shortHash = (h: string) => short(h).replace(/^row:/, "").slice(0, 12);

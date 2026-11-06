@@ -339,7 +339,8 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
       // action the engine sent, and the payment as the bank now holds it.
       const approved = store.load(invoice).approved.schedule_payment?.hash;
       const match = approved === paid.hash && paid.readback === paid.hash;
-      console.log(`${dim("        receipt:")} approved ${approved} · sent ${paid.hash} · read back from the bank ${paid.readback} ${match ? bold("= all three match") : red("MISMATCH")}`);
+      const cut = (h?: string) => (h ?? "?").slice(0, 16);
+      console.log(`${dim("        receipt:")} approved ${cut(approved)} · sent ${cut(paid.hash)} · read back from the bank ${cut(paid.readback)} ${match ? bold("= all three match (full SHA-256)") : red("MISMATCH")}`);
     }
 
     scene("5. Someone edits the vendor master in the room directly, outside any case");

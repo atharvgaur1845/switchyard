@@ -17,7 +17,7 @@ export function renderOutlet(outlet: Outlet, scope: Scope): Outlet {
 }
 
 export function hashOutlet(outlet: Outlet): string {
-  return createHash("sha256").update(canonical(outlet)).digest("hex").slice(0, 16);
+  return createHash("sha256").update(canonical(outlet)).digest("hex");
 }
 
 // JSON with sorted keys, so the same action always hashes the same.

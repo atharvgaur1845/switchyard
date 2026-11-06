@@ -157,7 +157,7 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
 - **The sender check reads the email's `From` address.** It does not verify SPF or DKIM, so a forged `From` on the right domain passes the domain check. That is why a passing change still needs a callback to the number on file and a second approver.
 - **A valid IBAN is not proof of who owns the account.** The check digits catch typos only. There is no payee-name check (Verification of Payee) in the sandbox bank.
 - **Attestation trusts the documents as they stand when Switchyard first starts.** `up` attests a document it has never seen and posts the rows it attested to the room, so anyone can check that baseline. An edit made before that first start is accepted. A check never adopts a document: one that was never attested passes nothing. Attestations persist across restarts.
-- **The event log is append-only by convention, not tamper-evident.** Someone with access to the SQLite file could rewrite it, and the row attestations live in the same file. Approval hashes are SHA-256 cut to 16 hex characters: enough inside the engine, where both sides are rendered from the same state, but too short to stand as a commitment another party checks later. Row attestations use the full hash.
+- **The event log is append-only by convention, not tamper-evident.** Someone with access to the SQLite file could rewrite it, and the row attestations live in the same file. Approvals, document versions, read-backs and row attestations are all full SHA-256; cards and screens show the first 16 hex digits. Cases logged by earlier versions stored shorter hashes, and these still match the full hash they begin with.
 - **One engine process.** Switch's `update_room_document` has no version precondition, so the PO reservation and the vendor-master write rely on the engine's single queue.
 - **Exact names and whole POs.** "Fabrikam Print GmbH" against "Fabrikam Print" goes to a person, and so does a second, partial invoice against a PO that is already invoiced.
 - **Some controls fail closed, at a cost.** Two rows with the same vendor name hold every payment to that vendor until a person removes one. A PO reserved by a case whose payment the bank then refuses stays reserved until a person reopens it.
@@ -190,7 +190,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 237 tests
+npm test             # 239 tests
 npm run typecheck
 npm run lint         # every flow in flows/
 npm run demo:offline

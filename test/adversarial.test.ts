@@ -7,8 +7,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Flow, loadFlow } from "../src/engine/flow-schema.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
-import { CHECKS } from "../src/engine/verifiers.ts";
+import { basisHash, CHECKS, sameHash } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
+import { hashOutlet } from "../src/outlets/payload.ts";
 import { startBank } from "../src/sandbox/bank.ts";
 import { caseSummaries } from "../src/web/api.ts";
 import { attestRooms, FakeSwitch, replyWith } from "./fake-switch.ts";
@@ -289,5 +290,26 @@ describe("attestation starts with Switchyard, not with the first check", () => {
   it("start tells the room what it attested", async () => {
     const { chat } = await rig();
     expect(chat.said("Attested 4 rows of vendor-master as they stand now (Northwind Paper, Contoso Cloud, Fabrikam Print, Tailspin Travel)")).toBe(true);
+  });
+});
+
+describe("commitments are full SHA-256", () => {
+  it("an approved action and the document versions it rests on are hashed in full", () => {
+    const pay = { pay: { payee: "Fabrikam Print", to: FABRIKAM, amount: "3150", currency: "EUR", reference: "FP-1" } };
+    expect(hashOutlet(pay)).toMatch(/^[0-9a-f]{64}$/);
+    expect(basisHash(MASTER)).toMatch(/^[0-9a-f]{64}$/);
+    expect(basisHash(MASTER, "Fabrikam Print")).toMatch(/^row:[0-9a-f]{64}$/);
+  });
+
+  it("a short hash logged before the upgrade matches only the full hash it begins with", () => {
+    const full = hashOutlet({ post: { room: "finance", body: "x" } });
+    expect(sameHash(full.slice(0, 16), full)).toBe(true);
+    expect(sameHash(`row:${full.slice(0, 12)}`, `row:${full}`)).toBe(true);
+    // Not a prefix, a prefix of another length, or a row hash against a document hash.
+    expect(sameHash("0".repeat(16), full)).toBe(false);
+    expect(sameHash(full.slice(0, 20), full)).toBe(false);
+    expect(sameHash(full.slice(0, 12), `row:${full}`)).toBe(false);
+    // Two full hashes must be equal.
+    expect(sameHash(full, hashOutlet({ post: { room: "finance", body: "y" } }))).toBe(false);
   });
 });

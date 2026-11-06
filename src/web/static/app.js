@@ -4,7 +4,7 @@
 // touches the page.
 
 import { diagram, left } from "./diagram.js";
-import { esc, icon, INLET_ICON, STEP_ICON } from "./icons.js";
+import { esc, icon, INLET_ICON, STEP_ICON, hx, sameHash } from "./icons.js";
 
 const token = new URLSearchParams(location.search).get("token");
 const api = (path) =>
@@ -93,7 +93,7 @@ function renderKpis() {
   // Only what is proven counts: a payment matches when the bank's own copy
   // hashes to the approved action, not when a rule ran and nothing was read.
   const payments = state.cases.flatMap((c) => receiptsOf(c).filter((r) => r.kind === "executed" && r.payload?.pay));
-  const proven = payments.filter((r) => r.readback !== undefined && r.readback === r.hash).length;
+  const proven = payments.filter((r) => r.readback !== undefined && sameHash(r.readback, r.hash)).length;
   const stopped = state.cases.filter((c) => /^(Blocked|Held|Callback failed)/.test(c.outcome?.label ?? "")).length;
   const tiles = [
     ["open", state.cases.filter((c) => c.status === "open").length, "yard"],
@@ -252,7 +252,7 @@ function timeline(c) {
         if (!e.parallel || e.attempt > 1) row("", "@yard", icon("yard"), `asked <b>${esc(e.agent)}</b> ${vendorBadge(e.agent)} for <b>${name}</b>${e.tries > 1 ? ` <span class="pill neutral">retry ${e.tries}</span>` : ""}`, docRefs(e.docs));
         break;
       case "verified":
-        row(e.value?.ok ? "act" : "stop", "code", icon("code"), `checked <b>${name}</b> (${esc(e.check)}): ${esc(e.value?.detail ?? "")}${e.docs ? ` ${Object.entries(e.docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)}${e.rows?.[d] ? ` (${esc(e.rows[d])}'s row)` : ""} <code>${esc(String(h).replace(/^row:/, ""))}</code></span>`).join(" ")}` : ""}`);
+        row(e.value?.ok ? "act" : "stop", "code", icon("code"), `checked <b>${name}</b> (${esc(e.check)}): ${esc(e.value?.detail ?? "")}${e.docs ? ` ${Object.entries(e.docs).map(([d, h]) => `<span class="docref">${icon("doc")}${esc(d)}${e.rows?.[d] ? ` (${esc(e.rows[d])}'s row)` : ""} ${hx(h, 12)}</span>`).join(" ")}` : ""}`);
         break;
       case "fanned_out":
         row("", "@yard", icon("fork"), `asked ${e.agents.map((a) => `<b>${esc(a)}</b> ${vendorBadge(a)}`).join(" and ")} to do <b>${name}</b> independently`);
@@ -296,7 +296,7 @@ function timeline(c) {
         row(e.approved ? "act" : "stop", asRole(e.answeredBy, step?.who), initials(e.answeredBy), `chose <b>${esc(e.answer)}</b> for <b>${name}</b>`);
         break;
       case "rewound":
-        row("stop", "@yard", icon("reroute"), `would not act on <b>${name}</b>: ${Object.entries(e.docs ?? {}).map(([d, [was, now]]) => `<b>${esc(d)}</b> changed <code>${esc(String(was).replace(/^row:/, ""))}</code> → <code>${esc(String(now).replace(/^row:/, ""))}</code>`).join(", ")} after the checks read it, so the checks run again and any earlier approval no longer counts`);
+        row("stop", "@yard", icon("reroute"), `would not act on <b>${name}</b>: ${Object.entries(e.docs ?? {}).map(([d, [was, now]]) => `<b>${esc(d)}</b> changed ${hx(was, 12)} → ${hx(now, 12)}`).join(", ")} after the checks read it, so the checks run again and any earlier approval no longer counts`);
         break;
       case "executing":
         break;
@@ -401,7 +401,7 @@ function receiptsOf(c) {
     if (e.type === "executed") {
       const a = approvals[e.step];
       // true: every hash we have agrees; false: one differs; undefined: a rule ran it and nothing was read back.
-      const agrees = (!a || a.hash === e.hash) && (e.readback === undefined || e.readback === e.hash);
+      const agrees = (!a || sameHash(a.hash, e.hash)) && (e.readback === undefined || sameHash(e.readback, e.hash));
       const match = !agrees ? false : a || e.readback ? true : undefined;
       out.push({ kind: "executed", step: e.step, approval: a, hash: e.hash, receipt: e.receipt, payload: e.payload, readback: e.readback, match, rule: stepOf(c, e.step)?.autoRule });
     }
@@ -415,13 +415,13 @@ function receiptsHtml(c) {
     const label = esc(stepOf(c, r.step)?.label ?? r.step);
     if (r.kind === "declined") {
       return `<div class="receipt neutral"><h4>${icon("hand")} ${label}: nothing was done</h4>
-        <p>${asRole(r.by, stepOf(c, r.gate)?.who)} chose <b>${esc(r.answer)}</b> on the card for approval <code>${esc(r.hash)}</code>.</p></div>`;
+        <p>${asRole(r.by, stepOf(c, r.gate)?.who)} chose <b>${esc(r.answer)}</b> on the card for approval ${hx(r.hash)}.</p></div>`;
     }
     if (r.kind === "blocked") {
       return `<div class="receipt bad"><h4>${icon("x")} ${label}: blocked</h4><p>${esc(r.reason)}. Nothing was sent.</p></div>`;
     }
     const approved = r.approval
-      ? `<div class="hash"><div class="k">Approved by ${asRole(r.approval.by, stepOf(c, r.approval.gate)?.who)}</div><code>${esc(r.approval.hash)}</code></div>`
+      ? `<div class="hash"><div class="k">Approved by ${asRole(r.approval.by, stepOf(c, r.approval.gate)?.who)}</div>${hx(r.approval.hash)}</div>`
       : `<div class="hash"><div class="k">Rule</div><code class="rule">${esc(r.rule === true ? "always" : (r.rule ?? "auto"))}</code></div>`;
     const sign = r.approval ? (r.match ? icon("lock", "t-act") : icon("x", "t-stop")) : icon("reroute", "t-muted");
     // Where the money went, next to where the invoice asked for it to go.
@@ -430,7 +430,7 @@ function receiptsHtml(c) {
     const where = pay
       ? `<div class="where">
           <div><div class="k">The invoice asked for</div><code>${esc(asked ?? "no account printed")}</code></div>
-          <div><div class="k">Paid to${r.readback === r.hash ? ", as the bank holds it" : ""}</div><code>${esc(pay.to)}</code> <span class="pill act">vendor master</span></div>
+          <div><div class="k">Paid to${sameHash(r.readback, r.hash) ? ", as the bank holds it" : ""}</div><code>${esc(pay.to)}</code> <span class="pill act">vendor master</span></div>
           ${asked && asked !== pay.to ? `<p class="fine">The invoice's account was not used: payments go only to the account on file.</p>` : ""}
         </div>`
       : "";
@@ -438,8 +438,8 @@ function receiptsHtml(c) {
       <h4>${icon(r.match === false ? "x" : "check")} ${label}: ${esc(r.receipt)}</h4>
       ${where}
       <div class="hashes">${approved}<span class="eq" aria-label="${r.match ? "matches" : r.match === false ? "does not match" : "by rule"}">${sign}</span>
-        <div class="hash"><div class="k">Sent</div><code>${esc(r.hash)}</code></div>
-        ${r.readback ? `<span class="eq">${r.readback === r.hash ? icon("lock", "t-act") : icon("x", "t-stop")}</span><div class="hash"><div class="k">Read back from the bank <span class="pill neutral">sandbox</span></div><code>${esc(r.readback)}</code></div>` : ""}</div>
+        <div class="hash"><div class="k">Sent</div>${hx(r.hash)}</div>
+        ${r.readback ? `<span class="eq">${sameHash(r.readback, r.hash) ? icon("lock", "t-act") : icon("x", "t-stop")}</span><div class="hash"><div class="k">Read back from the bank <span class="pill neutral">sandbox</span></div>${hx(r.readback)}</div>` : ""}</div>
       ${r.approval || r.readback ? `<p class="fine">${r.match ? `${r.approval ? "What was sent hashes to exactly what the approver saw on the card" : "What was sent matched the rule"}${r.readback ? ", and the bank's own copy of the payment hashes the same" : ""}.` : "The hashes differ: Switchyard treats this as in doubt and asks a person."}</p>` : ""}
     </div>`;
   });

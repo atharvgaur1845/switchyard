@@ -30,3 +30,17 @@ export const icon = (name, cls = "") =>
 
 export const INLET_ICON = { form: "form", email: "mail", schedule: "calendar", webhook: "webhook", frontdesk: "message" };
 export const STEP_ICON = { agent: "bot", parallel: "fork", gate: "hand", outlet: "send", wait: "clock", verify: "code" };
+
+// A hash as people read it: a prefix, with the full SHA-256 on hover.
+export function hx(hash, n = 16) {
+  const full = String(hash ?? "").replace(/^row:/, "");
+  return `<code title="${esc(full)}">${esc(full.slice(0, n))}</code>`;
+}
+
+// As sameHash in the engine: a short hash logged before full-length hashes
+// matches the full hash it begins with.
+export function sameHash(a, b) {
+  if (a === b) return true;
+  const [s, f] = [String(a ?? ""), String(b ?? "")].sort((x, y) => x.length - y.length);
+  return (s.length === 16 || s.length === 12) && f.length === 64 && f.startsWith(s);
+}

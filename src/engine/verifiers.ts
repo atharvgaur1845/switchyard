@@ -262,8 +262,29 @@ export function tableRows(markdown: string): string[][] {
   return rows.filter((cells, i) => !cells.every((c) => /^:?-+:?$/.test(c)) && !(rows[i + 1]?.every((c) => /^:?-+:?$/.test(c))));
 }
 
+// Full SHA-256: a version a check rested on is compared again before any
+// action, so it must not be short enough to collide on purpose.
 export function docHash(content: string): string {
-  return createHash("sha256").update(content).digest("hex").slice(0, 12);
+  return createHash("sha256").update(content).digest("hex");
+}
+
+// Hashes as people read them, in messages and on cards: the first 16 hex
+// digits. The event log keeps the full hash.
+export function short(hash: string): string {
+  return hash.startsWith("row:") ? `row:${hash.slice(4, 20)}` : hash.slice(0, 16);
+}
+
+// Cases logged before hashes were full length stored 16 hex digits for an
+// action and 12 for a document version. Such a hash still matches the full
+// hash it begins with, so an open case survives the upgrade; everything new
+// is compared in full.
+export function sameHash(stored: string, fresh: string): boolean {
+  if (stored === fresh) return true;
+  const row = stored.startsWith("row:");
+  if (row !== fresh.startsWith("row:")) return false;
+  const s = row ? stored.slice(4) : stored;
+  const f = row ? fresh.slice(4) : fresh;
+  return /^[0-9a-f]{12}$|^[0-9a-f]{16}$/.test(s) && f.length === 64 && f.startsWith(s);
 }
 
 function toNumber(value: unknown): number | undefined {

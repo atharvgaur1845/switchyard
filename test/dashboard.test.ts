@@ -103,7 +103,7 @@ describe("the diagram", () => {
     const hash = gate?.type === "gate_opened" ? gate.hashes.schedule_payment : "";
     let svg = draw();
     expect(svg).toContain('class="junction ok"');
-    expect(svg).toContain(basisHash(POS, "PO-1043").replace(/^row:/, ""));
+    expect(svg).toContain(basisHash(POS, "PO-1043").replace(/^row:/, "").slice(0, 12));
     expect(svg).toContain(`${hash.slice(0, 8)} · on the card`);
     expect(svg).toMatch(/class="vt v-google"/);
 

@@ -1,7 +1,7 @@
 import type { Flow } from "./flow-schema.ts";
 import { fills, type People } from "./gates.ts";
 import type { Chat, InboundMessage } from "./ports.ts";
-import { docHash } from "./verifiers.ts";
+import { docHash, short } from "./verifiers.ts";
 import type { Runner } from "./runner.ts";
 import type { CaseState, Store } from "./store.ts";
 
@@ -139,7 +139,7 @@ export class Commands {
         }
         const docs = await this.chat.documents(message.room);
         await reply(
-          docs.map((d) => `- \`${d.name}\` (version \`${docHash(d.content)}\`)${d.description ? `: ${d.description}` : ""}`).join("\n") ||
+          docs.map((d) => `- \`${d.name}\` (version \`${short(docHash(d.content))}\`)${d.description ? `: ${d.description}` : ""}`).join("\n") ||
             "This room has no documents.",
         );
         break;
@@ -183,7 +183,7 @@ export class Commands {
     if (count !== 1) return `"${oldText}" appears ${count} times in \`${name}\`; it must appear exactly once.`;
     const content = doc.content.replace(oldText, newText);
     await this.chat.updateDocument(message.room, doc.id, content);
-    return `${message.sender} (${roles.join(", ")}) changed \`${name}\`: "${oldText}" → "${newText}". Version \`${docHash(doc.content)}\` → \`${docHash(content)}\`; cases asked from now on use the new version.`;
+    return `${message.sender} (${roles.join(", ")}) changed \`${name}\`: "${oldText}" → "${newText}". Version \`${short(docHash(doc.content))}\` → \`${short(docHash(content))}\`; cases asked from now on use the new version.`;
   }
 
   // A case is only reachable from its own room: someone in #sales cannot

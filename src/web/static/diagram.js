@@ -4,7 +4,7 @@
 // mark comes from the flow file or the case's event log; nothing is drawn
 // that the engine did not record.
 
-import { esc, PATHS, INLET_ICON, STEP_ICON } from "./icons.js";
+import { esc, PATHS, INLET_ICON, STEP_ICON, sameHash } from "./icons.js";
 
 const COL = 120; // one station
 const PAR = 236; // a parallel step: fork, one lane per agent, junction
@@ -179,7 +179,7 @@ export function diagram(flow, c = null, vendors = {}, now = Date.now()) {
 
     // A code check reads a room document; show which, and which version.
     if (step.kind === "verify" && step.doc) {
-      const hash = v?.docs?.[step.doc]?.replace(/^row:/, "");
+      const hash = v?.docs?.[step.doc]?.replace(/^row:/, "").slice(0, 12);
       const row = v?.rows?.[step.doc];
       above.push(`<g class="doc-chip"><path class="doc-link" d="M${x},${MAIN - 16} L${x},${MAIN - 38}"/>
         <rect x="${x - 57}" y="${MAIN - 70}" width="114" height="${hash ? 32 : 22}" rx="6"/>${glyph("doc", x - 46, MAIN - 59, 11)}
@@ -205,7 +205,7 @@ export function diagram(flow, c = null, vendors = {}, now = Date.now()) {
       let cls = "plan";
       let label = `covers ${target.replace(/_/g, " ")}`;
       if (c && hash) {
-        if (ex) [cls, label] = ex.hash === hash ? ["ok", `${hash.slice(0, 8)} = executed`] : ["bad", `${hash.slice(0, 8)} ≠ ${ex.hash.slice(0, 8)}`];
+        if (ex) [cls, label] = sameHash(ex.hash, hash) ? ["ok", `${hash.slice(0, 8)} = executed`] : ["bad", `${hash.slice(0, 8)} ≠ ${ex.hash.slice(0, 8)}`];
         else if (ans && !ans.approved) [cls, label] = ["declined", `${hash.slice(0, 8)} · not approved`];
         else if (ans) [cls, label] = ["held", `${hash.slice(0, 8)} · approved`];
         else if (c.status !== "open") [cls, label] = ["declined", `${hash.slice(0, 8)} · never answered`];
@@ -227,7 +227,7 @@ export function diagram(flow, c = null, vendors = {}, now = Date.now()) {
       const ly = outer ? peak - 5 : y0 - 10;
       const tip = cls === "plan"
         ? `${p.step.id} approves the exact rendered ${target}; any change to it needs a new card`
-        : hash ? `card hash ${hash}${ex ? `, executed hash ${ex.hash}${ex.hash === hash ? " (match)" : " (MISMATCH)"}` : ans ? ` (${ans.approved ? "approved" : `${ans.answer}: not approved`})` : ""}` : `${p.step.id} never opened a card in this case`;
+        : hash ? `card hash ${hash}${ex ? `, executed hash ${ex.hash}${sameHash(ex.hash, hash) ? " (match)" : " (MISMATCH)"}` : ans ? ` (${ans.approved ? "approved" : `${ans.answer}: not approved`})` : ""}` : `${p.step.id} never opened a card in this case`;
       above.push(`<g class="bind ${cls}"><title>${esc(tip)}</title>
         <path class="arc" d="M${p.x},${y0} C${p.x},${ctl} ${o.x},${ctl} ${o.x},${y0 - 2}" marker-end="url(#arrow-${esc(flow.flow)})"/>
         ${locked ? glyph("lock", lx + 5, ly - 4, 11) : ""}
