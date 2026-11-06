@@ -6,7 +6,7 @@ Screen: Slack (`#finance`) on the left, the dashboard (`localhost:4100`) on the 
 
 Disclose on screen from the first frame:
 
-> Slack, Switch, the agents (Claude Haiku and Gemini) and the emails are real, and so are the two people. The bank and the suppliers are a local sandbox.
+> Slack, Switch, the agents (Claude Haiku and Gemini) and the emails are real, and so are the two people. The bank, its answers about who holds an account, and the suppliers are a local sandbox.
 
 ## Before recording
 
@@ -31,7 +31,7 @@ Disclose on screen from the first frame:
    npm run switchyard up
    ```
 
-   After a reset, `#finance` gets one message per document listing the rows Switchyard attested.
+   After a reset, `#finance` gets one message per document listing the rows Switchyard attested, including the new, empty `payment-mandates` document. `npm run bank` now answers who holds each account from `fixtures/payees.yaml`; restart it so it picks that up.
 5. Warm up the agents: send one input and check that both answer. Gemini's free tier can return 429. If it does, the case still works: the invoice goes to a person with "the investigator could not answer".
 6. Agent replies take 10–20 s. Cut the waits in the edit but keep the timestamps visible. Never call a cut "live".
 
@@ -48,9 +48,9 @@ npm run switchyard demo send bank-change-mailbox
 ```
 
 - **Slack, case thread:** the agent reads the email. Code checks the domain (fabrikam.test, on file), the IBAN, and that the account is written in the email: all pass. The card also says "sender not authenticated": there is no mail gateway here, and Switchyard says so rather than assume.
-- **The callback card goes to person A:** "call Fabrikam Print on +49 30 5550 1003 … it must be DE88500700100175526303". **A leaves it open.**
+- **The callback card goes to person A:** "call Fabrikam Print on +49 30 5550 1003 … it must be DE88500700100175526303 (the bank holds DE88…6303 under a similar but different name: Fabrikam Print Services s.r.o., not Fabrikam Print)". **A leaves it open.**
 
-> "Alone, this request is fine. A would make the call."
+> "Alone, this request almost passes. The bank says the account is held under a name close to Fabrikam's, not Fabrikam's. That is worth a call, but a busy clerk could still be talked into it."
 
 ## 0:50 – A look-alike asks for the same account (55 s)
 

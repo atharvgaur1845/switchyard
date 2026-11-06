@@ -327,6 +327,6 @@ export function heldOutTable(results: HeldOutResult[]): string {
     line("links", "Links on"),
     `Every callback fooled: ${results.reduce((n, r) => n + r.fooled.baseline, 0).toLocaleString("en")} EUR to attacker accounts with links off, ${results.reduce((n, r) => n + r.fooled.links, 0).toLocaleString("en")} EUR with links on.`,
     "",
-    `Upper bound, with a bank that knows who holds each account (built from each scenario's own description of its accounts, so not held out): ${results.filter((r) => r.oracle.run.pass).length}/${results.length} meet every expectation (${results.filter((r) => !r.oracle.run.pass).map((r) => r.scenario.id).join(", ") || "none"} do not); ${results.reduce((n, r) => n + r.oracle.run.toAttacker, 0).toLocaleString("en")} EUR to attacker accounts; with every callback fooled, ${results.reduce((n, r) => n + r.oracle.fooled, 0).toLocaleString("en")} EUR.`,
+    `Upper bound, with a bank that knows who holds each account (built from each scenario's own description of its accounts, so not held out): ${results.filter((r) => r.oracle.run.pass).length}/${results.length} meet every expectation (not met: ${results.filter((r) => !r.oracle.run.pass).map((r) => r.scenario.id).join(", ") || "none"}); ${results.reduce((n, r) => n + r.oracle.run.toAttacker, 0).toLocaleString("en")} EUR to attacker accounts; with every callback fooled, ${results.reduce((n, r) => n + r.oracle.fooled, 0).toLocaleString("en")} EUR.`,
   ].join("\n");
 }
