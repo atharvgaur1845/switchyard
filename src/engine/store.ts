@@ -60,7 +60,12 @@ export type CaseEvent =
   | { type: "cancelled"; by: string }
   | { type: "waiting"; step: string; until: number; at?: number }
   | { type: "waited"; step: string; by?: string }
-  | { type: "done" };
+  | { type: "done" }
+  // Evidence for other cases (links.ts): a person blocked a request for this
+  // account, decided when the block was answered. `cleared`: people later
+  // called the supplier anyway and approved a change to it.
+  | { type: "flagged"; iban: string; vendor: string; sender: string; by: string; at: number }
+  | { type: "cleared"; iban: string; by: string; at: number };
 
 // What a case is waiting on. `at` is when the wait began (epoch ms), which the
 // deadline timers measure from.
@@ -242,6 +247,9 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
         break;
       case "done":
         state.status = "done";
+        break;
+      case "flagged":
+      case "cleared":
         break;
       case "cancelled":
         state.status = "cancelled";

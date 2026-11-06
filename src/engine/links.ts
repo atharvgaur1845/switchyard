@@ -46,14 +46,15 @@ export function blockedAccount(
   const sender = String(checks.sender_domain ?? "");
   if (!ibanValid(iban) || !vendor) return undefined;
   // The account must be written in the email itself, not only in an agent's
-  // reading of it.
-  if (!compactIban(email).includes(iban)) return undefined;
+  // reading of it (spaces and hyphens between groups are fine).
+  if (!compactIban(email.replace(/-/g, "")).includes(iban)) return undefined;
   // An account on file for any vendor is never listed: a look-alike email
   // naming a vendor's real account must not get that account flagged.
   if (tableRows(master).some(([, , onFile = ""]) => compactIban(onFile) === iban)) return undefined;
-  // A block of a request from the vendor's own domain says nothing about the
-  // account; only a request from elsewhere does.
-  if (sender && sender === String(checks.domain ?? "")) return undefined;
+  // A block of a request from the vendor's own domain (or a subdomain of it)
+  // says nothing about the account; only a request from elsewhere does.
+  const domain = String(checks.domain ?? "").toLowerCase();
+  if (sender && domain && (sender.toLowerCase() === domain || sender.toLowerCase().endsWith(`.${domain}`))) return undefined;
   return { iban, caseId: meta.caseId, vendor, sender, by: meta.by, at: meta.at };
 }
 

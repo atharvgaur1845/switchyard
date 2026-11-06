@@ -119,6 +119,13 @@ request:
       new_iban: DE29 1005 0000 0190 1837 46
       reason: "Please pay this account."
       red_flags: ["pay today"]
+  # A look-alike naming Fabrikam's genuine new account (the lab's poisoning case).
+  - when: { from: fabrikarn, body: "1064 5328 71" }
+    reply:
+      vendor: Fabrikam Print
+      new_iban: DE63 1203 0000 1064 5328 71
+      reason: "New account."
+      red_flags: ["pay today"]
   - when: { from: fabrikarn }
     reply:
       vendor: Fabrikam Print

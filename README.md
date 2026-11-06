@@ -94,27 +94,35 @@ A check on one request cannot see that its account is the one a person blocked a
 - **Blocked account.** A bank-change request a person answered "block". It is remembered only when the email itself names the account, the account is on file for no vendor, and the sender is not the vendor's own domain. So naming a vendor's real account in a look-alike email does not get that account flagged. Links last 180 days.
 - **Another vendor's account.** The account is on file for a different vendor.
 
-A link never blocks and never changes a payment. It sends the case to a person, with the evidence on the card, and tells the room which cases share the account. What an approval rests on includes the kinds of link on its account. When a person blocks a request, every open case on that account is checked again at once. A flood of blocks on one account changes that set once, so an open case is re-checked once, not until it fails. Tests: "the real domain asking for an account a look-alike asked for goes to the controller before any call", "a block voids an open callback card in another case on the same account, at once", "a flood of blocks on one account checks an open case again only once", "blocking a look-alike that names the vendor's real account does not flag that account".
+A link never blocks and never changes a payment. It sends the case to a person, with the evidence on the card, and tells the room which cases share the account. What an approval rests on includes the kinds of link on its account. When a person blocks a request, every open case on that account is checked again at once, except a case waiting on whether an action went out, which is only told. A flood of blocks on one account changes that set once. Changes to another vendor's row can change it again, and after three re-checks a case goes to a person. The block is recorded when it is answered. If people later see the link, choose "call anyway" and approve a change to that account, the link is cleared for later cases. Tests: "the real domain asking for an account a look-alike asked for goes to the controller before any call", "a block voids an open callback card in another case on the same account, at once", "a flood of blocks on one account checks an open case again only once", "blocking a look-alike that names the vendor's real account does not flag that account".
 
 ### The attack lab
 
-`npm run lab` runs eight scenarios on the real engine and flows, with fixture agents and a sandbox bank. It runs each twice: links between cases off, then on. Every card is answered with the option it proposes, as a hurried person clicking the first button would. So it shows what the system stops by itself. Euros come from the bank's ledger and cards from what was shown. The scenarios were written by the same person who wrote the checks, so this shows what each control does; it is not a detection rate.
+`npm run lab` runs nine scenarios on the real engine and flows, with fixture agents and a sandbox bank: each with links between cases off, then on, under two answer policies.
 
-| | Scenario | Links off: paid to the attacker · cards | Links on: paid to the attacker · cards | Outcomes with links on |
-|---|---|---|---|---|
-| attack | Look-alike domain asks to change Fabrikam's account | 0 · 1 card | 0 · 1 card | Blocked · supplier warned |
-| attack | Compromised mailbox: the real domain asks for the account a look-alike was blocked on, then an invoice | **3,150 EUR** · 4 cards | 0 · 2 cards | Paid, Held · linked to another case, Blocked · supplier warned |
-| attack | Compromised mailbox first; the look-alike is blocked while its callback card is open | **3,150 EUR** · 4 cards | 0 · 3 cards | Paid, Blocked · supplier warned, Held · linked to another case |
-| attack | Invoice prints the account a look-alike was blocked on | 0 · 2 cards | 0 · 2 cards | Paid, Blocked · supplier warned |
-| attack | Insider swaps Northwind's account in the vendor master, then an invoice | 0 · 1 card | 0 · 1 card | Held · row edited in the room |
-| benign | Genuine bank change from Fabrikam's own domain, then an invoice | 0 · 3 cards | 0 · 3 cards | Paid, Updated |
-| benign | Two vendors paid through one factoring account | 0 · 0 cards | 0 · 1 card | Paid |
-| benign | Poisoning: a look-alike names Fabrikam's real account and is blocked, then an ordinary invoice | 0 · 1 card | 0 · 1 card | Paid, Blocked · supplier warned |
+- **First option.** Every card is answered with the option it proposes, as a hurried person clicking the first button would. On the cards that stop money, the safe option is listed first ("block", "hold"), so this policy measures the cards' design as much as the checks.
+- **Real callback.** The same, except that the callback reaches the real supplier, who confirms only an account that is really theirs.
 
-Paid to attacker accounts: 6,300 EUR with links off, 0 EUR with links on.
-Cards on benign scenarios: 4 with links off, 5 with links on.
+Euros come from the bank's ledger and cards from what was shown. The scenarios were written by the same person who wrote the checks, so this shows what each control does; it is not a detection rate.
 
-The shared factoring account is the cost: a legitimate arrangement now gets a card. `test/lab.test.ts` pins these numbers.
+Each cell: euros paid to the attacker's accounts · cards shown to people.
+
+| | Scenario | First option, links off | First option, links on | Real callback, links off | Real callback, links on | Outcomes (first option, links on) |
+|---|---|---|---|---|---|---|
+| attack | Look-alike domain asks to change Fabrikam's account | 0 · 1 | 0 · 1 | 0 · 1 | 0 · 1 | Blocked · supplier warned |
+| attack | Compromised mailbox: the real domain asks for the account a look-alike was blocked on, then an invoice | **3,150 EUR** · 4 | 0 · 2 | 0 · 2 | 0 · 2 | Paid, Held · linked to another case, Blocked · supplier warned |
+| attack | Compromised mailbox first; the look-alike is blocked while its callback card is open | **3,150 EUR** · 4 | 0 · 3 | 0 · 2 | 0 · 3 | Paid, Blocked · supplier warned, Held · linked to another case |
+| attack | Invoice prints the account a look-alike was blocked on | 0 · 2 | 0 · 2 | 0 · 2 | 0 · 2 | Paid, Blocked · supplier warned |
+| attack | Insider swaps Northwind's account in the vendor master, then an invoice | 0 · 1 | 0 · 1 | 0 · 1 | 0 · 1 | Held · row edited in the room |
+| benign | Genuine bank change from Fabrikam's own domain, then an invoice | 0 · 3 | 0 · 3 | 0 · 3 | 0 · 3 | Paid, Updated |
+| benign | Two vendors paid through one factoring account | 0 · 0 | 0 · 1 | 0 · 0 | 0 · 1 | Paid |
+| benign | Poisoning: a look-alike names Fabrikam's genuine new account first, then Fabrikam changes to it | 0 · 3 | 0 · 2 | 0 · 3 | 0 · 2 | Held · linked to another case, Blocked · supplier warned |
+| benign | Poisoning: a look-alike names Fabrikam's real account and is blocked, then an ordinary invoice | 0 · 1 | 0 · 1 | 0 · 1 | 0 · 1 | Paid, Blocked · supplier warned |
+
+Every card answered with its first option: 6,300 EUR paid to attacker accounts with links off, 0 EUR with links on; benign scenarios held or waiting for a person: 0 with links off, 1 with links on; cards on benign scenarios: 7 and 7.
+The same, but the callback reaches the real supplier: 0 EUR paid to attacker accounts with links off, 0 EUR with links on; benign scenarios held or waiting for a person: 0 with links off, 1 with links on; cards on benign scenarios: 7 and 7.
+
+What it shows: links matter when the callback is skipped or fooled. With a callback that reaches the real supplier, the compromised mailbox is stopped without them, and links add evidence and an earlier stop. The costs are on the benign side: a shared factoring account gets a card, and a genuine change whose account a look-alike named first is held until the controller chooses "call anyway". `test/lab.test.ts` pins these numbers.
 
 ## Attacks, and what stops each
 
@@ -225,7 +233,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 246 tests
+npm test             # 250 tests
 npm run lab          # the attack lab, links off and on
 npm run typecheck
 npm run lint         # every flow in flows/

@@ -15,9 +15,13 @@ import { caseSummaries } from "./web/api.ts";
 // `npm run lab`: the attack lab. Each scenario runs twice on the real engine
 // and flows, with fixture agents, a sandbox bank and a fresh room: once with
 // links between cases switched off (the baseline) and once with them on.
-// Every card is answered with the option it proposes, as a hurried person
-// clicking the first button would, so the lab measures what the system
-// stops by itself. Every number below is counted from that run: the bank's
+// Two answer policies. "first": every card is answered with the option it
+// proposes, as a hurried person clicking the first button would; the safe
+// option is listed first on the cards that stop money, so this policy
+// measures the cards' design as much as the checks. "callback": the same,
+// except that the callback reaches the real supplier, who confirms only an
+// account that is really theirs. Links matter when a callback is skipped
+// or fooled; with a callback that works, they mostly add evidence. Every number below is counted from that run: the bank's
 // ledger and the cards that were shown. It is a fixed set of scenarios
 // written by the same person who wrote the checks, so it shows what each
 // control does, not a detection rate.
@@ -28,6 +32,9 @@ const LOOKALIKE = "accounts@fabrikarn.test";
 const REAL = "accounts@fabrikam.test";
 const DE88 = "DE88 5007 0010 0175 5263 03";
 const PEOPLE = { "@ap-clerk": ["@clerk"], "@controller": ["@controller"], "@cfo": ["@cfo"] };
+// The accounts that really are the suppliers' (what a real callback confirms).
+const GENUINE = new Set(["DE63120300001064532871"]);
+export type Policy = "first" | "callback";
 
 interface World {
   email(from: string, body: string): Promise<string>;
@@ -120,6 +127,16 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    name: "Poisoning: a look-alike names Fabrikam's genuine new account first, then Fabrikam changes to it",
+    kind: "benign",
+    async run(w) {
+      await w.email(LOOKALIKE, "Pay us at our new account, IBAN DE63 1203 0000 1064 5328 71, today.");
+      await w.answerAll();
+      await w.email(REAL, "From 1 December our new account is IBAN DE63 1203 0000 1064 5328 71. Confirm by phone.");
+      await w.answerAll();
+    },
+  },
+  {
     name: "Poisoning: a look-alike names Fabrikam's real account and is blocked, then an ordinary invoice",
     kind: "benign",
     async run(w) {
@@ -140,11 +157,11 @@ export interface LabRun {
 export interface LabResult {
   name: string;
   kind: "attack" | "benign";
-  baseline: LabRun;
-  links: LabRun;
+  // policy -> links off (baseline) and on
+  runs: Record<Policy, { baseline: LabRun; links: LabRun }>;
 }
 
-async function runScenario(root: string, flows: Flow[], replies: Record<string, never>, scenario: Scenario, crossCase: boolean): Promise<LabRun> {
+async function runScenario(root: string, flows: Flow[], replies: Record<string, never>, scenario: Scenario, crossCase: boolean, policy: Policy): Promise<LabRun> {
   const template = parse(readFileSync(join(root, "templates", "invoice-check.template.yaml"), "utf8")).room.docs as { name: string; content: string }[];
   const docs: RoomDocument[] = template.map((d) => ({ id: d.name, name: d.name, content: d.name === "vendor-master" && scenario.master ? scenario.master(d.content) : d.content }));
   const inbox: InboundMessage[] = [];
@@ -194,7 +211,12 @@ async function runScenario(root: string, flows: Flow[], replies: Record<string, 
       if (!step || !isGate(step)) return false;
       // The right role answers; a second person when four eyes needs one.
       const who = step.gate.not_same_as.length ? "@controller" : (PEOPLE[step.gate.approver as keyof typeof PEOPLE]?.[0] ?? "@controller");
-      await runner.onApproval({ requestId: state.pending.requestIds.at(-1)!, answer: step.gate.options[0], answeredBy: `lab:${who}` });
+      let choice = step.gate.options[0];
+      if (policy === "callback" && step.id === "callback") {
+        const asked = String((state.results.checks as { new_iban?: string } | undefined)?.new_iban ?? "");
+        choice = GENUINE.has(asked) ? step.gate.options[0] : (step.gate.options[1] ?? choice);
+      }
+      await runner.onApproval({ requestId: state.pending.requestIds.at(-1)!, answer: choice, answeredBy: `lab:${who}` });
       await settle();
       return true;
     };
@@ -248,28 +270,34 @@ export async function attackLab(root = process.cwd()): Promise<LabResult[]> {
   const replies = parse(readFileSync(join(root, "fixtures", "replies.yaml"), "utf8"));
   const results: LabResult[] = [];
   for (const scenario of SCENARIOS) {
-    results.push({
-      name: scenario.name,
-      kind: scenario.kind,
-      baseline: await runScenario(root, flows, replies, scenario, false),
-      links: await runScenario(root, flows, replies, scenario, true),
-    });
+    const runs = {} as LabResult["runs"];
+    for (const policy of ["first", "callback"] as const) {
+      runs[policy] = { baseline: await runScenario(root, flows, replies, scenario, false, policy), links: await runScenario(root, flows, replies, scenario, true, policy) };
+    }
+    results.push({ name: scenario.name, kind: scenario.kind, runs });
   }
   return results;
 }
 
 export function labTable(results: LabResult[]): string {
-  const eur = (n: number) => (n ? `**${n.toLocaleString("en")} EUR**` : "0");
-  const rows = results.map(
-    (r) => `| ${r.kind} | ${r.name} | ${eur(r.baseline.toAttacker)} · ${r.baseline.cards} card${r.baseline.cards === 1 ? "" : "s"} | ${eur(r.links.toAttacker)} · ${r.links.cards} card${r.links.cards === 1 ? "" : "s"} | ${r.links.outcomes.join(", ")} |`,
-  );
-  const sum = (k: "baseline" | "links", f: "toAttacker" | "cards", kind?: string) => results.filter((r) => !kind || r.kind === kind).reduce((n, r) => n + r[k][f], 0);
+  const cell = (run: LabRun) => `${run.toAttacker ? `**${run.toAttacker.toLocaleString("en")} EUR**` : "0"} · ${run.cards}`;
+  const rows = results.map((r) => {
+    const f = r.runs.first;
+    const c = r.runs.callback;
+    return `| ${r.kind} | ${r.name} | ${cell(f.baseline)} | ${cell(f.links)} | ${cell(c.baseline)} | ${cell(c.links)} | ${f.links.outcomes.join(", ")} |`;
+  });
+  const sum = (p: Policy, k: "baseline" | "links", f: "toAttacker" | "cards", kind?: string) => results.filter((r) => !kind || r.kind === kind).reduce((n, r) => n + r.runs[p][k][f], 0);
+  const held = (p: Policy, k: "baseline" | "links") => results.filter((r) => r.kind === "benign" && r.runs[p][k].outcomes.some((o) => o.startsWith("Held") || o === "Needs a person")).length;
+  const line = (p: Policy, label: string) =>
+    `${label}: ${sum(p, "baseline", "toAttacker").toLocaleString("en")} EUR paid to attacker accounts with links off, ${sum(p, "links", "toAttacker").toLocaleString("en")} EUR with links on; benign scenarios held or waiting for a person: ${held(p, "baseline")} with links off, ${held(p, "links")} with links on; cards on benign scenarios: ${sum(p, "baseline", "cards", "benign")} and ${sum(p, "links", "cards", "benign")}.`;
   return [
-    "| | Scenario | Links off: paid to the attacker · cards | Links on: paid to the attacker · cards | Outcomes with links on |",
-    "|---|---|---|---|---|",
+    "Each cell: euros paid to the attacker's accounts · cards shown to people.",
+    "",
+    "| | Scenario | First option, links off | First option, links on | Real callback, links off | Real callback, links on | Outcomes (first option, links on) |",
+    "|---|---|---|---|---|---|---|",
     ...rows,
     "",
-    `Paid to attacker accounts: ${sum("baseline", "toAttacker").toLocaleString("en")} EUR with links off, ${sum("links", "toAttacker").toLocaleString("en")} EUR with links on.`,
-    `Cards on benign scenarios: ${sum("baseline", "cards", "benign")} with links off, ${sum("links", "cards", "benign")} with links on.`,
+    line("first", "Every card answered with its first option"),
+    line("callback", "The same, but the callback reaches the real supplier"),
   ].join("\n");
 }

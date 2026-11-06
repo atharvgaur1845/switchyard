@@ -8,7 +8,7 @@ import { type Flow, loadFlow } from "../src/engine/flow-schema.ts";
 import { blockedAccount } from "../src/engine/links.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
-import { basisHash, CHECKS, LEGACY, sameHash } from "../src/engine/verifiers.ts";
+import { basisHash, CHECKS, LEGACY, rowHash, sameHash } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
 import { startBank } from "../src/sandbox/bank.ts";
@@ -322,7 +322,7 @@ describe("attacks across cases", () => {
   const ATTACKER = "DE88 5007 0010 0175 5263 03";
   // Both flows in one room, an agent that reads the IBAN from the email, and
   // two people, so blocks and callbacks can be answered by the right roles.
-  const world = async () => {
+  const world = async (opts: { failWriteOnce?: boolean } = {}) => {
     const reading = (request: string) => {
       const iban = /(DE\d{2}(?: ?\d{4}){4} ?\d{2})/.exec(request)?.[1] ?? "";
       const token = /"token": "([^"]+)"/.exec(request)![1];
@@ -338,7 +338,15 @@ describe("attacks across cases", () => {
     const outlets = new LiveOutlets({ dataDir: tmpdir(), bankUrl, smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, chat, store);
     // Email outlets would need SMTP; record them instead.
     const sent: string[] = [];
-    const runner = new Runner(store, chat, { execute: (o, k) => ("email" in o ? (sent.push(k), Promise.resolve(`emailed ${k}`)) : outlets.execute(o, k)), lookup: (o, k) => outlets.lookup(o, k) }, flows, {
+    let failWrite = opts.failWriteOnce ?? false;
+    const execute = (o: Parameters<typeof outlets.execute>[0], k: string) => {
+      if ("document" in o && failWrite) {
+        failWrite = false;
+        return Promise.reject(new Error("connection reset"));
+      }
+      return "email" in o ? (sent.push(k), Promise.resolve(`emailed ${k}`)) : outlets.execute(o, k);
+    };
+    const runner = new Runner(store, chat, { execute, lookup: (o, k) => outlets.lookup(o, k) }, flows, {
       people: { "@ap-clerk": ["@clerk"], "@controller": ["@controller"] },
     });
     attestRooms(store, chat);
@@ -355,6 +363,52 @@ describe("attacks across cases", () => {
     };
     return { chat, store, runner, email, card, answer, settle };
   };
+
+  it("an account a person blocked stays linked after it comes on file", async () => {
+    const { chat, store, runner, email, answer, settle } = await world();
+    await answer(await email(LOOKALIKE, ATTACKER), "block", "@controller");
+    // However it got there, the vendor master now pays Fabrikam at the blocked account.
+    const master = chat.docs.get("finance")!.find((d) => d.name === "vendor-master")!;
+    master.content = master.content.replace(FABRIKAM, "DE88500700100175526303");
+    store.attest("finance", "vendor-master", "Fabrikam Print", rowHash(master.content, "Fabrikam Print"), "case approved earlier");
+    const invoice = await runner.open("invoice-check", fabrikam("FP-9001"), "webhook");
+    await settle();
+    expect(store.load(invoice).results.links).toMatchObject({ ok: false, detail: expect.stringContaining("blocked that request") });
+    expect(store.events(invoice).some((e) => e.type === "executed" && e.step === "schedule_payment")).toBe(false);
+  });
+
+  it("people who call anyway and approve the change clear the link for later cases", async () => {
+    const { store, runner, email, answer, settle } = await world();
+    await answer(await email(LOOKALIKE, ATTACKER), "block", "@controller");
+    const real = await email(REAL, ATTACKER);
+    await answer(real, "call-anyway", "@controller");
+    await answer(real, "confirmed", "@clerk");
+    await answer(real, "approve", "@controller");
+    expect(store.events(real).some((e) => e.type === "cleared")).toBe(true);
+    const invoice = await runner.open("invoice-check", fabrikam("FP-9002"), "webhook");
+    await settle();
+    expect(store.load(invoice).results.links).toMatchObject({ ok: true });
+  });
+
+  it("a block does not move a case that is waiting on whether its action went out", async () => {
+    const { chat, store, email, answer } = await world({ failWriteOnce: true });
+    const real = await email(REAL, ATTACKER);
+    await answer(real, "confirmed", "@clerk");
+    await answer(real, "approve", "@controller");
+    expect(store.load(real).pending?.kind).toBe("in_doubt");
+    await answer(await email(LOOKALIKE, ATTACKER), "block", "@controller");
+    expect(store.load(real).pending?.kind).toBe("in_doubt");
+    expect(store.events(real).some((e) => e.type === "rewound")).toBe(false);
+    expect(chat.said("This case is waiting on whether an action went out")).toBe(true);
+  });
+
+  it("records a block only when it is safe evidence, however the email writes the account", () => {
+    const checks = { new_iban: "DE88500700100175526303", vendor: "Fabrikam Print", domain: "fabrikam.test" };
+    const meta = { caseId: "c", by: "@controller", at: 0 };
+    expect(blockedAccount({ ...checks, sender_domain: "fabrikarn.test" }, "IBAN DE88-5007-0010-0175-5263-03", MASTER, meta)).toMatchObject({ iban: "DE88500700100175526303" });
+    // The vendor's own subdomain says nothing about the account.
+    expect(blockedAccount({ ...checks, sender_domain: "mail.fabrikam.test" }, `pay ${ATTACKER}`, MASTER, meta)).toBeUndefined();
+  });
 
   it("the real domain asking for an account a look-alike asked for goes to the controller before any call", async () => {
     const { store, email, card, answer } = await world();

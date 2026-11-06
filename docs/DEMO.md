@@ -95,7 +95,7 @@ npm run lab
 
 - **Four eyes:** the clerk who made the callback tries to approve and is refused. (Live instead if you have a second Slack user: `demo send bank-change-real`.)
 - **An approval on old facts:** `localhost:4101`, case FP-0912: "would not act on reserve po: vendor-master changed … after the checks read it".
-- **The lab table:** with links off, the two compromised-mailbox scenarios pay the attacker 3,150 EUR each; with links on, nothing. Say what it is: eight scenarios we wrote, run twice, counted from the bank's ledger.
+- **The lab table:** when the callback is skipped or fooled, the two compromised-mailbox scenarios pay the attacker 3,150 EUR each with links off, and nothing with links on. Say what it is: nine scenarios we wrote, run with links off and on, counted from the bank's ledger. Point at the cost rows too: the factoring account's extra card and the held genuine change.
 
 ## 3:30 – Close (20 s)
 

@@ -367,19 +367,32 @@ export class Runner {
 
   // Bank-change requests people blocked, as evidence for later cases (see
   // links.ts for what is recorded and why).
-  private blockedAccounts(master: string): Blocked[] {
-    const out: Blocked[] = [];
+  // Recorded when the block is answered, against the vendor master as it was
+  // then: an account that is on file later (approved anyway) stays flagged
+  // unless people called anyway and approved a change to it (`cleared`).
+  private blockedAccounts(_master?: string): Blocked[] {
+    const flagged: Blocked[] = [];
+    const cleared = new Map<string, number>();
     for (const id of this.store.caseIds()) {
-      const timeline = this.store.timeline(id);
-      const checks = timeline.findLast((e) => e.type === "verified" && e.check === "bank_change");
-      const block = timeline.findLast((e) => e.type === "gate_answered" && e.answer === "block");
-      if (!checks || checks.type !== "verified" || !block || block.type !== "gate_answered") continue;
-      const opened = timeline.find((e) => e.type === "opened");
-      const email = opened?.type === "opened" ? String(opened.data.body ?? "") : "";
-      const found = blockedAccount(checks.value as Record<string, unknown>, email, master, { caseId: id, by: block.answeredBy, at: Date.parse(block.at_iso) });
-      if (found) out.push(found);
+      for (const e of this.store.events(id)) {
+        if (e.type === "flagged") flagged.push({ iban: e.iban, caseId: id, vendor: e.vendor, sender: e.sender, by: e.by, at: e.at });
+        if (e.type === "cleared") cleared.set(e.iban, Math.max(cleared.get(e.iban) ?? 0, e.at));
+      }
     }
-    return out;
+    return flagged.filter((b) => (cleared.get(b.iban) ?? -1) < b.at);
+  }
+
+  // After a "block" answer: records the blocked account as evidence for other
+  // cases, if it is safe evidence (links.ts).
+  private async flagBlocked(state: CaseState, by: string): Promise<boolean> {
+    const step = this.flowOf(state).steps.find((s) => isVerify(s) && s.verify.check === "bank_change");
+    const checks = step ? (state.results[step.id] as Record<string, unknown> | undefined) : undefined;
+    if (!step || !isVerify(step) || !checks || !this.chat.documents) return false;
+    const master = (await this.chat.documents(state.room)).filter((d) => d.name === step.verify.doc).map((d) => d.content).join("\n");
+    const found = blockedAccount(checks, String(state.data.body ?? ""), master, { caseId: state.id, by, at: this.now() });
+    if (!found) return false;
+    this.store.append(state.id, { type: "flagged", iban: found.iban, vendor: found.vendor, sender: found.sender, by, at: found.at });
+    return true;
   }
 
   // The links on an account as they stand now, in the form a case rests on.
@@ -416,6 +429,12 @@ export class Runner {
         if (now !== b.hash) drift[name] = [b.hash, now];
       }
       if (Object.keys(drift).length === 0) continue;
+      // A case in doubt, or with an action in flight, keeps its doubt card: a
+      // person must still say whether that action happened. It is only told.
+      if (open.pending?.kind === "in_doubt" || Object.keys(open.executing).length > 0) {
+        await this.say(open, `A person just blocked a request naming this case's account. This case is waiting on whether an action went out; decide that first, then check it again.`);
+        continue;
+      }
       const at = this.flowOf(open).steps.find((s) => open.pending && s.id === open.pending.step);
       const order = this.flowOf(open).steps.map((s) => s.id);
       const first = Math.min(...Object.keys(drift).map((doc) => order.indexOf(open.basis[doc].step)));
@@ -455,6 +474,12 @@ export class Runner {
   // Records what a document outlet wrote, so the next check accepts it.
   private attestWrite(state: CaseState, payload: Outlet): void {
     if (!("document" in payload)) return;
+    // People saw the link, called anyway, and approved this change: the
+    // account is no longer evidence against later cases.
+    const links = Object.entries(state.results).find(([id]) => this.stepOf(state, id) && isVerify(this.stepOf(state, id)!) && (this.stepOf(state, id) as VerifyStep).verify.check === "links")?.[1] as { subject?: string; ok?: boolean } | undefined;
+    if (links && links.ok === false && links.subject && Object.values(state.results).includes("call-anyway")) {
+      this.store.append(state.id, { type: "cleared", iban: links.subject, by: Object.values(state.deciders).join(", "), at: this.now() });
+    }
     const { room, name, row } = payload.document;
     this.store.attest(room, name, row[0], rowHash(`| ${row.join(" | ")} |`, row[0]), `case ${state.id}`, new Date(this.now()));
   }
@@ -748,7 +773,7 @@ export class Runner {
     });
     await this.advance(state.id);
     // A block is evidence for other cases on the same account.
-    if (outcome.answer === "block" && this.crossCase) await this.relinkOpen(state.room);
+    if (outcome.answer === "block" && (await this.flagBlocked(this.store.load(state.id), answerer!)) && this.crossCase) await this.relinkOpen(state.room);
   }
 
   async cancel(caseId: string, by: string): Promise<boolean> {
