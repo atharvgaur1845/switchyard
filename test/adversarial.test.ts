@@ -13,6 +13,7 @@ import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
 import { startBank } from "../src/sandbox/bank.ts";
 import { caseSummaries } from "../src/web/api.ts";
+import { investigations } from "../src/web/investigations.ts";
 import { attestRooms, FakeSwitch, replyWith } from "./fake-switch.ts";
 
 // Attacks on supplier payments, each one paired with the control that stops
@@ -465,6 +466,65 @@ describe("attacks across cases", () => {
     for (let i = 0; i < 3; i++) await answer(await email(LOOKALIKE, ATTACKER), "block", "@controller");
     expect(store.events(real).filter((e) => e.type === "rewound")).toHaveLength(1);
     expect(store.load(real).status).toBe("open");
+  });
+
+  it("a block from a second, different sender voids an approval given after the first, once", async () => {
+    const { chat, store, email, card, answer } = await world();
+    await answer(await email(LOOKALIKE, ATTACKER), "block", "@controller");
+    const real = await email(REAL, ATTACKER);
+    // The controller saw one block and chose to call anyway: the callback card rests on that.
+    await answer(real, "call-anyway", "@controller");
+    expect(card(real).title).toMatch(/^.*call Fabrikam Print/);
+    expect(store.events(real).some((e) => e.type === "rewound")).toBe(false);
+
+    // A different sender asks for the same account and is blocked: stronger evidence.
+    await answer(await email("payments@fabrikam-billing.test", ATTACKER), "block", "@controller");
+    expect(store.events(real).filter((e) => e.type === "rewound")).toHaveLength(1);
+    expect(chat.said("DE88500700100175526303: blocked → blocked-by-2-senders")).toBe(true);
+    expect(store.load(real).pending).toMatchObject({ kind: "gate", step: "linked" });
+    expect(card(real).title).toMatch(/fabrikarn\.test.*fabrikam-billing\.test|fabrikam-billing\.test.*fabrikarn\.test/);
+
+    // A third sender adds evidence but no new kind of it: the case is told, not moved again.
+    await answer(await email("ap@fabrikam-pay.test", ATTACKER), "block", "@controller");
+    expect(store.events(real).filter((e) => e.type === "rewound")).toHaveLength(1);
+    expect(chat.said("Another request naming this case's account DE88500700100175526303 was blocked")).toBe(true);
+  });
+
+  it("the same sender blocked again only adds a note to an open case", async () => {
+    const { chat, store, email, answer } = await world();
+    await answer(await email(LOOKALIKE, ATTACKER), "block", "@controller");
+    const real = await email(REAL, ATTACKER);
+    await answer(await email(LOOKALIKE, ATTACKER), "block", "@controller");
+    expect(store.events(real).some((e) => e.type === "rewound")).toBe(false);
+    expect(chat.said("It adds to the evidence already on the card, which still counts")).toBe(true);
+  });
+
+  it("the Investigations view groups the cases one blocked account connects, with the facts behind each line", async () => {
+    const { store, runner, email, answer, settle } = await world();
+    // An ordinary paid invoice first: the account on file joins nothing by itself.
+    const earlier = await runner.open("invoice-check", fabrikam("FP-7001"), "webhook");
+    await settle();
+    const fake = await email(LOOKALIKE, ATTACKER);
+    await answer(fake, "block", "@controller");
+    const real = await email(REAL, ATTACKER);
+    await answer(real, "hold", "@controller");
+    const invoice = await runner.open("invoice-check", fabrikam("FP-7002", { iban: "DE88500700100175526303", po: "PO-1041", supplier: "Fabrikam Print" }), "webhook");
+    await settle();
+
+    const { clusters, totals } = investigations(store, flows);
+    expect(clusters).toHaveLength(1);
+    const [group] = clusters;
+    expect(group.cases.map((c) => c.id).sort()).toEqual([fake, real, invoice].sort());
+    expect(group.cases.map((c) => c.id)).not.toContain(earlier);
+    const block = group.evidence.find((e) => e.relation === "blocked")!;
+    expect(block).toMatchObject({ from: { id: fake }, to: { id: "DE88500700100175526303" }, by: "@controller", caseId: fake });
+    expect(block.status).toMatch(/suspected, not confirmed fraud/);
+    expect(group.evidence.find((e) => e.relation === "printed")).toMatchObject({ from: { id: invoice }, status: "printed on the invoice; never paid" });
+    expect(group.evidence.filter((e) => e.relation === "requested").map((e) => e.from.id).sort()).toEqual([fake, real].sort());
+    // Every line says where it came from and when.
+    for (const e of group.evidence) expect(e.source && e.at && e.status).toBeTruthy();
+    expect(totals).toMatchObject({ clusters: 1, blocked: 1 });
+    expect(group.timeline.map((t) => t.seq)).toEqual([...group.timeline.map((t) => t.seq)].sort((a, b) => a - b));
   });
 
   it("an invoice whose account on file is also another vendor's goes to a person", async () => {

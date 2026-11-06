@@ -418,17 +418,27 @@ export class Runner {
   // After a person blocks a bank-change request, every open case that rests
   // on "no link" for that account is checked again at once, so a card shown
   // before the block stops counting now, not only when someone clicks it.
-  private async relinkOpen(room: string): Promise<void> {
+  private async relinkOpen(room: string, blockedIn: string): Promise<void> {
     if (!this.chat.documents) return;
     const docs = await this.chat.documents(room);
-    for (const open of this.store.openCases().filter((c) => c.room === room)) {
+    const flagged = this.store.events(blockedIn).filter((e) => e.type === "flagged").at(-1);
+    for (const open of this.store.openCases().filter((c) => c.room === room && c.id !== blockedIn)) {
       const drift: Record<string, [string, string]> = {};
       for (const [name, b] of Object.entries(open.basis)) {
         if (!name.startsWith("links:")) continue;
         const now = this.linksNow(open, b.step, name.slice("links:".length), b.row, docs);
         if (now !== b.hash) drift[name] = [b.hash, now];
       }
-      if (Object.keys(drift).length === 0) continue;
+      if (Object.keys(drift).length === 0) {
+        // The block adds evidence but not a new kind of it (the same sender
+        // again, or a third one): the card still counts, and the case's
+        // thread is told once, so the person deciding sees it.
+        const iban = flagged?.type === "flagged" ? flagged.iban : "";
+        if (iban && open.basis[`links:${iban}`] && open.threadId && this.store.mark(`more:${blockedIn}:${open.id}`, new Date(this.now()))) {
+          await this.say(open, `Another request naming this case's account ${iban} was blocked (case ${blockedIn}, from ${flagged?.type === "flagged" ? flagged.sender || "an unknown sender" : "an unknown sender"}). It adds to the evidence already on the card, which still counts.`);
+        }
+        continue;
+      }
       // A case in doubt, or with an action in flight, keeps its doubt card: a
       // person must still say whether that action happened. It is only told.
       if (open.pending?.kind === "in_doubt" || Object.keys(open.executing).length > 0) {
@@ -773,7 +783,7 @@ export class Runner {
     });
     await this.advance(state.id);
     // A block is evidence for other cases on the same account.
-    if (outcome.answer === "block" && (await this.flagBlocked(this.store.load(state.id), answerer!)) && this.crossCase) await this.relinkOpen(state.room);
+    if (outcome.answer === "block" && (await this.flagBlocked(this.store.load(state.id), answerer!)) && this.crossCase) await this.relinkOpen(state.room, state.id);
   }
 
   async cancel(caseId: string, by: string): Promise<boolean> {

@@ -352,3 +352,72 @@ code, .mono, .rawtable, .dg .sub, .dg .cond, .dg .vt, .dg .hashtext, .dg .arc-la
 .linked ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
 .linked code { overflow-wrap: anywhere; }
 .caselink { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+
+/* ---------- investigations ---------- */
+.ig-view { padding: 14px 24px 40px; max-width: 1440px; margin: 0 auto; }
+.ig-head .ig-totals { padding: 0; }
+.ig-head .fine { margin: 8px 0 14px; }
+.ig-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+.ig-list { padding: 12px; }
+.ig-list h3, .ig-main h3 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.ig-list h3 { margin-top: 0; }
+.ig-list ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ig-pick { all: unset; box-sizing: border-box; width: 100%; display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+.ig-pick:hover { background: var(--surface-2); }
+.ig-pick[aria-current="true"] { border-color: color-mix(in srgb, var(--stop) 45%, var(--line)); background: var(--stop-soft); }
+.ig-pick:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ig-pick .ico { color: var(--stop); flex: none; margin-top: 2px; }
+.ig-pick .meta { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.ig-main { padding: 18px 22px; min-width: 0; }
+.ig-main h2 { margin: 0; font-size: 18px; }
+.ig-graph-wrap { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); padding: 8px; overflow-x: auto; }
+.ig-graph { width: 100%; min-width: 620px; height: auto; display: block; font-family: var(--font); }
+.ig-graph .colhead { font-size: 11px; fill: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.ig-node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+.ig-node text { fill: var(--ink); font-size: 12px; font-family: var(--font); text-decoration: none; }
+.ig-node .t2, .ig-node .mono { font-family: var(--mono); }
+.ig-node .t1 { font-weight: 600; }
+.ig-node .t2 { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.ig-node .mono { font-family: var(--mono); }
+.ig-node.ig-case:hover rect, .ig-node.ig-case:focus rect { stroke: var(--focus); stroke-width: 2; }
+.ig-node.ig-acct.flagged rect { fill: var(--stop-soft); stroke: var(--stop); stroke-width: 1.5; }
+.ig-node.ig-vnd rect { fill: var(--surface-2); }
+.ig-node .tone-stop { fill: var(--stop); } .ig-node .tone-act { fill: var(--act); } .ig-node .tone-person { fill: var(--person); } .ig-node .tone-agent { fill: var(--agent); } .ig-node .tone-neutral { fill: var(--muted); }
+.ig-edge { cursor: pointer; outline: none; }
+.ig-edge .hit { fill: none; stroke: transparent; stroke-width: 14; }
+.ig-edge .line { fill: none; stroke-width: 1.75; }
+.ig-edge text { font-size: 11px; paint-order: stroke; stroke: var(--surface-2); stroke-width: 4px; stroke-linejoin: round; }
+.ig-edge.t-stop .line { stroke: var(--stop); } .ig-edge.t-stop text { fill: var(--stop); }
+.ig-edge.t-act .line { stroke: var(--act); } .ig-edge.t-act text { fill: var(--act); }
+.ig-edge.t-person .line { stroke: var(--person); } .ig-edge.t-person text { fill: var(--person); }
+.ig-edge.t-muted .line { stroke: var(--line-strong); } .ig-edge.t-muted text { fill: var(--muted); }
+.ig-edge:hover .line, .ig-edge:focus-visible .line, .ig-edge.sel .line { stroke-width: 3.5; }
+.ig-edge.sel text, .ig-edge:focus-visible text { font-weight: 700; }
+.ig-edge-detail { margin-top: 10px; }
+.ig-impact { display: flex; flex-wrap: wrap; gap: 6px 0; }
+.ig-paid, .ig-waiting { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; font-size: 13px; }
+.ig-paid li, .ig-waiting li { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ig-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.ig-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ig-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); white-space: nowrap; }
+.ig-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ig-table tr:last-child td { border-bottom: 0; }
+.ig-table tr[data-ev] { cursor: pointer; }
+.ig-table tr.sel td { background: var(--person-soft); }
+.ig-table code { font-size: 11.5px; }
+.ig-table .nowrap { white-space: nowrap; }
+.ig-timeline { list-style: none; padding: 0; margin: 0; border-left: 2px solid var(--line); }
+.ig-timeline li { position: relative; padding: 4px 0 8px 16px; font-size: 13px; }
+.ig-timeline li::before { content: ""; position: absolute; left: -6px; top: 9px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); border: 2px solid var(--surface); }
+.ig-timeline li.t-stop::before { background: var(--stop); } .ig-timeline li.t-act::before { background: var(--act); } .ig-timeline li.t-person::before { background: var(--person); }
+.ig-timeline .when { color: var(--muted); font: 12px var(--mono); margin-right: 8px; }
+.ig-empty { padding: 40px; text-align: center; }
+.ig-empty .ico { width: 32px; height: 32px; color: var(--muted); }
+@media (max-width: 900px) { .ig-layout { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .ig-view { padding: 12px 16px 32px; } .ig-main { padding: 14px; } }
+.tabs .n { font: 600 11px var(--mono); background: var(--stop); color: #fff; border-radius: 999px; padding: 1px 6px; margin-left: 4px; }
+@media (max-width: 560px) {
+  .topbar { flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; }
+  .tabs { order: 3; width: 100%; }
+  .tabs button { flex: 1; padding: 5px 6px; }
+}

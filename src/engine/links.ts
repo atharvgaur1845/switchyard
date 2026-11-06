@@ -24,6 +24,8 @@ export interface Link {
   // invoice printed (evidence only; it is never paid).
   role: "subject" | "printed";
   caseId?: string;
+  // For a blocked link: the domain the blocked request came from.
+  sender?: string;
   detail: string;
 }
 
@@ -73,6 +75,7 @@ export function findLinks(args: { iban?: string; printed?: string; vendor?: stri
         iban,
         role,
         caseId: b.caseId,
+        sender: b.sender,
         detail: `${mask(iban)} was requested for ${b.vendor} from ${b.sender || "an unknown sender"}, and ${b.by} blocked that request (case ${b.caseId})`,
       });
     }
@@ -88,9 +91,15 @@ export function findLinks(args: { iban?: string; printed?: string; vendor?: stri
 }
 
 // What an approval rests on: the kinds of link on the account it would pay
-// or write. Kinds, not cases, so a flood of blocks on one account changes
-// it at most twice, and an open case is checked again at most twice.
+// or write. Kinds, not cases, so a flood of blocks cannot keep re-checking a
+// case. One step finer for blocks: blocks of requests from two or more
+// different senders are stronger evidence than one (two unrelated senders
+// asking for the same unknown account), so an approval given when there was
+// one stops counting when a second sender is blocked. A third sender, or the
+// same sender again, changes nothing: the digest has at most four values.
 export function linkDigest(links: Link[]): string {
-  const kinds = [...new Set(links.filter((l) => l.role === "subject").map((l) => l.kind))].sort();
+  const subject = links.filter((l) => l.role === "subject");
+  const senders = new Set(subject.filter((l) => l.kind === "blocked").map((l) => (l.sender ?? "").toLowerCase()));
+  const kinds = [...new Set(subject.map((l) => (l.kind === "blocked" && senders.size >= 2 ? "blocked-by-2-senders" : l.kind)))].sort();
   return kinds.length ? kinds.join("+") : "none";
 }

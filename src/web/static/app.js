@@ -5,6 +5,7 @@
 
 import { diagram, left } from "./diagram.js";
 import { esc, icon, INLET_ICON, STEP_ICON, hx, sameHash } from "./icons.js";
+import { renderInvestigations } from "./investigations.js";
 
 const token = new URLSearchParams(location.search).get("token");
 const api = (path) =>
@@ -31,7 +32,9 @@ const state = {
   vendors: {},
   filter: "all",
   query: "",
-  selected: location.hash === "#flows" ? null : location.hash.slice(1) || null,
+  selected: ["#flows", "#investigations"].includes(location.hash) ? null : location.hash.slice(1) || null,
+  investigations: { clusters: [], totals: {} },
+  ig: { cluster: null, edge: null },
   view: "cases",
   tab: "story",
   signature: "",
@@ -508,10 +511,13 @@ function renderFlows() {
 
 function render() {
   renderKpis();
+  renderIgCount();
   if (state.view === "cases") {
     renderFilters();
     renderList();
     renderDetail();
+  } else if (state.view === "investigations") {
+    document.getElementById("view-investigations").innerHTML = renderInvestigations(state.investigations, state.ig);
   } else {
     renderFlows();
   }
@@ -520,16 +526,16 @@ function render() {
 async function refresh() {
   const live = document.getElementById("live");
   try {
-    const [overview, cases] = await Promise.all([api("/api/overview"), api("/api/cases")]);
+    const [overview, cases, investigations] = await Promise.all([api("/api/overview"), api("/api/cases"), api("/api/investigations")]);
     live.className = "live on";
     document.getElementById("live-text").textContent = `Live · ${cases.length} case${cases.length === 1 ? "" : "s"}`;
     document.body.classList.remove("offline");
     // Only redraw when something changed, so selections, focus and scroll
     // positions survive polling.
-    const signature = JSON.stringify([overview, cases]);
+    const signature = JSON.stringify([overview, cases, investigations]);
     if (signature === state.signature) return;
     state.signature = signature;
-    Object.assign(state, { flows: overview.flows, schedules: overview.schedules, vendors: overview.vendors, people: overview.people, cases });
+    Object.assign(state, { flows: overview.flows, schedules: overview.schedules, vendors: overview.vendors, people: overview.people, cases, investigations });
     if (!state.selected && cases.length) state.selected = hero(cases) ?? visibleCases()[0]?.id ?? null;
     render();
   } catch (error) {
@@ -603,11 +609,12 @@ document.getElementById("flow-grid").addEventListener("click", (e) => {
 
 function showView(view) {
   state.view = view;
-  if (view === "flows") history.replaceState(null, "", `#flows${location.search}`);
-  else if (location.hash === "#flows") history.replaceState(null, "", state.selected ? `#${state.selected}${location.search}` : location.pathname + location.search);
+  if (view === "flows" || view === "investigations") history.replaceState(null, "", `#${view}${location.search}`);
+  else if (location.hash === "#flows" || location.hash === "#investigations") history.replaceState(null, "", state.selected ? `#${state.selected}${location.search}` : location.pathname + location.search);
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
   document.getElementById("view-cases").hidden = view !== "cases";
   document.getElementById("view-flows").hidden = view !== "flows";
+  document.getElementById("view-investigations").hidden = view !== "investigations";
   document.getElementById("kpis").hidden = view !== "cases";
   render();
 }
@@ -618,11 +625,34 @@ document.querySelector(".tabs").addEventListener("click", (e) => {
 // A link to #<case id> opens that case.
 window.addEventListener("hashchange", () => {
   const id = location.hash.slice(1);
-  if (id === "flows") showView("flows");
+  if (id === "flows" || id === "investigations") showView(id);
   else if (id) select(id) || showView("cases");
 });
 
-if (location.hash === "#flows") showView("flows");
+if (location.hash === "#flows" || location.hash === "#investigations") showView(location.hash.slice(1));
+
+// Investigations: pick a group, or a line in its graph or evidence table.
+const igView = document.getElementById("view-investigations");
+igView.addEventListener("click", (e) => {
+  const pick = e.target.closest("[data-cluster]");
+  if (pick) state.ig = { cluster: pick.dataset.cluster, edge: null };
+  const ev = e.target.closest("[data-ev]");
+  if (ev) state.ig = { cluster: state.ig.cluster ?? state.investigations.clusters[0]?.id ?? null, edge: state.ig.edge === ev.dataset.ev ? null : ev.dataset.ev };
+  if (pick || ev) render();
+});
+igView.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.closest?.("[data-ev]")) {
+    e.preventDefault();
+    e.target.closest("[data-ev]").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  }
+});
+
+function renderIgCount() {
+  const n = state.investigations.clusters.length;
+  const el = document.getElementById("ig-count");
+  el.hidden = n === 0;
+  el.textContent = String(n);
+}
 
 refresh();
 setInterval(refresh, 2500);

@@ -8,6 +8,7 @@ import { screen } from "./inlets/screen.ts";
 import { mapPayload, verifySignature, webhookInlet } from "./inlets/webhook.ts";
 import { readFile } from "node:fs/promises";
 import { caseSummaries, type Extras, overview } from "./web/api.ts";
+import { investigations } from "./web/investigations.ts";
 import { widgetPage } from "./web/widget.ts";
 
 const MAX_BODY = 256 * 1024;
@@ -20,6 +21,7 @@ const STATIC: Record<string, string> = {
   "app.js": "text/javascript",
   "diagram.js": "text/javascript",
   "icons.js": "text/javascript",
+  "investigations.js": "text/javascript",
   "logo.svg": "image/svg+xml",
 };
 
@@ -132,6 +134,10 @@ export function startServer(opts: {
 
     if (kind === "api" && name === "cases" && req.method === "GET") {
       return send(res, 200, "application/json", JSON.stringify(caseSummaries(opts.store, opts.flows)));
+    }
+
+    if (kind === "api" && name === "investigations" && req.method === "GET") {
+      return send(res, 200, "application/json", JSON.stringify(investigations(opts.store, opts.flows)));
     }
 
     if (kind === "api" && name === "overview" && req.method === "GET") {
