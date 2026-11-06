@@ -9,6 +9,8 @@ import { mapPayload, verifySignature, webhookInlet } from "./inlets/webhook.ts";
 import { readFile } from "node:fs/promises";
 import { caseSummaries, type Extras, overview } from "./web/api.ts";
 import { investigations } from "./web/investigations.ts";
+import { buildProof, signProof } from "./proof.ts";
+import type { KeyObject } from "node:crypto";
 import { widgetPage } from "./web/widget.ts";
 
 const MAX_BODY = 256 * 1024;
@@ -36,6 +38,8 @@ export function startServer(opts: {
   available?: Flow[];
   extras?: Extras;
   env?: NodeJS.ProcessEnv;
+  // Signs the proofs the dashboard hands out (proof.ts); unsigned without it.
+  proofKey?: KeyObject;
 }): Server {
   const flows = new Map(opts.flows.map((f) => [f.flow, f]));
   const frontDesk = opts.flows.find((f) => f.inlet?.frontdesk);
@@ -134,6 +138,15 @@ export function startServer(opts: {
 
     if (kind === "api" && name === "cases" && req.method === "GET") {
       return send(res, 200, "application/json", JSON.stringify(caseSummaries(opts.store, opts.flows)));
+    }
+
+    if (kind === "api" && name === "proof" && req.method === "GET") {
+      const id = decodeURIComponent(url.pathname.split("/")[3] ?? "");
+      if (!opts.store.caseIds().includes(id)) return send(res, 404, "application/json", "{}");
+      const unsigned = buildProof(opts.store, opts.flows, id);
+      const proof = opts.proofKey ? signProof(unsigned, opts.proofKey) : unsigned;
+      res.setHeader("Content-Disposition", `attachment; filename="${id}.proof.json"`);
+      return send(res, 200, "application/json", JSON.stringify(proof, null, 2));
     }
 
     if (kind === "api" && name === "investigations" && req.method === "GET") {

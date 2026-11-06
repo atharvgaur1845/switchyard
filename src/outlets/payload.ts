@@ -21,7 +21,7 @@ export function hashOutlet(outlet: Outlet): string {
 }
 
 // JSON with sorted keys, so the same action always hashes the same.
-function canonical(value: unknown): string {
+export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
     const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b));

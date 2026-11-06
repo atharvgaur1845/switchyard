@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { loadConfig, loadFlows, requireEnv } from "./config.ts";
 import { Commands } from "./engine/commands.ts";
 import { type Flow, FlowError, loadFlow } from "./engine/flow-schema.ts";
@@ -26,6 +26,10 @@ const USAGE = `switchyard <command>
   register         register @yard with Switch (needs SWITCH_REGISTRATION_TOKEN)
   up               run the engine, forms, webhooks and timers
   cancel <case>    cancel a case from the command line (e.g. one stuck in a removed room)
+  proof <case> [--out <file>]
+                   write a signed proof of a case: its evidence, decisions and actions
+  verify-proof <file> [--fingerprint <hex>]
+                   check a proof with no model, Switch or bank
   bank             run the sandbox bank (a separate process with its own ledger)
   demo offline     run the flows in this process: no Switch, no model, no account
   demo send <what> send a recorded demo input to a running Switchyard
@@ -75,6 +79,29 @@ switch (command) {
     const port = Number(new URL(config.bank.url).port || 4300);
     startBank({ port, ledger: join(config.data, "sandbox-bank.json"), payees: sandboxPayees() });
     console.log(`Sandbox bank (not a real bank) on ${config.bank.url}; ledger in ${join(config.data, "sandbox-bank.json")}`);
+    break;
+  }
+  case "proof": {
+    const { buildProof, loadOrCreateKey, signProof } = await import("./proof.ts");
+    const id = args[0];
+    if (!id) throw new Error("usage: switchyard proof <case id> [--out <file>]");
+    const store = new Store(join(config.data, "switchyard.db"));
+    const proof = signProof(buildProof(store, loadFlows(config.flows), id), loadOrCreateKey(config.proof.key));
+    const out = parseFlags(args).out ?? join(config.data, "proofs", `${id}.proof.json`);
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, `${JSON.stringify(proof, null, 2)}\n`);
+    console.log(`Wrote ${out}\n  root ${proof.root}\n  signed by key ${proof.signature!.fingerprint}`);
+    if (config.proof.fingerprint !== proof.signature!.fingerprint) console.log(`  To trust this key, set proof.fingerprint: ${proof.signature!.fingerprint} in switchyard.yaml (or pass --fingerprint to verify-proof).`);
+    break;
+  }
+  case "verify-proof": {
+    const { verifyProof } = await import("./proof.ts");
+    if (!args[0]) throw new Error("usage: switchyard verify-proof <file> [--fingerprint <hex>]");
+    const findings = verifyProof(JSON.parse(readFileSync(args[0], "utf8")), parseFlags(args).fingerprint ?? config.proof.fingerprint);
+    for (const f of findings) console.log(`${f.ok ? "✓" : "✗"} ${f.what}`);
+    const failed = findings.filter((f) => !f.ok).length;
+    console.log(failed ? `\n${failed} check${failed > 1 ? "s" : ""} failed.` : `\nAll ${findings.length} checks hold.`);
+    if (failed) process.exitCode = 1;
     break;
   }
   case "cancel": {
@@ -234,6 +261,7 @@ async function up(): Promise<void> {
     store,
     available: all.filter((f) => !flows.includes(f)),
     extras: { vendors, people: config.people },
+    proofKey: (await import("./proof.ts")).loadOrCreateKey(config.proof.key),
   });
   new MailpitInbox(config.mailpit.url, flows, runner, store).start();
   startSchedules(flows, runner, store);
@@ -242,13 +270,15 @@ async function up(): Promise<void> {
   console.log(`Switchyard is up: ${flows.length} flows, forms at http://localhost:${config.port}/f/<flow>`);
 }
 
-function parseFlags(args: string[]): { rest: string[]; user?: string; agent?: string; backup?: string; bridge?: string } {
-  const result: { rest: string[]; user?: string; agent?: string; backup?: string; bridge?: string } = { rest: [] };
+function parseFlags(args: string[]): { rest: string[]; user?: string; agent?: string; backup?: string; bridge?: string; out?: string; fingerprint?: string } {
+  const result: { rest: string[]; user?: string; agent?: string; backup?: string; bridge?: string; out?: string; fingerprint?: string } = { rest: [] };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--user") result.user = args[++i];
     else if (args[i] === "--agent") result.agent = args[++i];
     else if (args[i] === "--backup-agent") result.backup = args[++i];
     else if (args[i] === "--bridge") result.bridge = args[++i];
+    else if (args[i] === "--out") result.out = args[++i];
+    else if (args[i] === "--fingerprint") result.fingerprint = args[++i];
     else result.rest.push(args[i]);
   }
   return result;

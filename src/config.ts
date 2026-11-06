@@ -25,6 +25,9 @@ const Config = z.object({
   // The sandbox bank the `pay` outlet pays through (`switchyard bank`).
   bank: z.object({ url: z.string().url().default("http://localhost:4300") }).prefault({}),
   tick_seconds: z.number().positive().default(15),
+  // Payment proofs (src/proof.ts): the Ed25519 signing key, in its own file
+  // outside the event log, and the fingerprint of the key a verifier trusts.
+  proof: z.object({ key: z.string().default("keys/proof-ed25519.pem"), fingerprint: z.string().optional() }).prefault({}),
   smtp: z
     .object({ host: z.string().default("localhost"), port: z.number().default(1025), from: z.string().default("switchyard@localhost") })
     .prefault({}),
@@ -35,7 +38,7 @@ export function loadConfig(dir = process.cwd()): Config {
   const path = join(dir, "switchyard.yaml");
   const raw = existsSync(path) ? parseYaml(readFileSync(path, "utf8")) : {};
   const config = Config.parse(raw ?? {});
-  return { ...config, flows: resolve(dir, config.flows), data: resolve(dir, config.data) };
+  return { ...config, flows: resolve(dir, config.flows), data: resolve(dir, config.data), proof: { ...config.proof, key: resolve(dir, config.proof.key) } };
 }
 
 export function loadFlows(dir: string): Flow[] {

@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -390,6 +390,20 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0913", amount: 3150, po: "PO-1043" }, "webhook");
     await settle();
 
+    scene("8. The payment's proof: signed, and checked with no model, no Switch and no bank");
+    {
+      const { buildProof, loadOrCreateKey, signProof, verifyProof } = await import("./proof.ts");
+      // A key made for this run only; a real deployment keeps one (proof.key).
+      const dir = mkdtempSync(join(tmpdir(), "switchyard-proof-"));
+      const proof = signProof(buildProof(store, flows, invoice), loadOrCreateKey(join(dir, "demo-key.pem")));
+      const file = join(dir, `${invoice}.proof.json`);
+      writeFileSync(file, JSON.stringify(proof, null, 2));
+      const findings = verifyProof(JSON.parse(readFileSync(file, "utf8")), proof.signature!.fingerprint);
+      for (const f of findings.filter((f) => /hashes|approved|invoice text|signature|exactly/.test(f.what))) console.log(`${dim("        ")}${f.ok ? "✓" : red("✗")} ${f.what}`);
+      console.log(`${dim("        proof:")} ${file} ${findings.every((f) => f.ok) ? bold(`= all ${findings.length} checks hold`) : red("FAILED")}`);
+      console.log(dim(`        check it yourself: npm run switchyard verify-proof ${file} -- --fingerprint ${proof.signature!.fingerprint}`));
+    }
+
     scene("The same engine also runs: an expense over 500, with a refused click");
     await runner.open("expense", { name: "Priya", email: "priya@example.test", amount: 950, category: "travel", reason: "Hotel, receipt attached" }, "web form");
     await settle();
@@ -407,7 +421,9 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
 
   if (options.serve) {
     const { startServer } = await import("./server.ts");
-    startServer({ port: options.serve, flows, runner, store });
+    // Proofs from this dashboard are signed with a key made for this run only.
+    const proofKey = (await import("./proof.ts")).loadOrCreateKey(join(mkdtempSync(join(tmpdir(), "switchyard-proof-")), "demo-key.pem"));
+    startServer({ port: options.serve, flows, runner, store, proofKey });
     console.log(`\n${bold(`Dashboard of this offline run: http://localhost:${options.serve}`)} ${dim("(Ctrl-C to stop)")}`);
     return;
   }

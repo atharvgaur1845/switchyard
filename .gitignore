@@ -9,3 +9,4 @@ switchyard.yaml
 switchyard.*.yaml
 !switchyard.example.yaml
 data.*/
+keys/

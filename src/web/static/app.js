@@ -379,7 +379,8 @@ function rawLog(c) {
     .join("");
   return `<section class="raw" aria-label="Raw event log">
     <div class="raw-head"><p>The case's append-only log, as stored. Its state anywhere on this page is a fold of these rows.</p>
-      <button class="btn small" data-export="${esc(c.id)}">${icon("doc")} Export case-${esc(c.id)}.jsonl</button></div>
+      <span><button class="btn small" data-export="${esc(c.id)}">${icon("doc")} Export case-${esc(c.id)}.jsonl</button>
+      <a class="btn small" href="/api/proof/${encodeURIComponent(c.id)}${token ? `?token=${encodeURIComponent(token)}` : ""}" download>${icon("lock")} Download signed proof</a></span></div>
     <div class="raw-scroll"><table class="rawtable"><thead><tr><th class="num">seq</th><th>recorded (UTC)</th><th>type</th><th>step</th><th>body</th></tr></thead><tbody>${rows}</tbody></table></div>
   </section>`;
 }
@@ -468,7 +469,8 @@ function receiptsHtml(c) {
       ${r.approval || r.readback ? `<p class="fine">${r.match ? `${r.approval ? "What was sent hashes to exactly what the approver saw on the card" : "What was sent matched the rule"}${r.readback ? ", and the bank's own copy of the payment hashes the same" : ""}.` : "The hashes differ: Switchyard treats this as in doubt and asks a person."}</p>` : ""}
     </div>`;
   });
-  return cards.length ? `<section class="receipts" aria-label="Receipts">${cards.join("")}</section>` : "";
+  const proof = `<p class="fine">${icon("lock")} <a href="/api/proof/${encodeURIComponent(c.id)}${token ? `?token=${encodeURIComponent(token)}` : ""}" download>Download this case's signed proof</a>: its evidence, decisions and actions in one file. Check it with no model, Switch or bank: <code>npm run switchyard verify-proof &lt;file&gt;</code>.</p>`;
+  return cards.length ? `<section class="receipts" aria-label="Receipts">${cards.join("")}${proof}</section>` : "";
 }
 
 // ---------- flows ----------
