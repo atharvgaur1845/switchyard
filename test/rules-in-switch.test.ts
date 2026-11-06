@@ -88,7 +88,7 @@ describe("invoices: the models check, code decides", () => {
 
     expect(detail).toContain("✗ checked by code (po_lookup): PO-1043 is for 3,150.00, the invoice is 3,980.00");
     expect(detail).toContain("✓ @checker (anthropic) as invoice reader and @checker-backup (google) as fraud investigator both answered on review");
-    expect(detail).toContain("✓ checked by code (agent_evidence): the reader's figures match the invoice, every quote is in it, and the investigator found nothing");
+    expect(detail).toContain("✓ checked by code (agent_evidence): the reader's figures match the invoice, every quote is in its fields (there is no invoice text), and the investigator found nothing");
     expect(detail).toMatch(/Decide by \d{4}-\d\d-\d\d \d\d:\d\d UTC; after that @cfo can decide/);
   });
 

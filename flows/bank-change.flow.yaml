@@ -91,7 +91,7 @@ steps:
     gate:
       approver: "@controller"
       not_same_as: [callback]
-      title: "change {checks.vendor}'s bank account to {checks.new_iban}?"
+      title: "change {checks.vendor}'s bank account to {checks.new_iban}? ({payee.detail})"
       options: [approve, reject]
       deadline: 1d
       approves: [update_master]

@@ -31,6 +31,14 @@ const DAY = 86_400_000;
 // `history`: the check needs earlier cases. `basis: false`: the document it
 // reads is not part of what the case rests on (another step already holds
 // that row); what it rests on is in its result's `watch`.
+// Where a quote was found: at offsets in the invoice text, or in a field.
+export interface Grounding {
+  quote: string;
+  in: string;
+  start?: number;
+  end?: number;
+}
+
 // What a check may ask outside the room: the bank, who holds an account.
 export interface CheckContext {
   payee?: (iban: string, name: string) => Promise<PayeeAnswer>;
@@ -95,10 +103,27 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
       const forensics = (args.forensics ?? {}) as Record<string, unknown>;
       const investigator = (args.investigator ?? {}) as Record<string, unknown>;
       const squash = (v: unknown) => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
-      const source = squash([args.supplier, args.number, args.amount, args.iban, args.po, args.text].filter((v) => v !== undefined && v !== null && v !== "").join("\n"));
-      const ibanSource = compactIban([args.iban, args.text].map((v) => String(v ?? "")).join(" ").replace(/-/g, ""));
-      const inInvoice = (quote: unknown) => squash(quote).length >= 3 && source.includes(squash(quote));
+      // Where a quote may come from. With the invoice's own text, only that
+      // text: a quote is located in it, with its character offsets. Without
+      // it, a quote can only repeat a structured field, and says so; it is
+      // never passed off as a quotation from a document nobody saw.
+      const text = typeof args.text === "string" && args.text.trim() ? args.text : undefined;
+      const fields: Record<string, string> = Object.fromEntries(
+        (["supplier", "number", "amount", "iban", "po"] as const).filter((k) => args[k] !== undefined && args[k] !== null && args[k] !== "").map((k) => [k, String(args[k])]),
+      );
+      const ground = (quote: unknown): Grounding | undefined => {
+        const q = String(quote ?? "").trim();
+        if (squash(q).length < 3) return undefined;
+        if (text) {
+          const pattern = new RegExp(q.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "i");
+          const at = pattern.exec(text);
+          return at ? { quote: q, in: "text", start: at.index, end: at.index + at[0].length } : undefined;
+        }
+        const field = Object.entries(fields).find(([, v]) => squash(v) === squash(q) || squash(v).includes(squash(q)));
+        return field ? { quote: q, in: `field:${field[0]}` } : undefined;
+      };
       const problems: string[] = [];
+      const grounded: Grounding[] = [];
       if (forensics.unavailable) problems.push(`the invoice reader could not answer (${String(forensics.reason ?? "no reply")})`);
       else {
         if (!sameName(String(forensics.supplier ?? ""), String(args.supplier ?? ""))) problems.push(`the reader names the supplier ${String(forensics.supplier || "(none)")}, the invoice ${String(args.supplier || "(none)")}`);
@@ -107,21 +132,30 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
         const b = toNumber(args.amount);
         if (a === undefined || b === undefined || Math.round(a * 100) !== Math.round(b * 100)) problems.push(`the reader read ${fmt(a)}, the invoice says ${fmt(b)}`);
         if (forensics.po && args.po && squash(forensics.po) !== squash(args.po)) problems.push(`the reader read ${String(forensics.po)}, the invoice says ${String(args.po)}`);
+        // The account the reader read: in the invoice text, or the account
+        // field itself; anywhere else it is the reader's invention.
         const read = compactIban(String(forensics.iban ?? ""));
-        if (read && !ibanSource.includes(read)) problems.push(`the reader's account ${maskIban(read)} is not in the invoice`);
-        else if (read && compactIban(String(args.iban ?? "")) !== read) problems.push(`the invoice text asks for ${maskIban(read)}, but its account field says ${args.iban ? maskIban(compactIban(String(args.iban))) : "nothing"}`);
+        const field = compactIban(String(args.iban ?? ""));
+        const inText = text ? compactIban(text.replace(/-/g, "")).includes(read) : false;
+        if (read && !inText && read !== field) problems.push(`the reader's account ${maskIban(read)} is not in the invoice${text ? " text" : ""} or its account field`);
+        else if (read && inText && read !== field) problems.push(`the invoice text asks for ${maskIban(read)}, but its account field says ${field ? maskIban(field) : "nothing"}`);
         const quotes = Array.isArray(forensics.quotes) ? forensics.quotes : [];
-        const missing = quotes.filter((q) => !inInvoice(q));
-        if (missing.length) problems.push(`${missing.length} of the reader's ${quotes.length} quotes are not in the invoice`);
+        for (const q of quotes) {
+          const g = ground(q);
+          if (g) grounded.push(g);
+        }
+        const missing = quotes.length - grounded.length;
+        if (missing) problems.push(`${missing} of the reader's ${quotes.length} quotes are not in the invoice${text ? " text" : "'s fields"}`);
       }
-      const findings: { claim: string; quote: string }[] = [];
+      const findings: ({ claim: string } & Grounding)[] = [];
       const dropped: string[] = [];
       if (investigator.unavailable) problems.push(`the investigator could not answer (${String(investigator.reason ?? "no reply")})`);
       else {
         for (const f of Array.isArray(investigator.findings) ? investigator.findings : []) {
           const claim = typeof f === "string" ? f : String((f as Record<string, unknown>)?.claim ?? "");
           const quote = typeof f === "string" ? "" : String((f as Record<string, unknown>)?.quote ?? "");
-          if (inInvoice(quote)) findings.push({ claim, quote });
+          const g = ground(quote);
+          if (g) findings.push({ claim, ...g });
           else dropped.push(claim);
         }
         if (investigator.verdict !== "clear") {
@@ -134,8 +168,12 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
         ok: problems.length === 0,
         findings,
         dropped,
+        // Each quote, and where it was found: offsets in the invoice text, or
+        // the structured field it repeats when there is no text.
+        quotes: grounded,
+        grounding: text ? "invoice text" : "structured fields only (no invoice text)",
         detail: problems.length === 0
-          ? `the reader's figures match the invoice, every quote is in it, and the investigator found nothing${dropped.length ? ` (${dropped.length} claim${dropped.length > 1 ? "s" : ""} without a quote from the invoice set aside)` : ""}`
+          ? `the reader's figures match the invoice, every quote is in ${text ? "its text" : "its fields (there is no invoice text)"}, and the investigator found nothing${dropped.length ? ` (${dropped.length} claim${dropped.length > 1 ? "s" : ""} without a quote from the invoice set aside)` : ""}`
           : problems.join("; "),
       };
     },
