@@ -13,6 +13,7 @@ Each payment carries this chain, and each link is evidence someone can check on 
 5. **What other cases know.** An account people already refused, or one on file for another vendor, sends the case to a person.
 6. **Named people.** A callback to the number on file, a different approver, and the controller for anything the rule cannot release, all on Switch cards.
 7. **The exact action.** What was approved is what is sent, and what the bank holds: three equal hashes.
+8. **A signed proof.** All of the above, in one file per case, signed, and checkable by anyone with no model, no Switch and no bank (`switchyard verify-proof`).
 
 The one rule in the payment flow pays automatically only when all of these hold:
 - both invoice agents answered, every figure the reader gave matches the invoice, every quote is in it, and the investigator found nothing;
@@ -50,6 +51,7 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 5. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to act, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it marks PO-1043 as invoiced in the room, pays the new account through the bank and reads the payment back. All three hashes match: the approved one, the one sent and the bank's copy.
 6. **Someone edits the vendor master in the room directly**, swapping Northwind's account and leaving the old date and the word "callback". The next Northwind invoice would have been paid by the rule. Instead it is held: the row is not the one Switchyard first saw, and no pay card is offered.
 7. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the invoice is held, with no pay button.
+8. **The payment's proof.** The run writes the paid invoice's signed proof and checks it: 27 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself.
 
 The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep a dashboard of the run's cases open at `http://localhost:4101`. Its Investigations tab shows the blocked account and the three cases it connects.
 
@@ -86,7 +88,7 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 - **One purchase order, one payment.** Before paying, the case marks the PO's row "invoiced <number> (case <id>)" in the room, and the PO check accepts only a status of exactly `open`. A later invoice on an invoiced PO, under any number, is held on a card with no pay button. Another case that checked the same PO sees its row change before it acts, so its approval no longer counts. An invoice is also opened once per supplier and invoice number (compared like names, so `FP-0912` and `FP 0912` are one invoice). Suppliers must match the PO's whole name. Tests: "a second invoice for an already invoiced PO, under a new number, is held with no pay button", "two cards open on one PO: once one is paid, the other's approval no longer counts", "pays one invoice once, however many times it arrives".
 - **The bank says who holds the account.** Before any payment and any bank change, Switchyard asks the bank whether the vendor holds the account (Verification of Payee; the sandbox bank answers from `fixtures/payees.yaml`). On a match the rule may pay. On a close match the card shows the name the bank holds, and a person decides. When the bank cannot say, nothing is paid without a person. On no match, the invoice is held with no pay button, and the bank change fails its checks. A blocked request the bank called "no match" counts as evidence for other cases, even if it came from the vendor's own domain. A factoring company is paid only through an attested row of the `payment-mandates` room document; a row typed into the room by hand authorizes nothing. This evidence does not come from the email, the callback or the vendor master, so a fooled callback or an edited row cannot supply it. Tests: "holds the invoice, with no pay button, when the bank says someone else holds the account on file", "sends a close match to a person, with the name the bank holds", "pays a factoring company only under an attested mandate row", "fails a request from the vendor's own domain when the bank says the account is someone else's, and the block is evidence".
 - **The agent's reading is checked against the email.** The new IBAN must appear in the email itself, and the callback card has the supplier read out the whole account. Agent steps ignore replies typed by people, and `@yard reassign` moves a step only to one of the flow's agents. Tests: "an account the email does not contain is not accepted from the agent", "a person typing the agent's reply in the thread is ignored".
-- **The invoice agents' evidence is checked, not trusted.** The reader's supplier, number, amount, PO and account must match the invoice. An account it reads must be in the invoice, and if the invoice text names another account than its account field, a person decides. The investigator's findings count only with a quote that is in the invoice. A suspicious verdict, a made-up quote or an agent that is down sends the invoice to a person. None of this can make a payment happen: the other checks still decide. Tests: "sends a misread amount or a made-up quote to a person", "catches invoice text that asks for another account than its account field", "keeps a finding only when its quote is in the invoice".
+- **The invoice agents' evidence is checked, not trusted.** The reader's supplier, number, amount, PO and account must match the invoice's fields. An account it reads must be in the invoice text or be its account field, and if the text names another account than the field, a person decides. When the invoice's own text is there, a quote counts only if it is in that text, and the character offsets where it was found are kept. A quote that merely repeats a structured field does not count. Without the text, a quote can only repeat a field, and the evidence says so ("structured fields only"). The investigator's findings count only with such a quote. A suspicious verdict, a made-up quote or an agent that is down sends the invoice to a person. None of this can make a payment happen: the other checks still decide. Tests: "with the invoice's text, a quote counts only if it is in that text, and its offsets are kept", "sends a misread amount or a made-up quote to a person", "catches invoice text that asks for another account than its account field", "keeps a finding only when its quote is in the invoice".
 - **The mail gateway's word, when there is one.** An email inlet can name the company's mail gateway as trusted. Then Switchyard reads that gateway's SPF, DKIM and DMARC results from the topmost `Authentication-Results` header only, and ignores a planted one below it. A DMARC failure fails a bank-change request ("the From address is forged"). Without a trusted gateway the card says "sender not authenticated", which is never treated as a pass. A `Reply-To` on another domain also fails the request. Tests: "believes only the trusted gateway's header, and only the topmost one", "a forged From on the vendor's real domain fails the bank-change check", "a Reply-To on another domain fails it; the same domain does not".
 - **Only a card's own options decide.** An answer that is not one of them (a forged one, or from an older card) is ignored. Test: "an answer that is not one of the card's options decides nothing".
 - **Four eyes.** A gate with `not_same_as: [callback]` refuses the person who made the call and re-opens the card. Test: "needs a callback and a second person, then changes exactly one row".
@@ -102,6 +104,43 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 - **Outside text is data, not instructions.** Emails, invoices and forms reach agents only inside a fence with a random tag per request. Tests: "fences outside data off from instructions", "cannot be closed from inside the data".
 - **Agents cannot act.** Every agent CLI is started with its tools, MCP servers and settings switched off, and Switchyard refuses to start one it cannot lock down. Test: "refuses a CLI it cannot lock down".
 - **Two vendors, so one outage doesn't stop the room.** The two invoice agents run on different vendors (Claude and Gemini), and one that cannot answer sends the invoice to a person rather than stopping it. The bank-change agent and most other agent steps have a backup agent on another vendor; the weekly report's review step has none. On case `94221172` the Claude checker hit its real usage limit mid-run, and the case still went to a person with the evidence it had.
+
+## Every payment's proof
+
+```bash
+npm run switchyard proof <case id>                       # writes data/proofs/<case id>.proof.json
+npm run switchyard verify-proof <file> -- --fingerprint <hex>
+```
+
+A finance director asks "why did we pay this?". The answer is one file:
+- **The case's event log.**
+- **The evidence drawn from it, in sections:**
+  - the source (a digest of what arrived, the sender, the mail gateway's results);
+  - the agents' answers, and each quote with its place in the invoice text;
+  - every code check, with the document versions it read;
+  - who the bank says holds the account;
+  - links to other cases;
+  - the approvals that stopped counting;
+  - each decision, with the person, their role and what they approved;
+  - each action as sent, the bank's receipt and its read-back.
+- **The flow** the case ran under.
+- **Digests and a signature:** a SHA-256 digest of each section, a root over them, and an Ed25519 signature over the root.
+
+The signing key lives in its own file (`proof.key`, by default `keys/proof-ed25519.pem`, outside the event log and out of git). Its fingerprint is printed so it can be pinned (`proof.fingerprint` in `switchyard.yaml`).
+
+`verify-proof` needs nothing but the file and the fingerprint. It checks:
+- the signature, and that the signer is the pinned key;
+- every digest and the root;
+- that the sections are exactly what the log says;
+- that the log is in recorded order;
+- that each action hashes to what was recorded;
+- that what was sent is what a person approved, or was allowed by the flow's rule;
+- that the bank's copy hashes the same;
+- that each quote is at its offsets in the invoice text.
+
+Editing the log, moving a quote, or rewriting the amount and signing again with another key each fails a check. The dashboard has a "Download signed proof" link on every case, and `demo:offline` ends by writing and checking one.
+
+What a proof does not show: that the record is true. It shows that this is what Switchyard recorded and signed, and that it holds together. A holder of the signing key could sign a false log, and a proof is made when it is exported, not as each event happens. Tests: "holds every check for a payment made by the rule, and carries its evidence", "fails when its log is edited after signing", "fails when someone rewrites the payment and signs it again with another key", "fails when a quote's offsets do not point at it".
 
 ## Links between cases
 
@@ -293,7 +332,7 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
 - **Sender authentication needs a trusted mail gateway.** Switchyard does not verify SPF, DKIM or DMARC itself; it reads the results the company's own gateway wrote. The local setup has no gateway (Mailpit), so live cards say "sender not authenticated", and a forged `From` on the right domain passes the domain check there. That is why a passing change still needs a callback to the number on file and a second approver. The gateway must remove incoming `Authentication-Results` headers that carry its name, as RFC 8601 requires; otherwise a planted one could sit on top.
 - **Who holds an account comes from a sandbox registry.** The check digits catch typos only; the payee check is as good as the bank's answer, and here that answer comes from `fixtures/payees.yaml`, which we wrote. A mule account opened in exactly the supplier's name would match, as it can with real Verification of Payee. A close match (like the demo attacker's "Fabrikam Print Services s.r.o.") goes to a person, and a hurried person can still pay it. That is why the links between cases and the callback stay. Real Verification of Payee covers SEPA payments in the EU; elsewhere the bank may not answer, and then nothing is paid without a person.
 - **Attestation trusts the documents as they stand when Switchyard first starts.** `up` attests a document it has never seen and posts the rows it attested to the room, so anyone can check that baseline. An edit made before that first start is accepted. A check never adopts a document: one that was never attested passes nothing. Attestations persist across restarts.
-- **The event log is append-only by convention, not tamper-evident.** Someone with access to the SQLite file could rewrite it, and the row attestations live in the same file. Approvals, document versions, read-backs and row attestations are all full SHA-256; cards and screens show the first 16 hex digits. Cases logged by earlier versions stored shorter hashes, and these still match the full hash they begin with.
+- **The event log is append-only by convention, not tamper-evident.** Someone with access to the SQLite file could rewrite it, and the row attestations live in the same file. A signed proof fixes a case's record from the moment it is exported, and the signing key is kept apart from the log; events before that rest on the file. Approvals, document versions, read-backs and row attestations are all full SHA-256; cards and screens show the first 16 hex digits. Cases logged by earlier versions stored shorter hashes, and these still match the full hash they begin with.
 - **One engine process.** Switch's `update_room_document` has no version precondition, so the PO reservation and the vendor-master write rely on the engine's single queue.
 - **A clerk can hold a genuine change.** Answering "not-confirmed" on a callback records the account as refused, so an insider holding the clerk role can send a genuine new account to the controller until someone chooses "call anyway". It cannot move money.
 - **The held-out scenarios are a regression set, not a benchmark.** Twenty scenarios from one author, run on fixture agents that read what the scenario says they read, graded against that author's expectations. Their first run is the only held-out result; later numbers came after fixes.
@@ -329,7 +368,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 279 tests
+npm test             # 286 tests
 npm run lab          # the attack lab, links off and on
 npm run lab -- --heldout   # the 20 held-out scenarios
 npm run typecheck
@@ -349,6 +388,7 @@ src/inlets/    form, webhook, email (Mailpit), schedule, front-desk screen
 src/outlets/   bank payment, room document, csv, email, webhook, room post, visitor reply; payload hashing
 src/sandbox/   the sandbox bank
 src/web/       the dashboard (cases, investigations, flows) and the chat widget
+src/proof.ts   signed proofs of a case, and their verifier
 lab/           the held-out scenarios, the brief they were written from, and their first run
 flows/         the flows; templates/ has a Switch template for each
 ```

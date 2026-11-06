@@ -254,6 +254,10 @@ async function up(): Promise<void> {
   if (adopted.length) console.log(`Attested every row of ${adopted.join(", ")}: from now on only a case may change them`);
   await runner.resumeAll();
   const vendors = Object.fromEntries(agents.map(({ name, agent }) => [`@${name}`, vendorOf(agent.command) ?? "unknown"]));
+  const { fingerprint, loadOrCreateKey } = await import("./proof.ts");
+  const proofKey = loadOrCreateKey(config.proof.key);
+  const { createPublicKey } = await import("node:crypto");
+  console.log(`Proofs are signed by key ${fingerprint(createPublicKey(proofKey).export({ type: "spki", format: "pem" }).toString())} (${config.proof.key})`);
   startServer({
     port: config.port,
     flows,
@@ -261,7 +265,7 @@ async function up(): Promise<void> {
     store,
     available: all.filter((f) => !flows.includes(f)),
     extras: { vendors, people: config.people },
-    proofKey: (await import("./proof.ts")).loadOrCreateKey(config.proof.key),
+    proofKey,
   });
   new MailpitInbox(config.mailpit.url, flows, runner, store).start();
   startSchedules(flows, runner, store);

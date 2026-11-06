@@ -1,6 +1,6 @@
-# Demo script (about 3 min 50 s)
+# Demo script (about 4 min)
 
-**Opening line:** "Nothing leaves the company unless a named person approved that exact action on a Switch card. And Switchyard remembers what people decided, so a request that looks fine alone can still be caught."
+**Opening line:** "Every payment Switchyard makes carries its proof: what arrived, what the agents read and quoted, what code checked, who the bank says holds the account, who approved, and what the bank now holds. People decide in Switch; the engine does exactly what they approved."
 
 Screen: Slack (`#finance`) on the left, the dashboard (`localhost:4100`) on the right. Keep Mailpit (`localhost:8025`) and the sandbox bank (`localhost:4300`) in tabs, and a terminal for the `demo send` commands.
 
@@ -108,9 +108,19 @@ npm run lab -- --heldout
 
 - **The held-out set:** 20 scenarios from a separate author who never saw the code. The first run found two real bugs, both now fixed. Say the honest part: on those 20, people doing their job stop every attack with or without links, and with every callback fooled three single-case attacks get through. What links add is the compromised mailbox after a refusal, the story just shown.
 
-## 3:40 – Close (10 s)
+## 3:35 – The proof (15 s)
 
-> "The vendor master and the purchase orders are Switch room documents. The decisions are Switch cards, with a name on each answer, made by two people in the room. Switchyard keeps the room honest across cases."
+On the paid invoice's case: **Download signed proof**. In the terminal:
+
+```bash
+npm run switchyard verify-proof ~/Downloads/<case>.proof.json -- --fingerprint <printed by up or proof>
+```
+
+27 checks hold, from the signature to each quote's place in the invoice text. Then change one character of the amount in the file and run it again: it fails.
+
+## 3:50 – Close (10 s)
+
+> "The vendor master and the purchase orders are Switch room documents. The decisions are Switch cards, with a name on each answer, made by two people in the room. And every payment leaves with a proof anyone can check."
 
 ---
 
