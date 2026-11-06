@@ -29,6 +29,8 @@ export interface Link {
   caseId?: string;
   // For a blocked link: the domain the blocked request came from.
   sender?: string;
+  // For an other-vendor link: the vendor the account is on file for.
+  owner?: string;
   detail: string;
 }
 
@@ -93,7 +95,7 @@ export function findLinks(args: { iban?: string; printed?: string; vendor?: stri
     }
     for (const [other = "", , onFile = ""] of tableRows(master)) {
       if (compactIban(onFile) === iban && vendor && !sameName(other, vendor)) {
-        links.push({ kind: "other-vendor", iban, role, detail: `${mask(iban)} is on file for ${other}, not ${vendor}` });
+        links.push({ kind: "other-vendor", iban, role, owner: other, detail: `${mask(iban)} is on file for ${other}, not ${vendor}` });
       }
     }
   };

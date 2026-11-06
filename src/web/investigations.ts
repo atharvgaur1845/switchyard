@@ -55,7 +55,15 @@ export function investigations(store: Store, flows: Flow[]): { clusters: Cluster
   const flowOf = new Map(flows.map((f) => [f.flow, f]));
   type Touch = { caseId: string; iban: string; relation: Evidence["relation"]; at: string; source: string; vendor?: string; by?: string; status: string };
   const touches: Touch[] = [];
-  const onFile = new Map<string, { vendor: string; at: string; caseId: string }>();
+  // Every vendor an account is on file for, as the checks read it. One
+  // account can be on file for several vendors (a factoring company paid on
+  // behalf of each), and each of them is a fact.
+  const onFile = new Map<string, Map<string, { at: string; caseId: string }>>();
+  const putOnFile = (iban: string, vendor: string, at: string, caseId: string) => {
+    const owners = onFile.get(iban) ?? new Map<string, { at: string; caseId: string }>();
+    if (!owners.has(vendor)) owners.set(vendor, { at, caseId });
+    onFile.set(iban, owners);
+  };
   const signal = new Set<string>();
   const decisions: Touch[] = [];
 
@@ -67,18 +75,19 @@ export function investigations(store: Store, flows: Flow[]): { clusters: Cluster
     if (bc?.new_iban) {
       touches.push({ caseId: id, iban: String(bc.new_iban), relation: "requested", at, vendor: String(bc.vendor ?? ""), source: `bank-change email from ${String(bc.sender_domain || "an unknown sender")}`, status: "requested, not yet on file" });
     }
-    if (bc?.current_iban && bc.vendor) onFile.set(String(bc.current_iban), { vendor: String(bc.vendor), at, caseId: id });
+    if (bc?.current_iban && bc.vendor) putOnFile(String(bc.current_iban), String(bc.vendor), at, id);
     const vb = checks.vendor_bank;
     if (vb?.iban) {
       touches.push({ caseId: id, iban: String(vb.iban), relation: "pays", at, vendor: String(vb.vendor ?? ""), source: "vendor master, read by the bank check", status: "the account this invoice would pay" });
-      if (vb.vendor) onFile.set(String(vb.iban), { vendor: String(vb.vendor), at, caseId: id });
+      if (vb.vendor) putOnFile(String(vb.iban), String(vb.vendor), at, id);
     }
     const printed = typeof c.data.iban === "string" ? compactIban(c.data.iban) : "";
     if (printed && printed !== String(vb?.iban ?? "")) {
       touches.push({ caseId: id, iban: printed, relation: "printed", at, source: "printed on the invoice", status: "printed on the invoice; never paid" });
     }
-    for (const link of (checks.links?.links as { kind: string; iban: string; caseId?: string; detail: string }[] | undefined) ?? []) {
+    for (const link of (checks.links?.links as { kind: string; iban: string; caseId?: string; owner?: string; detail: string }[] | undefined) ?? []) {
       signal.add(link.iban);
+      if (link.kind === "other-vendor" && link.owner) putOnFile(link.iban, link.owner, at, id);
       if (link.kind === "other-vendor") {
         touches.push({ caseId: id, iban: link.iban, relation: "other-vendor", at, source: "vendor master, read by the links check", status: `${link.detail}; may be legitimate (factoring)` });
       }
@@ -150,15 +159,25 @@ export function investigations(store: Store, flows: Flow[]): { clusters: Cluster
       if (t.relation === "blocked" || t.relation === "cleared") {
         add({ from: node.case(t.caseId), relation: t.relation, to: node.account(t.iban), source: t.source, caseId: t.caseId, by: t.by, at: t.at, status: t.status });
       } else if (t.relation === "other-vendor") {
-        const other = onFile.get(t.iban);
-        if (other) add({ from: node.account(t.iban), relation: "on-file", to: node.vendor(other.vendor), source: "vendor master", caseId: t.caseId, at: t.at, status: t.status });
+        // Drawn below, with every vendor the account is on file for.
       } else {
         add({ from: node.case(t.caseId), relation: t.relation, to: node.account(t.iban), source: t.source, caseId: t.caseId, at: t.at, status: t.status });
       }
     }
     for (const iban of accounts) {
-      const owner = onFile.get(iban);
-      if (owner) add({ from: node.account(iban), relation: "on-file", to: node.vendor(owner.vendor), source: "vendor master, as a check read it", caseId: owner.caseId, at: owner.at, status: `on file for ${owner.vendor}` });
+      const owners = [...(onFile.get(iban) ?? new Map()).entries()];
+      for (const [vendor, seen] of owners) {
+        const others = owners.map(([v]) => v).filter((v) => v !== vendor);
+        add({
+          from: node.account(iban),
+          relation: "on-file",
+          to: node.vendor(vendor),
+          source: "vendor master, as a check read it",
+          caseId: seen.caseId,
+          at: seen.at,
+          status: others.length ? `on file for ${vendor}, and also for ${others.join(", ")}: shared (a factoring company is one legitimate reason)` : `on file for ${vendor}`,
+        });
+      }
     }
 
     const timeline: Cluster["timeline"] = [];

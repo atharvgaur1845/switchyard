@@ -48,13 +48,13 @@ afterAll(() => bank.close());
 
 // As `switchyard up` does: the room's documents exist, and Switchyard
 // attests them at start, before anyone can edit them.
-async function rig() {
+async function rig(master = MASTER) {
   const verdict = { result: "match", po_amount: 3150, reasons: ["PO-1043 matches"] };
   const chat = new FakeSwitch()
     .agent("@checker", invoiceReader())
     .agent("@checker-backup", investigatorSays(verdict))
     .doc("finance", "purchase-orders", POS)
-    .doc("finance", "vendor-master", MASTER);
+    .doc("finance", "vendor-master", master);
   const store = new Store();
   const outlets = new LiveOutlets({ dataDir: tmpdir(), bankUrl, smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, chat, store);
   const runner = new Runner(store, chat, outlets, flows, { now: () => Date.parse("2026-11-06") });
@@ -599,6 +599,20 @@ describe("attacks across cases", () => {
     for (const e of group.evidence) expect(e.source && e.at && e.status).toBeTruthy();
     expect(totals).toMatchObject({ clusters: 1, blocked: 1 });
     expect(group.timeline.map((t) => t.seq)).toEqual([...group.timeline.map((t) => t.seq)].sort((a, b) => a - b));
+  });
+
+  it("an account on file for three vendors shows all three in the Investigations view", async () => {
+    // One factoring company's account, on file for Northwind, Fabrikam and Tailspin.
+    const FACTOR = "DE12500105170648489890";
+    const shared = MASTER.replace("DE89370400440532013000", FACTOR).replace("DE29100500000190183746", FACTOR).replace("DE20200400000628401599", FACTOR);
+    const { store, open } = await rig(shared);
+    await open({ supplier: "Fabrikam Print", number: "FP-6001", amount: 3150, po: "PO-1043" });
+    await open({ supplier: "Northwind Paper", number: "NW-6001", amount: 1240, po: "PO-1041" });
+    const { clusters } = investigations(store, flows);
+    expect(clusters).toHaveLength(1);
+    const onFile = clusters[0].evidence.filter((e) => e.relation === "on-file" && e.from.id === FACTOR);
+    expect(onFile.map((e) => e.to.id).sort()).toEqual(["Fabrikam Print", "Northwind Paper", "Tailspin Travel"]);
+    expect(onFile.every((e) => /shared \(a factoring company is one legitimate reason\)/.test(e.status))).toBe(true);
   });
 
   it("an invoice whose account on file is also another vendor's goes to a person", async () => {
