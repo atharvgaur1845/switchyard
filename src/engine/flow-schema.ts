@@ -66,16 +66,28 @@ const OutletStep = z.object({
   auto_approve: z.union([z.boolean(), z.string()]).default(false),
 });
 
-// Several agents do the same step independently. The result holds each
-// agent's answer under its name, plus `agreed`: whether every answer gave the
-// same value for each enum field (e.g. both said "accurate").
+// Several agents work the step at once. The result holds each agent's
+// answer under its name, plus `agreed`: whether every answer gave the same
+// value for each enum and number field in `expect` (e.g. both said
+// "accurate"), and `complete`: whether every agent answered.
+// With `roles`, each agent has its own job: its role's `ask` comes before
+// the shared one, and its `expect` adds to the shared fields. Agents with
+// different jobs are not compared, so the flow decides with a code check.
+const Role = z.object({ title: z.string(), ask: z.string(), expect: z.record(z.string(), FieldType).default({}) });
 const ParallelStep = z.object({
   ...base,
   parallel: z.array(Handle).min(2),
   ask: z.string(),
   expect: z.record(z.string(), FieldType),
+  roles: z.record(Handle, Role).optional(),
   sla: Duration.optional(),
 });
+
+// What one agent of a parallel step is asked, and must reply.
+export function roleOf(step: ParallelStep, agent: string): { ask: string; expect: Record<string, FieldType>; title?: string } {
+  const role = step.roles?.[agent];
+  return role ? { ask: `${role.ask}\n\n${step.ask}`, expect: { ...step.expect, ...role.expect }, title: role.title } : { ask: step.ask, expect: step.expect };
+}
 
 // A check done by code (src/engine/verifiers.ts), not by a model. Its args
 // may use {placeholders}; a value that is only a placeholder keeps its type.
@@ -176,6 +188,12 @@ export function lint(flow: Flow): string[] {
     // Case data and earlier results reach an agent only inside the fence
     // (contracts.ts). A placeholder in `ask` would paste them outside it, as
     // if they were part of the instruction.
+    if (isParallel(step) && step.roles) {
+      for (const agent of Object.keys(step.roles)) {
+        if (!step.parallel.includes(agent)) problems.push(`step "${step.id}": role for ${agent}, who is not in "parallel"`);
+        if (placeholderNames(step.roles[agent].ask).size > 0) problems.push(`step "${step.id}": the role "ask" for ${agent} must not contain {placeholders}`);
+      }
+    }
     if ((isAgent(step) || isParallel(step)) && placeholderNames(step.ask).size > 0) {
       problems.push(`step "${step.id}": "ask" must not contain {placeholders}; the agent already receives the case data and earlier results, fenced`);
     }

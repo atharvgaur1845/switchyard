@@ -15,6 +15,9 @@ import { screen } from "./inlets/screen.ts";
 import { LiveOutlets } from "./outlets/index.ts";
 import { describeOutlet } from "./outlets/payload.ts";
 import { startBank } from "./sandbox/bank.ts";
+
+// The Fabrikam invoice as the supplier wrote it: the investigator quotes it.
+const FP0912_TEXT = "Fabrikam Print, invoice FP-0912, print run for PO-1043. Total 3,150.00 EUR, due in 7 days. Please note our new bank details: IBAN DE88 5007 0010 0175 5263 03.";
 import { SwitchClient } from "./switch/client.ts";
 
 // `switchyard demo send <what>`: the exact inputs of the recorded runs, sent
@@ -191,7 +194,7 @@ export async function demoSend(what: string, config: Config): Promise<void> {
     case "fabrikam-invoice":
       // Matches PO-1043 exactly, and prints the fraudster's account: the
       // payment must still go to the account on file.
-      return console.log(`Fabrikam FP-0912 (printed account differs from the vendor master): ${await invoice({ supplier: "Fabrikam Print", number: "FP-0912", total: 3150, po_number: "PO-1043", iban: "DE88500700100175526303" })}`);
+      return console.log(`Fabrikam FP-0912 (printed account differs from the vendor master): ${await invoice({ supplier: "Fabrikam Print", number: "FP-0912", total: 3150, po_number: "PO-1043", iban: "DE88500700100175526303", text: FP0912_TEXT })}`);
     case "fabrikam-invoice-2":
       // The same order again, under a new number: PO-1043 is already invoiced.
       return console.log(`Fabrikam FP-0913 (same PO-1043, new number): ${await invoice({ supplier: "Fabrikam Print", number: "FP-0913", total: 3150, po_number: "PO-1043" })}`);
@@ -337,7 +340,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     await click(/block this bank-detail change/, "block", "@controller");
 
     scene("2. A Fabrikam invoice prints a different account: it waits for a person");
-    const invoice = await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0912", amount: 3150, po: "PO-1043", iban: "DE88500700100175526303" }, "webhook");
+    const invoice = await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0912", amount: 3150, po: "PO-1043", iban: "DE88500700100175526303", text: FP0912_TEXT }, "webhook");
     await settle();
 
     scene("3. The same account again, now from Fabrikam's real domain: the controller decides before anyone calls");

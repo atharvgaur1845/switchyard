@@ -64,6 +64,21 @@ export interface HeldOutResult {
 const PEOPLE = { "@ap-clerk": ["@clerk"], "@controller": ["@controller"], "@cfo": ["@cfo"] };
 const DAY = 86_400_000;
 
+// What an agent replies. For an email, the scenario's `reads`. For an
+// invoice, FORMAT.md gives one reading for "each of the two AI checkers"
+// (result: match | mismatch | no_po), written before the two agents had
+// different jobs: the reader reports the invoice as it is, and the
+// investigator calls anything but "match" suspicious, with the reasons as
+// findings. Their quotes come from nowhere, so code sets them aside.
+function replyFor(flow: string, agent: string, data: Record<string, unknown>, reads: Record<string, unknown>): Record<string, unknown> {
+  if (flow !== "invoice-check") return reads;
+  if (agent === "@checker") {
+    return { supplier: data.supplier, number: data.number, amount: data.amount, ...(data.iban ? { iban: data.iban } : {}), ...(data.po ? { po: data.po } : {}), quotes: [data.supplier, data.number] };
+  }
+  const clear = reads.result === "match";
+  return { verdict: clear ? "clear" : "suspicious", findings: clear ? [] : ((reads.reasons as string[] | undefined) ?? []).map((claim) => ({ claim, quote: "" })) };
+}
+
 export function loadHeldOut(root = process.cwd()): HeldOut[] {
   const dir = join(root, "lab", "heldout");
   return readdirSync(dir)
@@ -139,7 +154,7 @@ async function runOne(root: string, flows: Flow[], given: HeldOut, crossCase: bo
         const { room, handle, body, threadId } = inbox.shift()!;
         const token = /"token": "(sy:[^"]+)"/.exec(body.slice(body.lastIndexOf("```json")))?.[1];
         const caseId = store.caseIds().find((id) => store.load(id).threadId === threadId);
-        const fields = (caseId && reads.get(caseId)) ?? {};
+        const fields = caseId ? replyFor(store.load(caseId).flow, handle, store.load(caseId).data, reads.get(caseId) ?? {}) : {};
         const message: InboundMessage = { room, threadId, sender: handle, body: `\`\`\`json\n${JSON.stringify({ token, ...fields })}\n\`\`\``, messageId: `m${next++}`, fromPerson: false };
         await runner.onMessage(message);
       }

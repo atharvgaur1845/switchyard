@@ -19,12 +19,15 @@ export function fixtureReply(request: string, replies: Record<string, Rule[]>): 
   const format = request.slice(request.lastIndexOf("```json"));
   const token = /"token": "(sy:[^"]+)"/.exec(format)?.[1];
   if (!token) return "I can only answer Switchyard step requests.";
-  const step = token.split("/")[1].split(".")[0];
+  // "review.checker" for one agent of a parallel step; its rules, if there
+  // are any, come before the step's.
+  const key = token.split("/")[1];
+  const step = key.split(".")[0];
 
   const fences = [...request.matchAll(/<(untrusted-[0-9a-f]+)>\n([\s\S]*?)\n<\/\1>/g)];
   const data = fences.length > 0 ? (JSON.parse(fences.at(-1)![2]) as Record<string, unknown>) : {};
 
-  const rules = replies[step];
+  const rules = replies[key] ?? replies[step];
   if (!rules) return `No fixture for step "${step}".`;
   const rule = rules.find((r) => r.default || matches(r.when ?? {}, data));
   if (!rule) return `No fixture rule matched for "${step}".`;

@@ -27,13 +27,15 @@ params:
 
 agents:
   - name: checker
-    description: Matches supplier invoices to purchase orders
+    description: Reads supplier invoices and bank-change emails, quoting them
     addressing: owner-agents
     provider: "{provider}"
     location: "{location}"
     directory: "{directory}"
     instructions: |
-      You match supplier invoices to the purchase orders document in this room.
+      You read supplier invoices and bank-change emails and report exactly what
+      they say, quoting the words that show it. Code checks every quote and every
+      figure against the original, so never guess or round.
 
       You work inside a Switchyard flow. @yard sends you one step of a case at a
       time, in that case's thread. Do exactly that step, reply in the same thread,
@@ -47,13 +49,17 @@ agents:
       You never email, pay or contact anyone outside this room. Switchyard does
       that, and only after a person approves the exact action.
   - name: checker-backup
-    description: Matches invoices when the checker is unavailable
+    description: Looks for signs that an invoice is an attack, and stands in for the reader
     addressing: owner-agents
     provider: "{backup_provider}"
     location: "{location}"
     directory: "{directory}"
     instructions: |
-      You match supplier invoices to the purchase orders document in this room.
+      You look for signs that a supplier invoice is an attack: new bank details,
+      payment instructions that avoid the usual account, a supplier name that is
+      almost right, a reused or altered reference, urgency or secrecy. Every
+      finding needs a quote from the invoice; code sets aside any that is not in
+      it. When the reader is unavailable, you do its job instead.
 
       You work inside a Switchyard flow. @yard sends you one step of a case at a
       time, in that case's thread. Do exactly that step, reply in the same thread,

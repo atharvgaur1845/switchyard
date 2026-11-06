@@ -7,7 +7,7 @@ import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
 import { basisHash, CHECKS, docHash, tableRows } from "../src/engine/verifiers.ts";
 import { seedDocuments } from "../src/switch/seed-docs.ts";
-import { FakeSwitch, RecordingOutlets, replyWith, attestRooms } from "./fake-switch.ts";
+import { FakeSwitch, RecordingOutlets, replyWith, attestRooms, invoiceReader, investigatorSays } from "./fake-switch.ts";
 
 // The finance room's vendor master, as its template seeds it.
 const VENDOR_MASTER = (parseYaml(readFileSync("templates/invoice-check.template.yaml", "utf8")).room.docs as { name: string; content: string }[])
@@ -61,7 +61,7 @@ describe("invoices: the models check, code decides", () => {
   const flow = loadFlow(readFileSync("flows/invoice-check.flow.yaml", "utf8"));
   const run = async (invoice: Record<string, unknown>, verdict: Record<string, unknown>, withDocs = true) => {
     const store = new Store();
-    const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict));
+    const chat = new FakeSwitch().agent("@checker", invoiceReader()).agent("@checker-backup", investigatorSays(verdict));
     if (withDocs) chat.doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", VENDOR_MASTER);
     const outlets = new RecordingOutlets();
     const runner = new Runner(store, chat, outlets, [flow], { vendors: { "@checker": "anthropic", "@checker-backup": "google" } });
@@ -75,7 +75,8 @@ describe("invoices: the models check, code decides", () => {
   it("does not pay when both models agree but the purchase order disagrees", async () => {
     const { store, chat, outlets, id } = await run({ supplier: "Fabrikam Print", number: "FP-1", amount: 3980, po: "PO-1043" }, match);
 
-    expect(store.load(id).results.match).toMatchObject({ agreed: true });
+    expect(store.load(id).results.review).toMatchObject({ complete: true });
+    expect(store.load(id).results.evidence).toMatchObject({ ok: true });
     expect(store.load(id).results.po_check).toMatchObject({ ok: false });
     expect(outlets.executed).toHaveLength(0);
     expect(chat.cards).toHaveLength(1);
@@ -86,11 +87,12 @@ describe("invoices: the models check, code decides", () => {
     const detail = chat.cards[0].detail;
 
     expect(detail).toContain("✗ checked by code (po_lookup): PO-1043 is for 3,150.00, the invoice is 3,980.00");
-    expect(detail).toContain("✓ @checker (anthropic) and @checker-backup (google) agreed on match");
+    expect(detail).toContain("✓ @checker (anthropic) as invoice reader and @checker-backup (google) as fraud investigator both answered on review");
+    expect(detail).toContain("✓ checked by code (agent_evidence): the reader's figures match the invoice, every quote is in it, and the investigator found nothing");
     expect(detail).toMatch(/Decide by \d{4}-\d\d-\d\d \d\d:\d\d UTC; after that @cfo can decide/);
   });
 
-  it("pays by the rule only when the models agree and the code check passes", async () => {
+  it("pays by the rule only when the agents' evidence holds and the code checks pass", async () => {
     const { outlets } = await run({ supplier: "Northwind Paper", number: "NW-1", amount: 1240, po: "PO-1041" }, { ...match, po_amount: 1240 });
     expect(outlets.payments).toHaveLength(1);
   });
@@ -104,7 +106,7 @@ describe("invoices: the models check, code decides", () => {
 
   it("stops for a person when Switch cannot be read at all", async () => {
     const store = new Store();
-    const chat = new FakeSwitch().agent("@checker", replyWith({ ...match, po_amount: 1240 })).agent("@checker-backup", replyWith({ ...match, po_amount: 1240 }));
+    const chat = new FakeSwitch().agent("@checker", invoiceReader()).agent("@checker-backup", investigatorSays(match));
     chat.documents = async () => {
       throw new Error("connection refused");
     };
@@ -123,7 +125,7 @@ describe("invoices: the models check, code decides", () => {
     const { store, id } = await run({ supplier: "Northwind Paper", number: "NW-1", amount: 1240, po: "PO-1041" }, { ...match, po_amount: 1240 });
     const events = store.events(id);
     // A check watches the row it relied on; an agent is told the whole document's version.
-    expect(events.find((e) => e.type === "verified")).toMatchObject({ docs: { "purchase-orders": basisHash(POS, "PO-1041") }, rows: { "purchase-orders": "PO-1041" } });
+    expect(events.find((e) => e.type === "verified" && e.check === "po_lookup")).toMatchObject({ docs: { "purchase-orders": basisHash(POS, "PO-1041") }, rows: { "purchase-orders": "PO-1041" } });
     expect(events.find((e) => e.type === "asked")).toMatchObject({ docs: { "purchase-orders": docHash(POS) } });
   });
 });

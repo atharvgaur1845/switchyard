@@ -10,7 +10,7 @@ import { FakeSwitch, RecordingOutlets, replyWith, attestRooms } from "./fake-swi
 const VENDOR_MASTER = (parseYaml(readFileSync("templates/invoice-check.template.yaml", "utf8")).room.docs as { name: string; content: string }[])
   .find((d) => d.name === "vendor-master")!.content;
 
-const invoices = loadFlow(readFileSync("flows/invoice-check.flow.yaml", "utf8"));
+const invoices = loadFlow(readFileSync("test/flows/invoice-agree.flow.yaml", "utf8"));
 const invoice = { supplier: "Northwind Paper", number: "NW-1", amount: 1240, po: "PO-1041" };
 const match = { result: "match", po_amount: 1240, reasons: ["ok"] };
 const PURCHASE_ORDERS = `| PO | supplier | amount | status |
@@ -18,6 +18,8 @@ const PURCHASE_ORDERS = `| PO | supplier | amount | status |
 | PO-1041 | Northwind Paper | 1,240.00 | open |
 | PO-1042 | Contoso Cloud | 8,900.00 | open |`;
 
+// The machinery of agents checking the same thing and agreeing, on the
+// invoice flow as it was before its two agents had different roles.
 describe("parallel checkers", () => {
   let store: Store, chat: FakeSwitch, outlets: RecordingOutlets, runner: Runner;
   beforeEach(() => {

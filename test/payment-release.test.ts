@@ -13,7 +13,7 @@ import { basisHash, CHECKS, editDistance, ibanValid, rowHash, setTableRow } from
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
 import { startBank } from "../src/sandbox/bank.ts";
-import { FakeSwitch, replyWith, attestRooms } from "./fake-switch.ts";
+import { FakeSwitch, replyWith, attestRooms, invoiceReader, investigatorSays } from "./fake-switch.ts";
 
 // Releasing supplier payments: bank details change only through a checked,
 // called-back, four-eyes case; payments go only to the account on file; and
@@ -169,7 +169,7 @@ describe("paying an invoice", () => {
 
   const setup = (verdict: Record<string, unknown>) => {
     const store = new Store();
-    const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict))
+    const chat = new FakeSwitch().agent("@checker", invoiceReader()).agent("@checker-backup", investigatorSays(verdict))
       .doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", MASTER);
     const outlets = new TestOutlets(chat, bankUrl);
     const runner = new Runner(store, chat, outlets, [flow("invoice-check")], { now: () => Date.parse("2026-11-05") });

@@ -52,30 +52,35 @@ quote:
         Best,
         Acme Studio
 
-match:
-  - when: { supplier: Fabrikam, amount: "3150" }
-    reply:
-      result: match
-      po_amount: 3150
-      reasons: ["PO-1043 (Fabrikam Print) exists, is open, and is for 3,150.00, the invoice amount."]
-  - when: { supplier: Fabrikam }
-    reply:
-      result: mismatch
-      po_amount: 3150
-      reasons: ["PO-1043 is for 3,150.00; the invoice is 3,980.00, which is 830.00 more."]
-  - when: { po: PO-1041, amount: "1240" }
-    reply:
-      result: match
-      po_amount: 1240
-      reasons: ["PO-1041 (Northwind Paper) exists, is open, and is for 1,240.00, the invoice amount."]
-  - when: { po: PO-1042, amount: "8900" }
-    reply:
-      result: match
-      po_amount: 8900
-      reasons: ["PO-1042 (Contoso Cloud) exists, is open, and is for 8,900.00, the invoice amount."]
+# The invoice reader reads the invoice faithfully; the investigator flags an
+# invoice that asks for another account than the one we pay, quoting it.
+review.checker:
   - default:
-      result: no_po
-      reasons: ["No open purchase order with that number."]
+      supplier: "{case.supplier}"
+      number: "{case.number}"
+      amount: "{case.amount}"
+      iban: "{case.iban}"
+      po: "{case.po}"
+      quotes: ["{case.supplier}", "{case.number}"]
+
+review.checker-backup:
+  - when: { text: "new bank details" }
+    reply:
+      verdict: suspicious
+      findings:
+        - claim: "The invoice announces new bank details inside the invoice itself, instead of through the usual change process."
+          quote: "Please note our new bank details"
+        - claim: "The account it names is not the one we pay Fabrikam Print on."
+          quote: "{case.iban}"
+  - when: { iban: DE88 }
+    reply:
+      verdict: suspicious
+      findings:
+        - claim: "The invoice asks to be paid to an account that is not the one we pay Fabrikam Print on."
+          quote: "{case.iban}"
+  - default:
+      verdict: clear
+      findings: []
 
 answer:
   - when: { flagged: "true" }

@@ -73,6 +73,67 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
     },
   },
 
+  // What two agents with different jobs said about an invoice, checked
+  // against the invoice itself. args: forensics (the reader's answer:
+  // supplier, number, amount, iban, po, quotes), investigator (verdict and
+  // findings, each a claim with a quote), and the invoice's own supplier,
+  // number, amount, iban, po and text. A quote counts only if it is in the
+  // invoice word for word, so a model cannot invent evidence; a reading that
+  // differs from the invoice data, a quote that is not in it, a suspicious
+  // verdict, or an agent that did not answer sends the invoice to a person.
+  // Nothing here can make a payment happen: the other checks still decide.
+  agent_evidence: {
+    needsDoc: false,
+    run(args) {
+      const forensics = (args.forensics ?? {}) as Record<string, unknown>;
+      const investigator = (args.investigator ?? {}) as Record<string, unknown>;
+      const squash = (v: unknown) => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+      const source = squash([args.supplier, args.number, args.amount, args.iban, args.po, args.text].filter((v) => v !== undefined && v !== null && v !== "").join("\n"));
+      const ibanSource = compactIban([args.iban, args.text].map((v) => String(v ?? "")).join(" ").replace(/-/g, ""));
+      const inInvoice = (quote: unknown) => squash(quote).length >= 3 && source.includes(squash(quote));
+      const problems: string[] = [];
+      if (forensics.unavailable) problems.push(`the invoice reader could not answer (${String(forensics.reason ?? "no reply")})`);
+      else {
+        if (!sameName(String(forensics.supplier ?? ""), String(args.supplier ?? ""))) problems.push(`the reader names the supplier ${String(forensics.supplier || "(none)")}, the invoice ${String(args.supplier || "(none)")}`);
+        if (squash(forensics.number) !== squash(args.number)) problems.push(`the reader read invoice number ${String(forensics.number || "(none)")}, the invoice says ${String(args.number || "(none)")}`);
+        const a = toNumber(forensics.amount);
+        const b = toNumber(args.amount);
+        if (a === undefined || b === undefined || Math.round(a * 100) !== Math.round(b * 100)) problems.push(`the reader read ${fmt(a)}, the invoice says ${fmt(b)}`);
+        if (forensics.po && args.po && squash(forensics.po) !== squash(args.po)) problems.push(`the reader read ${String(forensics.po)}, the invoice says ${String(args.po)}`);
+        const read = compactIban(String(forensics.iban ?? ""));
+        if (read && !ibanSource.includes(read)) problems.push(`the reader's account ${maskIban(read)} is not in the invoice`);
+        else if (read && compactIban(String(args.iban ?? "")) !== read) problems.push(`the invoice text asks for ${maskIban(read)}, but its account field says ${args.iban ? maskIban(compactIban(String(args.iban))) : "nothing"}`);
+        const quotes = Array.isArray(forensics.quotes) ? forensics.quotes : [];
+        const missing = quotes.filter((q) => !inInvoice(q));
+        if (missing.length) problems.push(`${missing.length} of the reader's ${quotes.length} quotes are not in the invoice`);
+      }
+      const findings: { claim: string; quote: string }[] = [];
+      const dropped: string[] = [];
+      if (investigator.unavailable) problems.push(`the investigator could not answer (${String(investigator.reason ?? "no reply")})`);
+      else {
+        for (const f of Array.isArray(investigator.findings) ? investigator.findings : []) {
+          const claim = typeof f === "string" ? f : String((f as Record<string, unknown>)?.claim ?? "");
+          const quote = typeof f === "string" ? "" : String((f as Record<string, unknown>)?.quote ?? "");
+          if (inInvoice(quote)) findings.push({ claim, quote });
+          else dropped.push(claim);
+        }
+        if (investigator.verdict !== "clear") {
+          problems.push(findings.length
+            ? `the investigator found: ${findings.map((f) => `${f.claim} ("${f.quote}")`).join("; ")}`
+            : `the investigator called it ${String(investigator.verdict ?? "unclear")} but quoted nothing that is in the invoice`);
+        }
+      }
+      return {
+        ok: problems.length === 0,
+        findings,
+        dropped,
+        detail: problems.length === 0
+          ? `the reader's figures match the invoice, every quote is in it, and the investigator found nothing${dropped.length ? ` (${dropped.length} claim${dropped.length > 1 ? "s" : ""} without a quote from the invoice set aside)` : ""}`
+          : problems.join("; "),
+      };
+    },
+  },
+
   // args: lines (each with qty, unit and amount), total.
   sum_lines: {
     needsDoc: false,

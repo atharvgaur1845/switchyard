@@ -7,7 +7,7 @@ import { Store } from "../src/engine/store.ts";
 import { basisHash } from "../src/engine/verifiers.ts";
 import { caseSummaries, flowSummaries } from "../src/web/api.ts";
 import { diagram, left } from "../src/web/static/diagram.js";
-import { FakeSwitch, RecordingOutlets, replyWith, attestRooms } from "./fake-switch.ts";
+import { FakeSwitch, RecordingOutlets, replyWith, attestRooms, invoiceReader, investigatorSays } from "./fake-switch.ts";
 
 // The diagram draws only what the engine recorded; these tests hold it to that.
 
@@ -91,7 +91,7 @@ describe("the diagram", () => {
     const POS = "| PO | supplier | amount | status |\n|---|---|---|---|\n| PO-1043 | Fabrikam Print | 3,150.00 | open |";
     const store = new Store();
     const verdict = { result: "mismatch", po_amount: 3150, reasons: ["over the PO"] };
-    const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict)).doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", VENDOR_MASTER);
+    const chat = new FakeSwitch().agent("@checker", invoiceReader()).agent("@checker-backup", investigatorSays(verdict)).doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", VENDOR_MASTER);
     const outlets = new RecordingOutlets();
     const runner = new Runner(store, chat, outlets, [flow("invoice-check")]);
     attestRooms(store, chat);

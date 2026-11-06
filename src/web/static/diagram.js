@@ -283,17 +283,25 @@ export function diagram(flow, c = null, vendors = {}, now = Date.now()) {
       const icon = ls === "done" ? "check" : ls === "stopped" ? "x" : "bot";
       nodes.push(`<g class="n k-agent ${ls}${ls === "stopped" ? " bad" : ""}">${ls === "current" ? `<circle class="halo" cx="${nx}" cy="${y}" r="16"/>` : ""}<circle class="shape" cx="${nx}" cy="${y}" r="13"/>${glyph(icon, nx, y, 12)}</g>
         <text x="${nx + 19}" y="${y - 5}" class="sub lane-h">${esc(trunc(a, 16))}</text>
-        ${vendors[a] ? `<text x="${nx + 19}" y="${y + 13}" class="vt v-${esc(vendors[a])}">${esc(vendors[a])}</text>` : ""}`);
+        ${step.roles?.[a] ? `<text x="${nx + 19}" y="${y + 13}" class="sub">${esc(trunc(step.roles[a], 18))}</text>` : ""}
+        ${vendors[a] && !step.roles?.[a] ? `<text x="${nx + 19}" y="${y + 13}" class="vt v-${esc(vendors[a])}">${esc(vendors[a])}</text>` : ""}
+        ${vendors[a] && step.roles?.[a] ? `<text x="${nx + 19}" y="${y + 26}" class="vt v-${esc(vendors[a])}">${esc(vendors[a])}</text>` : ""}`);
       top = Math.min(top, y - 22);
       bottom = Math.max(bottom, y + 18);
     });
     const agreed = F.agreed[step.id];
     const jcls = agreed === undefined ? (c ? "todo" : "plan") : agreed ? "ok" : "bad";
-    nodes.push(`<g class="junction ${jcls}"><title>${esc(agreed === undefined ? "the answers must match field by field, numbers to the cent" : agreed ? "every checker gave the same answer" : "the checkers disagreed, or one could not answer")}</title>
+    // With roles, the agents do different jobs: the junction only says
+    // whether both answered; a code check after it weighs what they said.
+    const roles = Boolean(step.roles);
+    const tip = roles
+      ? (agreed === undefined ? "each agent does its own job; code checks their quotes next" : agreed ? "both agents answered" : "an agent could not answer")
+      : (agreed === undefined ? "the answers must match field by field, numbers to the cent" : agreed ? "every checker gave the same answer" : "the checkers disagreed, or one could not answer");
+    nodes.push(`<g class="junction ${jcls}"><title>${esc(tip)}</title>
       <rect x="${jx - 7}" y="${MAIN - 7}" width="14" height="14" transform="rotate(45 ${jx} ${MAIN})"/></g>
-      ${agreed === undefined ? "" : `<text x="${jx + 11}" y="${MAIN - 8}" class="tm ${agreed ? "ok" : "bad"}">${agreed ? "agreed" : "split"}</text>`}`);
+      ${agreed === undefined ? "" : `<text x="${jx + 11}" y="${MAIN - 8}" class="tm ${agreed ? "ok" : "bad"}">${roles ? (agreed ? "both" : "one missing") : agreed ? "agreed" : "split"}</text>`}`);
     const ly = MAIN + ((agents.length - 1) / 2) * 58 + 34;
-    nodes.push(text(L + width / 2, ly, "lbl", `${step.label} · ${agents.length} checkers`, 28));
+    nodes.push(text(L + width / 2, ly, "lbl", roles ? `${step.label} · ${agents.length} agents, ${agents.length} jobs` : `${step.label} · ${agents.length} checkers`, 28));
     const t = c ? timing(step, st, p.x) : step.sla ? ["tm", `independent · SLA ${step.sla}`, 26] : null;
     if (t) nodes.push(text(L + width / 2, ly + 14, t[0], t[1], t[2], t[3]));
     bottom = Math.max(bottom, ly + 18);

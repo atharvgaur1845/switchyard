@@ -13,7 +13,7 @@ import { fold, Store } from "../src/engine/store.ts";
 import { CHECKS, setTableRow } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { startBank } from "../src/sandbox/bank.ts";
-import { FakeSwitch, replyWith, attestRooms } from "./fake-switch.ts";
+import { FakeSwitch, replyWith, attestRooms, invoiceReader, investigatorSays } from "./fake-switch.ts";
 
 // Defects found by the independent review of the payment work, one test each.
 
@@ -56,7 +56,7 @@ class Paying implements Outlets {
 const setup = (opts: { people?: Record<string, string[]>; master?: string } = {}) => {
   let clock = Date.parse("2026-11-05T09:00:00Z");
   const store = new Store();
-  const chat = new FakeSwitch().agent("@checker", replyWith(matched)).agent("@checker-backup", replyWith(matched))
+  const chat = new FakeSwitch().agent("@checker", invoiceReader()).agent("@checker-backup", investigatorSays(matched))
     .doc("finance", "purchase-orders", POS).doc("finance", "vendor-master", opts.master ?? MASTER);
   const outlets = new Paying(chat);
   const runner = new Runner(store, chat, outlets, [invoice], { now: () => clock, people: opts.people });

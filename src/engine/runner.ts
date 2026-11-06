@@ -14,6 +14,7 @@ import {
   isGate,
   isOutlet,
   isParallel,
+  roleOf,
   isVerify,
   isWait,
   type Outlet,
@@ -291,9 +292,10 @@ export class Runner {
     const token = stepToken(state.id, parallel ? `${step.id}.${agent.slice(1)}` : step.id, attempt);
     const docs = await this.documentHashes(state);
     this.store.append(state.id, { type: "asked", step: step.id, agent, token, attempt, tries, at: this.now(), parallel, ...(docs ? { docs } : {}) });
+    const job = parallel ? roleOf(step, agent) : { ask: step.ask, expect: step.expect };
     const body = stepRequest({
-      ask: step.ask,
-      expect: step.expect,
+      ask: job.ask,
+      expect: job.expect,
       token,
       untrusted: state.data,
       context: state.results,
@@ -575,7 +577,10 @@ export class Runner {
       const value = state.results[step.id] as Record<string, unknown> | undefined;
       if (!value) continue;
       if (isVerify(step)) lines.push(`${value.ok ? "✓" : "✗"} checked by code (${step.verify.check}): ${String(value.detail)}`);
-      if (isParallel(step)) {
+      if (isParallel(step) && step.roles) {
+        const who = step.parallel.map((a) => `${a}${this.vendors[a] ? ` (${this.vendors[a]})` : ""} as ${roleOf(step, a).title ?? "checker"}`).join(" and ");
+        lines.push(`${value.complete ? "✓" : "✗"} ${who} ${value.complete ? "both answered" : "did not all answer"} on ${step.id}`);
+      } else if (isParallel(step)) {
         const who = step.parallel.map((a) => `${a}${this.vendors[a] ? ` (${this.vendors[a]})` : ""}`).join(" and ");
         lines.push(`${value.agreed ? "✓" : "✗"} ${who} ${value.agreed ? "agreed" : "did not agree"} on ${step.id}`);
       }
@@ -684,7 +689,7 @@ export class Runner {
     const step = this.stepOf(state, pending.step);
     if (!mine || mine.value !== undefined || !step || !isParallel(step)) return;
 
-    const reply = readReply(message.body, step.expect);
+    const reply = readReply(message.body, roleOf(step, message.sender).expect);
     if (reply.token !== undefined && reply.token !== mine.token) return;
 
     if (!reply.ok) {
@@ -1052,11 +1057,12 @@ export function combine(step: ParallelStep, answers: Record<string, unknown>): R
   // Figures must match to the cent; rounding hides float noise, not differences.
   const same = (a: unknown, b: unknown) =>
     typeof a === "number" && typeof b === "number" ? Math.round(a * 100) === Math.round(b * 100) : a === b;
-  const agreed =
-    values.every((v) => !v.unavailable) && compared.every((field) => values.every((v) => same(v[field], values[0][field])));
+  const complete = values.every((v) => !v.unavailable);
+  const agreed = complete && compared.every((field) => values.every((v) => same(v[field], values[0][field])));
   return {
     ...Object.fromEntries(Object.entries(answers).map(([agent, value]) => [agent.slice(1), value])),
     agreed,
+    complete,
   };
 }
 

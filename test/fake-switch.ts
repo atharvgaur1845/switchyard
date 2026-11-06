@@ -99,3 +99,23 @@ export function attestRooms(store: Store, chat: FakeSwitch): void {
     }
   }
 }
+
+// The invoice flow's two agents. The reader reports what the fenced case
+// data says (with `overrides` for a misreading); the investigator answers as
+// the old single checker's verdict would: "match" (or nothing) is clear,
+// anything else suspicious, with its reasons as findings that quote nothing.
+export function invoiceReader(overrides: Record<string, unknown> = {}): Agent {
+  return (request) => {
+    const token = /"token": "([^"]+)"/.exec(request.slice(request.lastIndexOf("```json")))![1];
+    const fences = [...request.matchAll(/<(untrusted-[0-9a-f]+)>\n([\s\S]*?)\n<\/\1>/g)];
+    const data = fences.length ? (JSON.parse(fences.at(-1)![2]) as Record<string, unknown>) : {};
+    const reading = { supplier: data.supplier, number: data.number, amount: Number(data.amount), iban: data.iban, po: data.po, quotes: [data.supplier, data.number].filter(Boolean) };
+    return `Read it.\n\n\`\`\`json\n${JSON.stringify({ token, ...reading, ...overrides })}\n\`\`\``;
+  };
+}
+
+export function investigatorSays(verdict: Record<string, unknown> = { result: "match" }): Agent {
+  const clear = verdict.verdict === "clear" || verdict.result === undefined || verdict.result === "match";
+  const findings = verdict.findings ?? (clear ? [] : ((verdict.reasons as string[] | undefined) ?? []).map((claim) => ({ claim, quote: "" })));
+  return replyWith({ verdict: clear ? "clear" : "suspicious", findings });
+}

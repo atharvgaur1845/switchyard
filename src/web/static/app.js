@@ -214,8 +214,9 @@ function banners(c) {
   for (const e of c.events) if (e.type === "verified") checks.set(e.step, e);
   const failed = [...checks.values()].filter((e) => e.value?.ok === false);
   if (failed.length) {
-    const agreed = c.events.some((e) => e.type === "answered" && e.value && typeof e.value === "object" && e.value.agreed === true);
-    const lead = agreed ? "The checkers agreed, but code found" : "Code found";
+    const answered = c.events.find((e) => e.type === "answered" && e.value && typeof e.value === "object" && e.value.agreed === true);
+    const roles = answered && stepOf(c, answered.step)?.roles;
+    const lead = !answered ? "Code found" : roles ? "Code checked what the agents said, and found" : "The checkers agreed, but code found";
     const then = c.status === "open" ? "so nothing runs on a rule: a person decides" : "so nothing ran on a rule: a person decided";
     out.push(`<div class="banner stop">${icon("code")}<span>${lead}: ${failed.map((e) => `<b>${esc(e.value.detail)}</b>`).join("; ")}; ${then}.</span></div>`);
   }
@@ -265,7 +266,10 @@ function timeline(c) {
         row(e.value?.unavailable ? "stop" : "agent", esc(e.agent), initials(e.agent), e.value?.unavailable ? `could not check <b>${name}</b>: ${esc(e.value.reason)}` : `answered <b>${name}</b>`, e.value?.unavailable ? "" : result(e.value));
         break;
       case "answered":
-        if (e.value && typeof e.value === "object" && "agreed" in e.value) {
+        if (e.value && typeof e.value === "object" && "agreed" in e.value && stepOf(c, e.step)?.roles) {
+          const jobs = Object.entries(stepOf(c, e.step).roles).map(([a, t]) => `${esc(a)} as <b>${esc(t)}</b>`).join(" and ");
+          row(e.value.complete ? "act" : "stop", "@yard", icon(e.value.complete ? "check" : "alert"), e.value.complete ? `${jobs} both answered on ${name}; code checks what they said next` : `an agent could not answer on ${name}, so a person decides`);
+        } else if (e.value && typeof e.value === "object" && "agreed" in e.value) {
           row(e.value.agreed ? "act" : "stop", "@yard", icon(e.value.agreed ? "check" : "alert"), e.value.agreed ? `the checkers <b>agreed</b> on ${name}` : `the checkers <b>did not agree</b> on ${name}, so a person decides`);
           break;
         }

@@ -32,6 +32,8 @@ export function flowSummaries(flows: Flow[], running: Set<string> = new Set(flow
       kind: kindOf(step),
       who: isAgent(step) ? step.agent : isGate(step) ? step.gate.approver : isWait(step) ? step.wait : isOutlet(step) ? Object.keys(step.outlet)[0] : isVerify(step) ? `code: ${step.verify.check}` : undefined,
       agents: isParallel(step) ? step.parallel : isAgent(step) ? [step.agent] : undefined,
+      // Agent -> its job, when the agents of a parallel step have different ones.
+      roles: isParallel(step) && step.roles ? Object.fromEntries(Object.entries(step.roles).map(([agent, role]) => [agent, role.title])) : undefined,
       backup: isAgent(step) ? step.bench : isGate(step) ? step.gate.backup : undefined,
       when: step.when,
       autoRule: isOutlet(step) && step.auto_approve !== false ? step.auto_approve : undefined,

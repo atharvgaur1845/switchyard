@@ -8,7 +8,7 @@ import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
 import { startServer } from "../src/server.ts";
 import { whoAnswered } from "../src/switch/client.ts";
-import { FakeSwitch, RecordingOutlets, replyWith } from "./fake-switch.ts";
+import { FakeSwitch, RecordingOutlets, replyWith, invoiceReader, investigatorSays } from "./fake-switch.ts";
 
 // Defects found in review: each test failed (or could not be written) before its fix.
 
@@ -40,7 +40,7 @@ describe("a webhook sent twice", () => {
   it("opens one case and says the second delivery was a duplicate", async () => {
     const store = new Store();
     const verdict = { result: "match", po_amount: 1240, reasons: [] };
-    const chat = new FakeSwitch().agent("@checker", replyWith(verdict)).agent("@checker-backup", replyWith(verdict));
+    const chat = new FakeSwitch().agent("@checker", invoiceReader()).agent("@checker-backup", investigatorSays(verdict));
     const runner = new Runner(store, chat, new RecordingOutlets(), [invoice]);
     server = startServer({ port: 0, flows: [invoice], runner, store, env: { INVOICE_HOOK_SECRET: "s3cret" } });
     await new Promise((r) => server.once("listening", r));
