@@ -60,6 +60,11 @@ switch (command) {
     else throw new Error(`usage: switchyard demo offline [--serve] | demo reset | demo send <${DEMO_INPUTS.join("|")}>`);
     break;
   }
+  case "lab": {
+    const { attackLab, labTable } = await import("./lab.ts");
+    console.log(labTable(await attackLab()));
+    break;
+  }
   case "bank": {
     // A local test bank, not a real one; see src/sandbox/bank.ts.
     const port = Number(new URL(config.bank.url).port || 4300);

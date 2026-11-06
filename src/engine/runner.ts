@@ -43,6 +43,9 @@ export interface RunnerOptions {
   people?: People;
   // Agent handle -> model vendor, shown on approval cards as evidence.
   vendors?: Record<string, string>;
+  // Links between cases (links.ts). Off only for the attack lab's baseline,
+  // which measures the same engine without them.
+  crossCase?: boolean;
 }
 
 // Drives cases through their flow. It keeps no state of its own: every
@@ -59,6 +62,7 @@ export class Runner {
   // Outlets running right now in this process: not in doubt, just slow.
   private readonly inFlight = new Set<string>();
   private readonly outletTimeoutMs: number;
+  private readonly crossCase: boolean;
   // "room/doc" of every document a code check reads or a flow writes. Their
   // rows are attested: a check on one passes only if the row is what
   // Switchyard last wrote or first saw, so an edit made in the room directly
@@ -74,6 +78,7 @@ export class Runner {
     this.people = options.people ?? {};
     this.vendors = options.vendors ?? {};
     this.outletTimeoutMs = options.outletTimeoutMs ?? 60_000;
+    this.crossCase = options.crossCase ?? true;
     for (const flow of flows) {
       for (const step of flow.steps) {
         if (isOutlet(step) && "document" in step.outlet) this.guarded.add(`${step.outlet.document.room}/${step.outlet.document.name}`);
@@ -332,7 +337,9 @@ export class Runner {
     let value =
       used.length > 1
         ? { ok: false, detail: `${used.length} documents in this room are named "${String(args.doc)}"; a person must remove the extra one` }
-        : spec.run(args, docs, this.now(), history);
+        : spec.history && !this.crossCase
+          ? { ok: true, detail: "links between cases are switched off (attack-lab baseline)" }
+          : spec.run(args, docs, this.now(), history);
     const rows = used.length === 1 ? value.rows : undefined;
     const key = rows?.[used[0]?.name];
     if (key !== undefined && this.guarded.has(`${state.room}/${used[0].name}`)) {
@@ -741,7 +748,7 @@ export class Runner {
     });
     await this.advance(state.id);
     // A block is evidence for other cases on the same account.
-    if (outcome.answer === "block") await this.relinkOpen(state.room);
+    if (outcome.answer === "block" && this.crossCase) await this.relinkOpen(state.room);
   }
 
   async cancel(caseId: string, by: string): Promise<boolean> {
