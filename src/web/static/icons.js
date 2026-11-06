@@ -37,10 +37,10 @@ export function hx(hash, n = 16) {
   return `<code title="${esc(full)}">${esc(full.slice(0, n))}</code>`;
 }
 
-// As sameHash in the engine: a short hash logged before full-length hashes
-// matches the full hash it begins with.
+// As sameHash in the engine, for actions and read-backs: a 16-digit hash
+// logged before full-length hashes matches the full hash it begins with.
 export function sameHash(a, b) {
   if (a === b) return true;
   const [s, f] = [String(a ?? ""), String(b ?? "")].sort((x, y) => x.length - y.length);
-  return (s.length === 16 || s.length === 12) && f.length === 64 && f.startsWith(s);
+  return s.length === 16 && /^[0-9a-f]{64}$/.test(f) && f.startsWith(s);
 }

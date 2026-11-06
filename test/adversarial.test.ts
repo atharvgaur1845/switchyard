@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Flow, loadFlow } from "../src/engine/flow-schema.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
-import { basisHash, CHECKS, sameHash } from "../src/engine/verifiers.ts";
+import { basisHash, CHECKS, LEGACY, sameHash } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
 import { startBank } from "../src/sandbox/bank.ts";
@@ -303,13 +303,14 @@ describe("commitments are full SHA-256", () => {
 
   it("a short hash logged before the upgrade matches only the full hash it begins with", () => {
     const full = hashOutlet({ post: { room: "finance", body: "x" } });
-    expect(sameHash(full.slice(0, 16), full)).toBe(true);
-    expect(sameHash(`row:${full.slice(0, 12)}`, `row:${full}`)).toBe(true);
-    // Not a prefix, a prefix of another length, or a row hash against a document hash.
-    expect(sameHash("0".repeat(16), full)).toBe(false);
-    expect(sameHash(full.slice(0, 20), full)).toBe(false);
-    expect(sameHash(full.slice(0, 12), `row:${full}`)).toBe(false);
+    expect(sameHash(full.slice(0, 16), full, LEGACY.action)).toBe(true);
+    expect(sameHash(`row:${full.slice(0, 12)}`, `row:${full}`, LEGACY.document)).toBe(true);
+    // Not a prefix, the wrong old length for the field, or a row hash against a document hash.
+    expect(sameHash("0".repeat(16), full, LEGACY.action)).toBe(false);
+    expect(sameHash(full.slice(0, 12), full, LEGACY.action)).toBe(false);
+    expect(sameHash(full.slice(0, 20), full, LEGACY.action)).toBe(false);
+    expect(sameHash(full.slice(0, 12), `row:${full}`, LEGACY.document)).toBe(false);
     // Two full hashes must be equal.
-    expect(sameHash(full, hashOutlet({ post: { room: "finance", body: "y" } }))).toBe(false);
+    expect(sameHash(full, hashOutlet({ post: { room: "finance", body: "y" } }), LEGACY.action)).toBe(false);
   });
 });

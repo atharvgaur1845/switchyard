@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, lookup, render, type Scope } from "./expr.ts";
-import { basisHash, CHECKS, docHash, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
+import { basisHash, CHECKS, docHash, LEGACY, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
 import {
   type AgentStep,
   type Flow,
@@ -184,7 +184,7 @@ export class Runner {
       const autoApproved = rule === true || (typeof rule === "string" && Boolean(compile(rule)(scopeOf(state))));
       if (!autoApproved) {
         const approval = state.approved[step.id];
-        if (!approval || !sameHash(approval.hash, hash)) {
+        if (!approval || !sameHash(approval.hash, hash, LEGACY.action)) {
           const reason = approval
             ? `the action changed after it was approved (${approval.hash} approved, ${hash} now)`
             : "nobody approved it";
@@ -486,7 +486,7 @@ export class Runner {
       if (state.wrote.has(name)) continue;
       const same = docs.filter((d) => d.name === name);
       const now = same.length === 1 ? basisHash(same[0].content, b.row) : same.length ? `(${same.length} documents)` : "(deleted)";
-      if (!sameHash(b.hash, now)) drift[name] = [b.hash, now];
+      if (!sameHash(b.hash, now, LEGACY.document)) drift[name] = [b.hash, now];
     }
     return Object.keys(drift).length ? drift : undefined;
   }
@@ -727,7 +727,7 @@ export class Runner {
         await this.openDoubt(this.store.load(state.id), step, hash, payload as Outlet, `could not ask the bank (${(error as Error).message})`);
         return;
       }
-      if (!held || typeof held === "string" || held.readback === undefined || !sameHash(hash, held.readback)) {
+      if (!held || typeof held === "string" || held.readback === undefined || !sameHash(hash, held.readback, LEGACY.action)) {
         const reason = !held
           ? `${answerer} said it went out, but the bank holds no payment under ${state.id}/${step.id}`
           : `${answerer} said it went out, but the bank holds a different payment under that key (read back ${typeof held === "string" || !held.readback ? "?" : short(held.readback)}, approved ${short(hash)})`;
@@ -748,7 +748,7 @@ export class Runner {
       }
       const receipt = typeof result === "string" ? result : result.receipt;
       const readback = typeof result === "string" ? undefined : result.readback;
-      if (readback !== undefined && !sameHash(hash, readback)) {
+      if (readback !== undefined && !sameHash(hash, readback, LEGACY.action)) {
         await this.openDoubt(this.store.load(state.id), step, hash, payload as Outlet, `read back ${short(readback)}, approved ${short(hash)}`);
         return;
       }

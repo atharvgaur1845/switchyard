@@ -275,16 +275,17 @@ export function short(hash: string): string {
 }
 
 // Cases logged before hashes were full length stored 16 hex digits for an
-// action and 12 for a document version. Such a hash still matches the full
-// hash it begins with, so an open case survives the upgrade; everything new
-// is compared in full.
-export function sameHash(stored: string, fresh: string): boolean {
+// action or a read-back and 12 for a document version. Such a hash still
+// matches the full hash it begins with, at that field's old length only, so
+// an open case survives the upgrade; everything new is compared in full.
+export const LEGACY = { action: 16, document: 12 } as const;
+export function sameHash(stored: string, fresh: string, legacy: number): boolean {
   if (stored === fresh) return true;
   const row = stored.startsWith("row:");
   if (row !== fresh.startsWith("row:")) return false;
   const s = row ? stored.slice(4) : stored;
   const f = row ? fresh.slice(4) : fresh;
-  return /^[0-9a-f]{12}$|^[0-9a-f]{16}$/.test(s) && f.length === 64 && f.startsWith(s);
+  return s.length === legacy && /^[0-9a-f]+$/.test(s) && /^[0-9a-f]{64}$/.test(f) && f.startsWith(s);
 }
 
 function toNumber(value: unknown): number | undefined {
