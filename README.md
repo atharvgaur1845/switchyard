@@ -2,7 +2,7 @@
 
 **Supplier payments a fraudster cannot redirect, run by agents and people in [Switch](https://github.com/sandbox-quantum/switch) rooms.**
 
-> Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is paid on facts that changed after the checks ran, on a vendor row someone edited in the room outside a case, or twice on one purchase order.
+> Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is paid on facts that changed after the checks ran, on a vendor row someone edited in the room outside a case, twice on one purchase order, or to an account a person already blocked, without a person deciding again.
 
 The one rule in the payment flow pays automatically only when all of these hold:
 - the two checkers agree;
@@ -18,6 +18,7 @@ A supplier emails: *"We changed banks. Please pay all open invoices to our new a
 - **Code decides the facts.** It checks whether the sender's domain is the supplier's own, or one a couple of characters away. It also checks the IBAN check digits, and whether the purchase order exists and matches to the cent.
 - **People decide, in Switch.** A named person calls the number on file. A *different* person approves the change. A controller approves any payment the rules can't release.
 - **Switchyard acts only on what was approved.** It writes the vendor's row in a Switch room document and pays through a bank that takes each payment once. It then reads the payment back and shows that the bank holds exactly the approved instruction.
+- **Cases are linked through what people already decided.** When a person blocks a "we changed banks" request, its account is remembered. A later request for that account, even from the supplier's real domain, goes to the controller before anyone calls, and an invoice paying it goes to a person. A block also re-checks every open case on that account at once: a card shown before it stops counting. This is the case that a check on one request alone cannot see: a supplier's mailbox taken over after a look-alike attempt failed.
 - **The room remembers what Switchyard wrote.** Every row a code check reads is attested: Switchyard keeps the hash of the version it first saw or last wrote through a case. A purchase order is marked invoiced in the room before any money moves. So an account swapped into the vendor master by hand is never paid, and a second invoice for the same order, under any number, goes to a person.
 
 ## See it in one minute, with no accounts
@@ -32,10 +33,11 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 
 1. **A "we changed banks" email from `fabrikarn.test`.** Code finds it is 2 characters away from `fabrikam.test` on file, the controller blocks it, and the real supplier is warned *at the address on file*.
 2. **A Fabrikam invoice that prints a different account.** The two checkers agree it matches PO-1043, but code finds the account differs from the vendor master. The card shows the payment going to the account *on file*, and it waits for the controller.
-3. **Meanwhile, a genuine change from Fabrikam's own domain.** A callback card goes to the AP clerk, who confirms. The clerk then tries to approve the change too and is refused (four eyes). The controller approves, and Switchyard writes the new account into the vendor master.
-4. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to act, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it marks PO-1043 as invoiced in the room, pays the new account through the bank and reads the payment back. All three hashes match: the approved one, the one sent and the bank's copy.
-5. **Someone edits the vendor master in the room directly**, swapping Northwind's account and leaving the old date and the word "callback". The next Northwind invoice would have been paid by the rule. Instead it is held: the row is not the one Switchyard first saw, and no pay card is offered.
-6. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the case goes to a person.
+3. **The same account again, now from Fabrikam's real domain.** Every check on this email passes: right domain, valid IBAN, written in the email. But the account is the one the controller just blocked, so the controller decides before anyone calls, and the room is told which cases share the account.
+4. **Meanwhile, a genuine change from Fabrikam's own domain.** A callback card goes to the AP clerk, who confirms. The clerk then tries to approve the change too and is refused (four eyes). The controller approves, and Switchyard writes the new account into the vendor master.
+5. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to act, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it marks PO-1043 as invoiced in the room, pays the new account through the bank and reads the payment back. All three hashes match: the approved one, the one sent and the bank's copy.
+6. **Someone edits the vendor master in the room directly**, swapping Northwind's account and leaving the old date and the word "callback". The next Northwind invoice would have been paid by the rule. Instead it is held: the row is not the one Switchyard first saw, and no pay card is offered.
+7. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the case goes to a person.
 
 The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep a dashboard of the run's cases open at `http://localhost:4101`.
 
@@ -85,6 +87,35 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 - **Agents cannot act.** Every agent CLI is started with its tools, MCP servers and settings switched off, and Switchyard refuses to start one it cannot lock down. Test: "refuses a CLI it cannot lock down".
 - **Two vendors, so one outage doesn't stop the room.** The two invoice checkers run on different vendors (Claude and Gemini). The bank-change agent and most other agent steps have a backup agent on another vendor; the weekly report's review step has none. On case `94221172` the Claude checker hit its real usage limit mid-run, and the case still went to a person with the evidence it had.
 
+## Links between cases
+
+A check on one request cannot see that its account is the one a person blocked an hour ago. So Switchyard derives links from its own event log, exactly, by compact IBAN:
+
+- **Blocked account.** A bank-change request a person answered "block". It is remembered only when the email itself names the account, the account is on file for no vendor, and the sender is not the vendor's own domain. So naming a vendor's real account in a look-alike email does not get that account flagged. Links last 180 days.
+- **Another vendor's account.** The account is on file for a different vendor.
+
+A link never blocks and never changes a payment. It sends the case to a person, with the evidence on the card, and tells the room which cases share the account. What an approval rests on includes the kinds of link on its account. When a person blocks a request, every open case on that account is checked again at once. A flood of blocks on one account changes that set once, so an open case is re-checked once, not until it fails. Tests: "the real domain asking for an account a look-alike asked for goes to the controller before any call", "a block voids an open callback card in another case on the same account, at once", "a flood of blocks on one account checks an open case again only once", "blocking a look-alike that names the vendor's real account does not flag that account".
+
+### The attack lab
+
+`npm run lab` runs eight scenarios on the real engine and flows, with fixture agents and a sandbox bank. It runs each twice: links between cases off, then on. Every card is answered with the option it proposes, as a hurried person clicking the first button would. So it shows what the system stops by itself. Euros come from the bank's ledger and cards from what was shown. The scenarios were written by the same person who wrote the checks, so this shows what each control does; it is not a detection rate.
+
+| | Scenario | Links off: paid to the attacker · cards | Links on: paid to the attacker · cards | Outcomes with links on |
+|---|---|---|---|---|
+| attack | Look-alike domain asks to change Fabrikam's account | 0 · 1 card | 0 · 1 card | Blocked · supplier warned |
+| attack | Compromised mailbox: the real domain asks for the account a look-alike was blocked on, then an invoice | **3,150 EUR** · 4 cards | 0 · 2 cards | Paid, Held · linked to another case, Blocked · supplier warned |
+| attack | Compromised mailbox first; the look-alike is blocked while its callback card is open | **3,150 EUR** · 4 cards | 0 · 3 cards | Paid, Blocked · supplier warned, Held · linked to another case |
+| attack | Invoice prints the account a look-alike was blocked on | 0 · 2 cards | 0 · 2 cards | Paid, Blocked · supplier warned |
+| attack | Insider swaps Northwind's account in the vendor master, then an invoice | 0 · 1 card | 0 · 1 card | Held · row edited in the room |
+| benign | Genuine bank change from Fabrikam's own domain, then an invoice | 0 · 3 cards | 0 · 3 cards | Paid, Updated |
+| benign | Two vendors paid through one factoring account | 0 · 0 cards | 0 · 1 card | Paid |
+| benign | Poisoning: a look-alike names Fabrikam's real account and is blocked, then an ordinary invoice | 0 · 1 card | 0 · 1 card | Paid, Blocked · supplier warned |
+
+Paid to attacker accounts: 6,300 EUR with links off, 0 EUR with links on.
+Cards on benign scenarios: 4 with links off, 5 with links on.
+
+The shared factoring account is the cost: a legitimate arrangement now gets a card. `test/lab.test.ts` pins these numbers.
+
 ## Attacks, and what stops each
 
 The look-alike email, the clerk approving their own callback and the approval on old facts were stopped from the start. The others paid, or misled a person, on an earlier version of this code; an independent red-team review found them, and `test/adversarial.test.ts` now runs each one and checks that it is stopped.
@@ -101,6 +132,8 @@ The look-alike email, the clerk approving their own callback and the approval on
 | An email whose agent reading names a different IBAN (injection or a model's slip) | The IBAN must appear in the email | "an account the email does not contain is not accepted from the agent" |
 | A person types the agent's JSON reply, or reassigns the step to themselves | Agent steps ignore people; reassign only to the flow's agents | "a person typing the agent's reply in the thread is ignored" |
 | A clerk confirms the callback and approves the change | `not_same_as: [callback]` | "needs a callback and a second person, then changes exactly one row" |
+| A compromised supplier mailbox asks for the account a look-alike was blocked on | Link to the blocked case: the controller decides before any call | "the real domain asking for an account a look-alike asked for goes to the controller before any call" |
+| The same, with the callback card already open when the look-alike is blocked | The block re-checks the open case; its callback card stops counting | "a block voids an open callback card in another case on the same account, at once" |
 | An approval given before the facts changed | Document basis re-checked before any action | "does not pay on an approval given before the vendor master changed" |
 | "It went out" on a payment the bank never received | Read back by key from the bank | "'it went out' is not believed when the bank holds no such payment" |
 
@@ -127,6 +160,7 @@ In `switchyard.yaml`, map the roles to people under `people:`: `@controller`, `@
 ```bash
 npm run switchyard demo send bank-change          # the look-alike email
 npm run switchyard demo send bank-change-real     # the genuine change
+npm run switchyard demo send bank-change-mailbox  # the real domain naming the look-alike's account
 npm run switchyard demo send fabrikam-invoice     # an invoice printing another account
 npm run switchyard demo send fabrikam-invoice-2   # the same PO again, under a new number
 npm run switchyard demo send insider-edit         # writes vendor-master directly, outside any case
@@ -159,6 +193,7 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
 - **Attestation trusts the documents as they stand when Switchyard first starts.** `up` attests a document it has never seen and posts the rows it attested to the room, so anyone can check that baseline. An edit made before that first start is accepted. A check never adopts a document: one that was never attested passes nothing. Attestations persist across restarts.
 - **The event log is append-only by convention, not tamper-evident.** Someone with access to the SQLite file could rewrite it, and the row attestations live in the same file. Approvals, document versions, read-backs and row attestations are all full SHA-256; cards and screens show the first 16 hex digits. Cases logged by earlier versions stored shorter hashes, and these still match the full hash they begin with.
 - **One engine process.** Switch's `update_room_document` has no version precondition, so the PO reservation and the vendor-master write rely on the engine's single queue.
+- **Links come from this company's own decisions only.** Switchyard has no network data on accounts across companies, as commercial vendor-verification services do. A link needs a person to have blocked a request first, and links expire after 180 days. Two vendors that really share an account, such as through a factoring company, get a card every time.
 - **Exact names and whole POs.** "Fabrikam Print GmbH" against "Fabrikam Print" goes to a person, and so does a second, partial invoice against a PO that is already invoiced.
 - **Some controls fail closed, at a cost.** Two rows with the same vendor name hold every payment to that vendor until a person removes one. A PO reserved by a case whose payment the bank then refuses stays reserved until a person reopens it.
 - **A re-check re-runs the code checks and the gates after them.** It does not re-ask agent steps that ran before the check.
@@ -190,7 +225,8 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 239 tests
+npm test             # 246 tests
+npm run lab          # the attack lab, links off and on
 npm run typecheck
 npm run lint         # every flow in flows/
 npm run demo:offline
