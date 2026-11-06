@@ -14,7 +14,7 @@ import { Store } from "./engine/store.ts";
 import { screen } from "./inlets/screen.ts";
 import { LiveOutlets } from "./outlets/index.ts";
 import { describeOutlet } from "./outlets/payload.ts";
-import { startBank } from "./sandbox/bank.ts";
+import { sandboxPayees, startBank } from "./sandbox/bank.ts";
 
 // The Fabrikam invoice as the supplier wrote it: the investigator quotes it.
 const FP0912_TEXT = "Fabrikam Print, invoice FP-0912, print run for PO-1043. Total 3,150.00 EUR, due in 7 days. Please note our new bank details: IBAN DE88 5007 0010 0175 5263 03.";
@@ -293,7 +293,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
 
   // The sandbox bank runs here, on its own ledger, so the read-back is real.
   const ledger = join(mkdtempSync(join(tmpdir(), "switchyard-bank-")), "ledger.json");
-  const bank = startBank({ port: 0, ledger });
+  const bank = startBank({ port: 0, ledger, payees: sandboxPayees() });
   await new Promise((r) => bank.once("listening", r));
   const live = new LiveOutlets(
     { dataDir: tmpdir(), bankUrl: `http://127.0.0.1:${(bank.address() as AddressInfo).port}`, smtp: { host: "127.0.0.1", port: 1, from: "demo@localhost" } },
@@ -311,6 +311,8 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
       console.log(`${dim("        ↗")} ${bold("would execute")} ${describeOutlet(outlet).split("\n")[0]}  ${dim(key)}`);
       return `simulated ${Object.keys(outlet)[0]} for ${key}`;
     },
+    lookup: (outlet, key) => live.lookup(outlet, key),
+    checkPayee: (iban, name) => live.checkPayee(iban, name),
   };
 
   // One person may hold several roles; four eyes still keeps them apart.

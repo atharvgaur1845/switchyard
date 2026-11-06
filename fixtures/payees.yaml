@@ -1,0 +1,19 @@
+# The sandbox bank's registry: who holds each account. Verification of Payee
+# answers from here (src/sandbox/bank.ts). Fictitious, like the suppliers.
+# An account not listed is "unavailable": the bank cannot say who holds it.
+
+# The suppliers' accounts on file, held under their registered names.
+DE89370400440532013000: Northwind Paper Ltd
+DE44500105175407324931: Contoso Cloud GmbH
+DE29100500000190183746: Fabrikam Print GmbH
+DE20200400000628401599: Tailspin Travel AG
+
+# Fabrikam's genuine new account (the demo's genuine bank change).
+DE63120300001064532871: Fabrikam Print GmbH
+
+# The attacker's account in the demo, opened under a name close to the
+# supplier's: the bank answers "close match", so a person must look.
+DE88500700100175526303: Fabrikam Print Services s.r.o.
+
+# The insider's account.
+DE68370400440532099999: Jonas Petrak

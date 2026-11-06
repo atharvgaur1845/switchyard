@@ -9,7 +9,7 @@ import type { ApprovalCard, Chat, InboundMessage, Outlets, RoomDocument } from "
 import { Runner } from "./engine/runner.ts";
 import { Store } from "./engine/store.ts";
 import { LiveOutlets } from "./outlets/index.ts";
-import { startBank } from "./sandbox/bank.ts";
+import { sandboxPayees, startBank } from "./sandbox/bank.ts";
 import { caseSummaries } from "./web/api.ts";
 
 // `npm run lab`: the attack lab. Each scenario runs twice on the real engine
@@ -189,7 +189,7 @@ async function runScenario(root: string, flows: Flow[], replies: Record<string, 
     },
   };
   const ledger = join(mkdtempSync(join(tmpdir(), "switchyard-lab-")), "ledger.json");
-  const bank = startBank({ port: 0, ledger });
+  const bank = startBank({ port: 0, ledger, payees: sandboxPayees() });
   await new Promise((r) => bank.once("listening", r));
   try {
     const store = new Store();
@@ -198,6 +198,7 @@ async function runScenario(root: string, flows: Flow[], replies: Record<string, 
     const outlets: Outlets = {
       execute: (o, k) => ("document" in o || "pay" in o ? live.execute(o, k) : Promise.resolve(`simulated ${Object.keys(o)[0]}`)),
       lookup: (o, k) => live.lookup(o, k),
+      checkPayee: (iban, name) => live.checkPayee(iban, name),
     };
     const runner = new Runner(store, chat, outlets, flows, { people: PEOPLE, crossCase });
     await runner.attestRows();

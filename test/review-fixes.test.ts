@@ -12,7 +12,7 @@ import { Runner } from "../src/engine/runner.ts";
 import { fold, Store } from "../src/engine/store.ts";
 import { CHECKS, setTableRow } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
-import { startBank } from "../src/sandbox/bank.ts";
+import { sandboxPayees, startBank } from "../src/sandbox/bank.ts";
 import { FakeSwitch, replyWith, attestRooms, invoiceReader, investigatorSays } from "./fake-switch.ts";
 
 // Defects found by the independent review of the payment work, one test each.
@@ -29,7 +29,7 @@ const fabrikam = (number = "FP-1") => ({ supplier: "Fabrikam Print", number, amo
 let bank: Server;
 let bankUrl: string;
 beforeAll(async () => {
-  bank = startBank({ port: 0, ledger: join(mkdtempSync(join(tmpdir(), "bank-")), "ledger.json") });
+  bank = startBank({ port: 0, ledger: join(mkdtempSync(join(tmpdir(), "bank-")), "ledger.json"), payees: sandboxPayees() });
   await new Promise((r) => bank.once("listening", r));
   bankUrl = `http://127.0.0.1:${(bank.address() as { port: number }).port}`;
 });
@@ -50,6 +50,9 @@ class Paying implements Outlets {
     }
     this.paid.push({ outlet, key });
     return this.live().execute(outlet, key);
+  }
+  checkPayee(iban: string, name: string) {
+    return this.live().checkPayee(iban, name);
   }
 }
 

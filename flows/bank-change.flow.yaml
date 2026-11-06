@@ -30,6 +30,12 @@ steps:
   - id: checks
     verify: { check: bank_change, doc: vendor-master, vendor: "{request.vendor}", sender: "{case.from}", iban: "{request.new_iban}", text: "{case.body}", reply_to: "{case.reply_to}", auth: "{case.auth}" }
 
+  # The bank says who holds the new account (Verification of Payee). No match
+  # fails the request, like a failed check; a close match or no answer is
+  # shown on the callback card, so the person calling knows.
+  - id: payee
+    verify: { check: payee, doc: payment-mandates, vendor: "{checks.vendor}", iban: "{checks.new_iban}" }
+
   # Across cases: was this account requested before, from elsewhere, and
   # blocked by a person? Or is it another vendor's? Then the controller
   # decides before anyone calls. A request from the real domain for an
@@ -38,7 +44,7 @@ steps:
     verify: { check: links, doc: vendor-master, vendor: "{checks.vendor}", iban: "{checks.new_iban}" }
 
   - id: linked
-    when: checks.ok == true and links.ok == false
+    when: checks.ok == true and payee.result != "no_match" and links.ok == false
     gate:
       approver: "@controller"
       title: "hold {checks.vendor}'s bank-detail change? {links.detail}"
@@ -46,10 +52,10 @@ steps:
       deadline: 4h
 
   - id: suspect
-    when: checks.ok == false
+    when: checks.ok == false or payee.result == "no_match"
     gate:
       approver: "@controller"
-      title: "block this bank-detail change request ({checks.detail})?"
+      title: "block this bank-detail change request ({checks.detail}; {payee.detail})?"
       options: [block, investigate]
       deadline: 4h
       approves: [warn_vendor]
@@ -72,10 +78,10 @@ steps:
           Accounts payable, Acme
 
   - id: callback
-    when: checks.ok == true and (links.ok == true or linked == "call-anyway")
+    when: checks.ok == true and payee.result != "no_match" and (links.ok == true or linked == "call-anyway")
     gate:
       approver: "@ap-clerk"
-      title: "call {checks.vendor} on {checks.phone} (the number on file, not one from the email) and have them read out their new account: it must be {checks.new_iban}"
+      title: "call {checks.vendor} on {checks.phone} (the number on file, not one from the email) and have them read out their new account: it must be {checks.new_iban} ({payee.detail})"
       options: [confirmed, not-confirmed]
       deadline: 1d
 

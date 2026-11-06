@@ -11,7 +11,7 @@ import { Store } from "../src/engine/store.ts";
 import { basisHash, CHECKS, LEGACY, rowHash, sameHash } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
-import { startBank } from "../src/sandbox/bank.ts";
+import { sandboxPayees, startBank } from "../src/sandbox/bank.ts";
 import { caseSummaries } from "../src/web/api.ts";
 import { investigations } from "../src/web/investigations.ts";
 import { attestRooms, FakeSwitch, replyWith, invoiceReader, investigatorSays } from "./fake-switch.ts";
@@ -40,7 +40,7 @@ const paidInLedger = () => {
   }
 };
 beforeAll(async () => {
-  bank = startBank({ port: 0, ledger });
+  bank = startBank({ port: 0, ledger, payees: sandboxPayees() });
   await new Promise((r) => bank.once("listening", r));
   bankUrl = `http://127.0.0.1:${(bank.address() as { port: number }).port}`;
 });
@@ -203,7 +203,7 @@ describe("attacks through the agent step of a bank change", () => {
     const { chat, runner, open } = bankChange({ ...asked, new_iban: "DE63 1203 0000 1064 5328 71" });
     await open("Please pay us at DE63 1203 0000 1064 5328 71 from now on.");
     await chat.deliver((m) => runner.onMessage(m));
-    expect(chat.cards.at(-1)!.title).toMatch(/it must be DE63120300001064532871$/);
+    expect(chat.cards.at(-1)!.title).toMatch(/it must be DE63120300001064532871 \(the bank confirms DE63…2871 is held by Fabrikam Print\)$/);
   });
 
   it("a person typing the agent's reply in the thread is ignored", async () => {
@@ -396,7 +396,7 @@ describe("attacks across cases", () => {
       }
       return "email" in o ? (sent.push(k), Promise.resolve(`emailed ${k}`)) : outlets.execute(o, k);
     };
-    const runner = new Runner(store, chat, { execute, lookup: (o, k) => outlets.lookup(o, k) }, flows, {
+    const runner = new Runner(store, chat, { execute, lookup: (o, k) => outlets.lookup(o, k), checkPayee: (i, n) => outlets.checkPayee(i, n) }, flows, {
       people: { "@ap-clerk": ["@clerk"], "@controller": ["@controller"] },
     });
     attestRooms(store, chat);

@@ -1,7 +1,8 @@
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { ibanValid } from "../engine/verifiers.ts";
+import { parse } from "yaml";
+import { compactIban, editDistance, ibanValid } from "../engine/verifiers.ts";
 
 // A SANDBOX bank, not a real one: a separate process with its own ledger
 // file, so Switchyard can show that what the bank holds is exactly what a
@@ -9,6 +10,37 @@ import { ibanValid } from "../engine/verifiers.ts";
 // every payment needs an Idempotency-Key, a key is paid at most once (a
 // retry with the same key gets the same payment back, a different body with
 // the same key is refused), and any payment can be read back by its key.
+//
+// It also answers "who holds this account?" the way Verification of Payee
+// schemes do: given an IBAN and the name the payer means to pay, it says
+// match, close match (with the name it holds), no match, or unavailable
+// (it has no record). Its answers come from a registry file, and they are
+// only as true as that file: this is a sandbox, not a bank's records.
+
+export type PayeeResult = "match" | "close_match" | "no_match" | "unavailable";
+
+const LEGAL = new Set(["gmbh", "ag", "ltd", "limited", "inc", "llc", "plc", "pvt", "sa", "sas", "bv", "nv", "co", "kg", "sro", "oy", "ab", "srl", "spa"]);
+const tokens = (name: string) =>
+  name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((t) => t && !LEGAL.has(t));
+
+// How the name held for an account compares with the name a payer gave.
+export function comparePayee(held: string, given: string): Exclude<PayeeResult, "unavailable"> {
+  const a = tokens(held);
+  const b = tokens(given);
+  if (!a.length || !b.length) return "no_match";
+  if (a.join(" ") === b.join(" ")) return "match";
+  // A typo, or every word given is in the name held ("Fabrikam Print" for
+  // "Fabrikam Print Services"): close, so a person looks.
+  if (editDistance(a.join(""), b.join("")) <= 2 || b.every((t) => a.includes(t)) || a.every((t) => b.includes(t))) return "close_match";
+  return "no_match";
+}
 
 export interface Payment {
   id: string;
@@ -24,7 +56,23 @@ export interface Payment {
 
 const FIELDS = ["payee", "to", "amount", "currency", "reference"] as const;
 
-export function startBank(opts: { port: number; ledger: string }): Server {
+// The demo world's registry (fixtures/payees.yaml): IBAN -> holder.
+export function sandboxPayees(): Record<string, string> {
+  return parse(readFileSync(new URL("../../fixtures/payees.yaml", import.meta.url), "utf8")) as Record<string, string>;
+}
+
+// What the bank answers for `iban` and `name`, from a registry.
+export function answerPayee(payees: Record<string, string>, iban: string, name: string): { result: PayeeResult; holder?: string; reason?: string } {
+  const held = Object.entries(payees).find(([i]) => compactIban(i) === compactIban(iban))?.[1];
+  if (!held) return { result: "unavailable", reason: "the bank has no record of this account" };
+  const result = comparePayee(held, name);
+  // As in the schemes: the name held is disclosed only on a close match.
+  return result === "close_match" ? { result, holder: held } : { result };
+}
+
+// `payees`: IBAN -> the name the account is held under.
+export function startBank(opts: { port: number; ledger: string; payees?: Record<string, string> }): Server {
+  const payees = new Map(Object.entries(opts.payees ?? {}).map(([iban, holder]) => [compactIban(iban), holder]));
   const load = (): Payment[] => (existsSync(opts.ledger) ? (JSON.parse(readFileSync(opts.ledger, "utf8")) as Payment[]) : []);
   const save = (payments: Payment[]) => {
     mkdirSync(dirname(opts.ledger), { recursive: true });
@@ -69,6 +117,17 @@ export function startBank(opts: { port: number; ledger: string }): Server {
       };
       save([...payments, payment]);
       return json(res, 201, payment);
+    }
+    if (req.method === "POST" && url.pathname === "/payee-check") {
+      let body: Record<string, unknown>;
+      try {
+        let raw = "";
+        for await (const chunk of req) raw += chunk;
+        body = JSON.parse(raw);
+      } catch {
+        return json(res, 400, { error: "body is not JSON" });
+      }
+      return json(res, 200, answerPayee(Object.fromEntries(payees), String(body.iban ?? ""), String(body.name ?? "")));
     }
     if (req.method === "GET" && url.pathname.startsWith("/payments/")) {
       const key = decodeURIComponent(url.pathname.slice("/payments/".length));

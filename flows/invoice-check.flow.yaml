@@ -56,6 +56,13 @@ steps:
   - id: bank_check
     verify: { check: vendor_bank, doc: vendor-master, vendor: "{case.supplier}", iban: "{case.iban}" }
 
+  # The bank, not the vendor master, says who holds the account (Verification
+  # of Payee). A factoring company counts only through an attested row of the
+  # payment-mandates document. This answer does not come from the email, the
+  # callback or the vendor master, so none of them can supply it.
+  - id: payee
+    verify: { check: payee, doc: payment-mandates, vendor: "{bank_check.vendor}", iban: "{bank_check.iban}" }
+
   # Across cases: is the account to be paid (or one the invoice printed) one
   # a person blocked in a bank-change request, or another vendor's? A link
   # sends the invoice to a person; it never blocks or changes the payment.
@@ -86,8 +93,19 @@ steps:
       options: [investigate, close]
       deadline: 1d
 
+  # The bank says someone else holds the account (or a mandate row was
+  # written by hand): nothing is paid on it, whatever anyone clicks.
+  - id: mismatch
+    when: bank_check.attested != false and po_check.invoiced != true and (payee.result == "no_match" or payee.attested == false)
+    gate:
+      approver: "@controller"
+      backup: "@cfo"
+      title: "hold {case.supplier} invoice {case.number}: {payee.detail}, so nothing is paid on it"
+      options: [investigate, close]
+      deadline: 1d
+
   - id: finance
-    when: bank_check.attested != false and po_check.invoiced != true and (po_check.ok == false or evidence.ok == false or bank_check.ok == false or bank_check.recent == true or links.ok == false or case.amount > 10000)
+    when: bank_check.attested != false and po_check.invoiced != true and payee.result != "no_match" and payee.attested != false and (payee.ok == false or po_check.ok == false or evidence.ok == false or bank_check.ok == false or bank_check.recent == true or links.ok == false or case.amount > 10000)
     gate:
       approver: "@controller"
       backup: "@cfo"
@@ -100,7 +118,7 @@ steps:
   # checked the same PO sees its row change before it acts: its approval no
   # longer counts, and its PO check runs again and finds it invoiced.
   - id: reserve_po
-    when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false and po_check.open == true
+    when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false and payee.result != "no_match" and payee.attested != false and po_check.open == true
     auto_approve: true
     outlet:
       document:
@@ -112,7 +130,7 @@ steps:
   # Never to a vendor row changed in the room outside a case, even if a
   # person clicks pay: that account is not one any case approved.
   - id: schedule_payment
-    when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false and po_check.invoiced != true
-    auto_approve: po_check.ok == true and evidence.ok == true and bank_check.ok == true and bank_check.recent == false and links.ok == true and case.amount <= 10000
+    when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false and po_check.invoiced != true and payee.result != "no_match" and payee.attested != false
+    auto_approve: payee.ok == true and po_check.ok == true and evidence.ok == true and bank_check.ok == true and bank_check.recent == false and links.ok == true and case.amount <= 10000
     outlet:
       pay: { payee: "{bank_check.vendor}", to: "{bank_check.iban}", amount: "{case.amount}", currency: EUR, reference: "{case.number}" }

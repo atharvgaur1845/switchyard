@@ -1,6 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import type { Outlet } from "../engine/flow-schema.ts";
-import { type Chat, type OutletResult, type Outlets, RefusedError } from "../engine/ports.ts";
+import { type Chat, type OutletResult, type Outlets, type PayeeAnswer, RefusedError } from "../engine/ports.ts";
 import { setTableRow } from "../engine/verifiers.ts";
 import { hashOutlet } from "./payload.ts";
 import type { Store } from "../engine/store.ts";
@@ -95,6 +95,20 @@ export class LiveOutlets implements Outlets {
     const held = await this.lookup({ pay }, key);
     if (!held) throw new Error(`the bank cannot find payment ${key} after accepting it`);
     return held;
+  }
+
+  // Asks the bank whether `name` is who holds `iban`. Any failure to get an
+  // answer is "unavailable", never a match.
+  async checkPayee(iban: string, name: string): Promise<PayeeAnswer> {
+    const bank = this.config.bankUrl ?? "http://localhost:4300";
+    try {
+      const res = await fetch(`${bank}/payee-check`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ iban, name }), signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return { result: "unavailable", reason: `the bank answered ${res.status}` };
+      const body = (await res.json()) as PayeeAnswer;
+      return ["match", "close_match", "no_match", "unavailable"].includes(body.result) ? body : { result: "unavailable", reason: "the bank's answer was not understood" };
+    } catch (error) {
+      return { result: "unavailable", reason: `the bank could not be reached (${(error as Error).message})` };
+    }
   }
 
   // Reads a payment back from the bank by its key and hashes what the bank

@@ -51,6 +51,16 @@ export interface Outlets {
   // What the other side holds under `key`, for outlets that can be asked:
   // null when it holds nothing. Lets "it went out" be checked, not trusted.
   lookup?(outlet: Outlet, key: string): Promise<OutletResult | null>;
+  // Asks the bank who holds an account (Verification of Payee): is `name`
+  // the name it is held under? Unavailable when the bank cannot say.
+  checkPayee?(iban: string, name: string): Promise<PayeeAnswer>;
+}
+
+export interface PayeeAnswer {
+  result: "match" | "close_match" | "no_match" | "unavailable";
+  // The name the bank holds the account under, given on a close match only.
+  holder?: string;
+  reason?: string;
 }
 
 export interface InboundMessage {

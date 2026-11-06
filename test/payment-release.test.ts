@@ -12,7 +12,7 @@ import { Store } from "../src/engine/store.ts";
 import { basisHash, CHECKS, editDistance, ibanValid, rowHash, setTableRow } from "../src/engine/verifiers.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
 import { hashOutlet } from "../src/outlets/payload.ts";
-import { startBank } from "../src/sandbox/bank.ts";
+import { answerPayee, sandboxPayees, startBank } from "../src/sandbox/bank.ts";
 import { FakeSwitch, replyWith, attestRooms, invoiceReader, investigatorSays } from "./fake-switch.ts";
 
 // Releasing supplier payments: bank details change only through a checked,
@@ -39,6 +39,10 @@ class TestOutlets implements Outlets {
     this.done.push({ outlet, key });
     if ("document" in outlet || "pay" in outlet) return this.live.execute(outlet, key);
     return `did ${key}`;
+  }
+  // The sandbox bank's answers, from the demo world's registry.
+  async checkPayee(iban: string, name: string) {
+    return answerPayee(sandboxPayees(), iban, name);
   }
 }
 
@@ -122,7 +126,7 @@ describe("a bank-detail change", () => {
   it("needs a callback and a second person, then changes exactly one row", async () => {
     const { store, chat, open, answer, master } = setup("accounts@fabrikam.test");
     const id = await open();
-    expect(chat.cards[0].title).toMatch(/call Fabrikam Print on \+49 30 5550 1003 \(the number on file, not one from the email\).*it must be DE63120300001064532871$/);
+    expect(chat.cards[0].title).toMatch(/call Fabrikam Print on \+49 30 5550 1003 \(the number on file, not one from the email\).*it must be DE63120300001064532871 \(the bank confirms DE63…2871 is held by Fabrikam Print\)$/);
     await answer(0, "@clerk", "confirmed");
 
     // The person who made the call cannot approve the change.
@@ -161,7 +165,7 @@ describe("paying an invoice", () => {
   let bankUrl: string;
   const ledger = join(mkdtempSync(join(tmpdir(), "bank-")), "ledger.json");
   beforeAll(async () => {
-    bank = startBank({ port: 0, ledger });
+    bank = startBank({ port: 0, ledger, payees: sandboxPayees() });
     await new Promise((r) => bank.once("listening", r));
     bankUrl = `http://127.0.0.1:${(bank.address() as { port: number }).port}`;
   });

@@ -18,7 +18,7 @@ import { DEMO_INPUTS, demoOffline, demoReset, demoSend } from "./demo.ts";
 import { startServer } from "./server.ts";
 import { parse as parseYaml } from "yaml";
 import { SwitchClient } from "./switch/client.ts";
-import { startBank } from "./sandbox/bank.ts";
+import { sandboxPayees, startBank } from "./sandbox/bank.ts";
 
 const USAGE = `switchyard <command>
 
@@ -73,7 +73,7 @@ switch (command) {
   case "bank": {
     // A local test bank, not a real one; see src/sandbox/bank.ts.
     const port = Number(new URL(config.bank.url).port || 4300);
-    startBank({ port, ledger: join(config.data, "sandbox-bank.json") });
+    startBank({ port, ledger: join(config.data, "sandbox-bank.json"), payees: sandboxPayees() });
     console.log(`Sandbox bank (not a real bank) on ${config.bank.url}; ledger in ${join(config.data, "sandbox-bank.json")}`);
     break;
   }

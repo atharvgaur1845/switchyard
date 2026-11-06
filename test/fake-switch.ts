@@ -1,3 +1,4 @@
+import { answerPayee, sandboxPayees } from "../src/sandbox/bank.ts";
 import type { Store } from "../src/engine/store.ts";
 import { rowHash, tableRows } from "../src/engine/verifiers.ts";
 import type { ApprovalCard, Chat, InboundMessage, Outlets, RoomDocument } from "../src/engine/ports.ts";
@@ -79,6 +80,13 @@ export class RecordingOutlets implements Outlets {
   async execute(outlet: Outlet, key: string): Promise<string> {
     this.executed.push({ outlet, key });
     return `executed ${key}`;
+  }
+
+  // Answers who holds an account as the sandbox bank would, from the demo
+  // world's registry (or one a test gives).
+  payees: Record<string, string> = sandboxPayees();
+  async checkPayee(iban: string, name: string) {
+    return answerPayee(this.payees, iban, name);
   }
 }
 

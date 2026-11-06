@@ -54,5 +54,10 @@ describe("the held-out scenarios", () => {
     const fooled = results.filter((r) => r.fooled.links > 0).map((r) => r.scenario.id);
     expect(fooled).toEqual(["H04", "H13", "H15"]);
     expect(results.every((r) => r.fooled.links === r.fooled.baseline)).toBe(true);
+    // Upper bound, not held out: with a bank that knows who holds each account,
+    // nothing reaches the attacker even with every callback fooled, and the
+    // factoring case without a mandate is still held.
+    expect(results.reduce((n, r) => n + r.oracle.fooled + r.oracle.run.toAttacker, 0)).toBe(0);
+    expect(results.filter((r) => !r.oracle.run.pass).map((r) => r.scenario.id)).toEqual(["H05"]);
   }, 60_000);
 });

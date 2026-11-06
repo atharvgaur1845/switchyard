@@ -59,6 +59,31 @@ export interface HeldOutResult {
   // Every callback fooled (skipped, or the person believed the caller).
   // Expectations assume people doing their job, so only the money counts.
   fooled: { baseline: number; links: number };
+  // The same two runs (links on), with a bank that knows who holds each
+  // account. FORMAT.md never said, so this registry is built from each
+  // scenario's own roles for its accounts: an upper bound on what payee
+  // verification can do when the bank is right, not a held-out result.
+  oracle: { run: HeldOutRun; fooled: number };
+}
+
+// Who holds each account, from what the scenario says: an account the
+// email of one vendor names as genuine is that vendor's; one genuine for
+// several vendors is a factoring company's; an attacker's is someone else's.
+// The template's accounts on file are their vendors'.
+function oracleRegistry(s: HeldOut): Record<string, string> {
+  const registry: Record<string, string> = {
+    DE89370400440532013000: "Northwind Paper",
+    DE44500105175407324931: "Contoso Cloud",
+    DE29100500000190183746: "Fabrikam Print",
+    DE20200400000628401599: "Tailspin Travel",
+  };
+  for (const a of s.attacker_accounts) registry[compactIban(a)] = "Unrelated Holder Ltd";
+  for (const g of s.genuine_accounts) {
+    const iban = compactIban(g);
+    const vendors = [...new Set(s.steps.flatMap((x) => ("email" in x && compactIban(String(x.email.reads.new_iban ?? "")) === iban ? [String(x.email.reads.vendor)] : [])))];
+    registry[iban] = vendors.length === 1 ? vendors[0] : "Factoring Company Ltd";
+  }
+  return registry;
 }
 
 const PEOPLE = { "@ap-clerk": ["@clerk"], "@controller": ["@controller"], "@cfo": ["@cfo"] };
@@ -104,7 +129,7 @@ function editRow(content: string, key: string, changes: Record<string, string>):
     .join("\n");
 }
 
-async function runOne(root: string, flows: Flow[], given: HeldOut, crossCase: boolean, fooled = false): Promise<HeldOutRun> {
+async function runOne(root: string, flows: Flow[], given: HeldOut, crossCase: boolean, fooled = false, payees?: Record<string, string>): Promise<HeldOutRun> {
   const s: HeldOut = fooled ? { ...given, callback: "fooled" } : given;
   const template = parse(readFileSync(join(root, "templates", "invoice-check.template.yaml"), "utf8")).room.docs as { name: string; content: string }[];
   const docs: RoomDocument[] = template.map((d) => ({ id: d.name, name: d.name, content: d.content }));
@@ -137,13 +162,16 @@ async function runOne(root: string, flows: Flow[], given: HeldOut, crossCase: bo
     },
   };
   const ledger = join(mkdtempSync(join(tmpdir(), "switchyard-heldout-")), "ledger.json");
-  const bank = startBank({ port: 0, ledger });
+  // By default the bank has no registry: FORMAT.md never said who holds an
+  // account, so payee verification answers "unavailable".
+  const bank = startBank({ port: 0, ledger, payees });
   await new Promise((r) => bank.once("listening", r));
   try {
     const live = new LiveOutlets({ dataDir: tmpdir(), bankUrl: `http://127.0.0.1:${(bank.address() as AddressInfo).port}`, smtp: { host: "127.0.0.1", port: 1, from: "lab@localhost" } }, chat, store);
     const outlets: Outlets = {
       execute: (o, k) => ("document" in o || "pay" in o ? live.execute(o, k) : Promise.resolve(`simulated ${Object.keys(o)[0]}`)),
       lookup: (o, k) => live.lookup(o, k),
+      checkPayee: (iban, name) => live.checkPayee(iban, name),
     };
     const runner = new Runner(store, chat, outlets, flows, { people: PEOPLE, crossCase, now: () => clock });
     await runner.attestRows();
@@ -274,6 +302,7 @@ export async function heldOutLab(root = process.cwd()): Promise<HeldOutResult[]>
       baseline: await runOne(root, flows, scenario, false),
       links: await runOne(root, flows, scenario, true),
       fooled: { baseline: (await runOne(root, flows, scenario, false, true)).toAttacker, links: (await runOne(root, flows, scenario, true, true)).toAttacker },
+      oracle: { run: await runOne(root, flows, scenario, true, false, oracleRegistry(scenario)), fooled: (await runOne(root, flows, scenario, true, true, oracleRegistry(scenario))).toAttacker },
     });
   }
   return results;
@@ -297,5 +326,7 @@ export function heldOutTable(results: HeldOutResult[]): string {
     line("baseline", "Links off"),
     line("links", "Links on"),
     `Every callback fooled: ${results.reduce((n, r) => n + r.fooled.baseline, 0).toLocaleString("en")} EUR to attacker accounts with links off, ${results.reduce((n, r) => n + r.fooled.links, 0).toLocaleString("en")} EUR with links on.`,
+    "",
+    `Upper bound, with a bank that knows who holds each account (built from each scenario's own description of its accounts, so not held out): ${results.filter((r) => r.oracle.run.pass).length}/${results.length} meet every expectation (${results.filter((r) => !r.oracle.run.pass).map((r) => r.scenario.id).join(", ") || "none"} do not); ${results.reduce((n, r) => n + r.oracle.run.toAttacker, 0).toLocaleString("en")} EUR to attacker accounts; with every callback fooled, ${results.reduce((n, r) => n + r.oracle.fooled, 0).toLocaleString("en")} EUR.`,
   ].join("\n");
 }

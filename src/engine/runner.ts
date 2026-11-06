@@ -341,7 +341,9 @@ export class Runner {
         ? { ok: false, detail: `${used.length} documents in this room are named "${String(args.doc)}"; a person must remove the extra one` }
         : spec.history && !this.crossCase
           ? { ok: true, detail: "links between cases are switched off (attack-lab baseline)" }
-          : spec.run(args, docs, this.now(), history);
+          : spec.runAsync
+            ? await spec.runAsync(args, docs, { payee: this.outlets.checkPayee ? (iban, name) => this.outlets.checkPayee!(iban, name) : undefined })
+            : spec.run(args, docs, this.now(), history);
     const rows = used.length === 1 ? value.rows : undefined;
     const key = rows?.[used[0]?.name];
     if (key !== undefined && this.guarded.has(`${state.room}/${used[0].name}`)) {
@@ -391,7 +393,11 @@ export class Runner {
     const checks = step ? (state.results[step.id] as Record<string, unknown> | undefined) : undefined;
     if (!step || !isVerify(step) || !checks || !this.chat.documents) return false;
     const master = (await this.chat.documents(state.room)).filter((d) => d.name === step.verify.doc).map((d) => d.content).join("\n");
-    const found = blockedAccount(checks, String(state.data.body ?? ""), master, { caseId: state.id, by, at: this.now(), how });
+    // The bank saying someone else holds the account makes a block evidence
+    // even of a request from the vendor's own domain, as a forged From does.
+    const payee = this.flowOf(state).steps.find((s) => isVerify(s) && s.verify.check === "payee");
+    const refuted = payee ? (state.results[payee.id] as { result?: string } | undefined)?.result === "no_match" : false;
+    const found = blockedAccount({ ...checks, forged: checks.forged === true || refuted }, String(state.data.body ?? ""), master, { caseId: state.id, by, at: this.now(), how });
     if (!found) return false;
     this.store.append(state.id, { type: "flagged", iban: found.iban, vendor: found.vendor, sender: found.sender, by, at: found.at, how });
     return true;
