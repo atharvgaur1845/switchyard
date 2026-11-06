@@ -748,6 +748,12 @@ export class Runner {
 
     const step = this.stepOf(state, pending.step);
     if (!step || !isGate(step)) return;
+    // Only the card's own options decide anything. Switch offers no others,
+    // so another answer is forged or from an older card: it is ignored.
+    if (!step.gate.options.includes(outcome.answer)) {
+      await this.say(state, `"${outcome.answer}" is not an answer to "${step.id}" (${step.gate.options.join(", ")}); nothing was decided.`);
+      return;
+    }
 
     const answerer = await this.chat.handleOf(outcome.answeredBy);
     const sameAs = step.gate.not_same_as

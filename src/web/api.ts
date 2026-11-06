@@ -135,6 +135,9 @@ function outcomeOf(state: CaseState, events: CaseEvent[], flow: Flow | undefined
   };
   const edited = events.some((e) => e.type === "verified" && (e.value as { attested?: boolean } | undefined)?.attested === false);
   if (edited && !executed.some((e) => kindOf(e) === "pay")) return { label: "Held · row edited in the room", tone: "stop" };
+  // The PO was already invoiced by an earlier case: held, nothing paid.
+  const duplicate = events.some((e) => e.type === "verified" && e.check === "po_lookup" && (e.value as { invoiced?: boolean } | undefined)?.invoiced === true);
+  if (duplicate && !executed.some((e) => kindOf(e) === "pay")) return { label: "Held · PO already invoiced", tone: "stop" };
   // The controller held a request linked to another case.
   if (events.some((e) => e.type === "gate_answered" && e.answer === "hold")) return { label: "Held · linked to another case", tone: "stop" };
   if (executed.length > 0) {

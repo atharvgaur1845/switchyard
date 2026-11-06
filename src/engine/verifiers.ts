@@ -64,6 +64,10 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
         po_amount: poAmount,
         amount_text: amountText,
         open,
+        status,
+        // Marked by an earlier case's reservation: this order was already
+        // invoiced, and each PO is paid once.
+        invoiced: /^invoiced\b/i.test(status.trim()),
         detail: problems.length === 0 ? `${po} (${supplier}, ${fmt(poAmount)}) matches the invoice` : problems.join("; "),
       };
     },

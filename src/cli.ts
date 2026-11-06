@@ -61,6 +61,11 @@ switch (command) {
     break;
   }
   case "lab": {
+    if (process.argv.includes("--heldout")) {
+      const { heldOutLab, heldOutTable } = await import("./lab-heldout.ts");
+      console.log(heldOutTable(await heldOutLab()));
+      break;
+    }
     const { attackLab, labTable } = await import("./lab.ts");
     console.log(labTable(await attackLab()));
     break;

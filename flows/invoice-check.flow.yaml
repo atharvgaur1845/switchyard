@@ -48,8 +48,20 @@ steps:
       options: [investigate, close]
       deadline: 1d
 
+  # Each PO is paid once. A second invoice for an order an earlier case
+  # already invoiced, under any number, is held with no pay button: a split
+  # or resubmitted invoice is not paid by a hurried click.
+  - id: duplicate
+    when: bank_check.attested != false and po_check.invoiced == true
+    gate:
+      approver: "@controller"
+      backup: "@cfo"
+      title: "hold {case.supplier} invoice {case.number}: {po_check.po} is already {po_check.status}, and each PO is paid once, so nothing is paid on it"
+      options: [investigate, close]
+      deadline: 1d
+
   - id: finance
-    when: bank_check.attested != false and (po_check.ok == false or match.agreed == false or bank_check.ok == false or bank_check.recent == true or links.ok == false or case.amount > 10000)
+    when: bank_check.attested != false and po_check.invoiced != true and (po_check.ok == false or match.agreed == false or bank_check.ok == false or bank_check.recent == true or links.ok == false or case.amount > 10000)
     gate:
       approver: "@controller"
       backup: "@cfo"
@@ -60,8 +72,7 @@ steps:
 
   # The PO is marked in the room before any money moves. Another case that
   # checked the same PO sees its row change before it acts: its approval no
-  # longer counts, and its PO check runs again and fails. A second invoice
-  # for the same order, under any number, is never paid automatically.
+  # longer counts, and its PO check runs again and finds it invoiced.
   - id: reserve_po
     when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false and po_check.open == true
     auto_approve: true
@@ -75,7 +86,7 @@ steps:
   # Never to a vendor row changed in the room outside a case, even if a
   # person clicks pay: that account is not one any case approved.
   - id: schedule_payment
-    when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false
+    when: finance != "dispute" and bank_check.iban != null and bank_check.attested != false and po_check.invoiced != true
     auto_approve: po_check.ok == true and match.agreed == true and bank_check.ok == true and bank_check.recent == false and links.ok == true and case.amount <= 10000
     outlet:
       pay: { payee: "{bank_check.vendor}", to: "{bank_check.iban}", amount: "{case.amount}", currency: EUR, reference: "{case.number}" }
