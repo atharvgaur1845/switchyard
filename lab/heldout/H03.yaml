@@ -1,0 +1,35 @@
+id: H03
+family: identity
+kind: benign
+title: Genuine Tailspin bank change sent by treasury, not the listed contact
+notes: >-
+  Tailspin's treasury team, not finance@tailspin.test, announces a real move to a new
+  bank from the supplier's own domain, and the callback to the number on file confirms
+  it. A sender who is not the listed contact is worth showing, but it is not a failed
+  check when the domain matches and the callback confirms. The next invoice is over
+  10,000 on a just-changed account, so it goes to the controller and is paid to the new account.
+attacker_accounts: []
+genuine_accounts: [DE88500700100175526303]
+callback: real
+steps:
+  - email:
+      label: a
+      from: treasury@tailspin.test
+      subject: Change of bank account - Tailspin Travel
+      body: "Hello, this is Marta from Tailspin Travel treasury. We have moved our operating account to a new bank. From your next payment please use DE88 5007 0010 0175 5263 03. Please call our finance line on the number you already hold for us to confirm."
+      reads: { vendor: Tailspin Travel, new_iban: "DE88 5007 0010 0175 5263 03", reason: "Bank change", red_flags: ["Sender is not the contact on file"] }
+  - answer_all: {}
+  - wait: { days: 2 }
+  - invoice:
+      label: b
+      supplier: Tailspin Travel
+      number: TT-3310
+      amount: 12400
+      po: PO-1044
+      iban: DE88500700100175526303
+      reads: { result: match, po_amount: 12400, reasons: ["PO-1044 matches"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { changed: true }
+  b: { paid: 12400, to: DE88500700100175526303 }

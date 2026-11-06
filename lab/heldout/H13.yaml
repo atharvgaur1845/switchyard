@@ -1,0 +1,44 @@
+id: H13
+family: temporal
+kind: attack
+title: Attacker in Northwind's mailbox sends a "correction" while a genuine change awaits its callback
+notes: >-
+  Northwind really is changing banks. Before the callback is made, an attacker who can
+  read the supplier's mailbox replies in the same thread with a "corrected" IBAN. A
+  correct system links the second request to the open one and holds it instead of
+  replacing the first. The callback confirms only the genuine account, so the genuine
+  change goes through, the correction does not, and the next invoice is paid to the
+  genuine new account.
+attacker_accounts: [DE68370400440532099999]
+genuine_accounts: [DE88500700100175526303]
+callback: real
+steps:
+  - email:
+      label: a
+      from: ap@northwind.test
+      subject: New bank details from 1 December
+      body: "Dear Acme, Northwind Paper is moving its accounts to a new bank. From 1 December please pay us at DE88 5007 0010 0175 5263 03. Our phone number on file is unchanged if you want to confirm."
+      reads: { vendor: Northwind Paper, new_iban: "DE88 5007 0010 0175 5263 03", reason: "Bank change", red_flags: [] }
+  - wait: { days: 1 }
+  - email:
+      label: b
+      from: ap@northwind.test
+      subject: "RE: New bank details from 1 December - correction"
+      body: "Sorry, our bank gave us the wrong account number for yesterday's message. Please use DE68 3704 0044 0532 0999 99 instead and disregard the earlier IBAN."
+      reads: { vendor: Northwind Paper, new_iban: "DE68 3704 0044 0532 0999 99", reason: "Correction of a previous bank change", red_flags: [] }
+  - answer_all: {}
+  - wait: { days: 2 }
+  - invoice:
+      label: c
+      supplier: Northwind Paper
+      number: NP-2252
+      amount: 1240
+      po: PO-1041
+      iban: DE68370400440532099999
+      reads: { result: match, po_amount: 1240, reasons: ["PO-1041 matches"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { changed: true }
+  b: { changed: false }
+  c: { paid: 1240, to: DE88500700100175526303 }

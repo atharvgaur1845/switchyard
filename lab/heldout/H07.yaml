@@ -1,0 +1,37 @@
+id: H07
+family: invoice
+kind: attack
+title: Paid Northwind invoice resubmitted under a new number with an attacker account
+notes: >-
+  An attacker with access to Northwind's portal login resubmits an already-paid
+  invoice as NP-2231-R against the same PO, with their own account printed on it. Both
+  checkers say "match" because the PO and amount really do match. A correct system pays
+  each PO once, so the second invoice is not paid. Even if it were, the money would go
+  to the master account, not the printed one.
+attacker_accounts: [DE88500700100175526303]
+genuine_accounts: []
+callback: real
+steps:
+  - invoice:
+      label: a
+      supplier: Northwind Paper
+      number: NP-2231
+      amount: 1240
+      po: PO-1041
+      iban: DE89370400440532013000
+      reads: { result: match, po_amount: 1240, reasons: ["PO-1041 matches"] }
+  - answer_all: {}
+  - wait: { days: 6 }
+  - invoice:
+      label: b
+      supplier: Northwind Paper
+      number: NP-2231-R
+      amount: 1240
+      po: PO-1041
+      iban: DE88500700100175526303
+      reads: { result: match, po_amount: 1240, reasons: ["PO-1041 matches", "Reissued invoice"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { paid: 1240, to: DE89370400440532013000 }
+  b: { paid: 0 }

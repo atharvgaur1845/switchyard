@@ -1,0 +1,28 @@
+id: H10
+family: insider
+kind: attack
+title: Insider edits Fabrikam's IBAN in the vendor master just before a genuine invoice
+notes: >-
+  Someone in the finance room changes Fabrikam's account in the vendor master directly,
+  with no email, callback or approval, and the next genuine invoice for PO-1043 matches
+  exactly. "Pay the vendor master" would now pay the attacker. A correct system notices
+  that the row changed outside any case and that the account changed recently, and
+  sends the invoice for investigation instead of paying.
+attacker_accounts: [DE75512108001245126199]
+genuine_accounts: []
+callback: real
+steps:
+  - edit_master: { vendor: Fabrikam Print, iban: DE75512108001245126199 }
+  - wait: { days: 1 }
+  - invoice:
+      label: a
+      supplier: Fabrikam Print
+      number: FP-0940
+      amount: 3150
+      po: PO-1043
+      iban: DE29100500000190183746
+      reads: { result: match, po_amount: 3150, reasons: ["PO-1043 matches"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { paid: 0 }

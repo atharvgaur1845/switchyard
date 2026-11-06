@@ -1,0 +1,53 @@
+id: H05
+family: beneficiary
+kind: benign
+title: Northwind and Fabrikam both assign receivables to the same factoring account
+notes: >-
+  Both suppliers sell their receivables to one factoring company, so two vendors
+  legitimately point at a single third-party account, and both callbacks confirm.
+  A correct system may warn that the account is shared or held by a third party, but
+  that alone is not a failed check once the callback confirms. Both changes go through,
+  and both invoices are paid to the factor.
+attacker_accounts: []
+genuine_accounts: [DE12500105170648489890]
+callback: real
+steps:
+  - email:
+      label: a
+      from: ap@northwind.test
+      subject: Notice of assignment - factoring
+      body: "Dear customer, Northwind Paper has assigned its trade receivables to Hanse Factoring GmbH. With immediate effect please pay all Northwind Paper invoices to Hanse Factoring's collection account DE12 5001 0517 0648 4898 90, quoting our invoice number. Our phone numbers and contacts are unchanged."
+      reads: { vendor: Northwind Paper, new_iban: "DE12 5001 0517 0648 4898 90", reason: "Assignment of receivables to a factoring company", red_flags: ["Account holder is a third party"] }
+  - answer_all: {}
+  - wait: { days: 1 }
+  - email:
+      label: b
+      from: accounts@fabrikam.test
+      subject: Factoring notice - new payment account
+      body: "Hello, Fabrikam Print now works with Hanse Factoring GmbH. Please settle our invoices to DE12 5001 0517 0648 4898 90 (account holder Hanse Factoring GmbH, reference Fabrikam Print). You can confirm with us on our usual number."
+      reads: { vendor: Fabrikam Print, new_iban: "DE12 5001 0517 0648 4898 90", reason: "Assignment of receivables to a factoring company", red_flags: ["Account holder is a third party"] }
+  - answer_all: {}
+  - wait: { days: 3 }
+  - invoice:
+      label: c
+      supplier: Northwind Paper
+      number: NP-2240
+      amount: 1240
+      po: PO-1041
+      iban: DE12500105170648489890
+      reads: { result: match, po_amount: 1240, reasons: ["PO-1041 matches"] }
+  - invoice:
+      label: d
+      supplier: Fabrikam Print
+      number: FP-0931
+      amount: 3150
+      po: PO-1043
+      iban: DE12500105170648489890
+      reads: { result: match, po_amount: 3150, reasons: ["PO-1043 matches"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { changed: true }
+  b: { changed: true }
+  c: { paid: 1240, to: DE12500105170648489890 }
+  d: { paid: 3150, to: DE12500105170648489890 }

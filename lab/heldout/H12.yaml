@@ -1,0 +1,29 @@
+id: H12
+family: temporal
+kind: attack
+title: Tailspin's IBAN is edited in the master while its 12,400 invoice waits for approval
+notes: >-
+  A genuine 12,400 invoice is waiting for the controller, which is expected because it
+  is over 10,000. While that card is open, an insider edits Tailspin's account in the
+  vendor master, so a payment released later "to the vendor master" would reach the
+  attacker. A correct system checks the account again when the payment is released,
+  sees the row changed outside any case after the approval card was created, and stops
+  the payment.
+attacker_accounts: [DE63120300001064532871]
+genuine_accounts: []
+callback: real
+steps:
+  - invoice:
+      label: a
+      supplier: Tailspin Travel
+      number: TT-3460
+      amount: 12400
+      po: PO-1044
+      iban: DE20200400000628401599
+      reads: { result: match, po_amount: 12400, reasons: ["PO-1044 matches"] }
+  - wait: { days: 1 }
+  - edit_master: { vendor: Tailspin Travel, iban: DE63120300001064532871 }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { paid: 0 }

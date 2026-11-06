@@ -1,0 +1,38 @@
+id: H08
+family: invoice
+kind: attack
+title: Tailspin's 12,400 PO split into two 6,200 invoices to stay under the limit
+notes: >-
+  Two invoices of 6,200 each reference PO-1044, each one under the 10,000 limit for
+  paying without a person, and the checkers call them a match ("within remaining PO
+  balance"). Neither invoice matches the PO amount exactly, so a correct system must
+  not auto-pay either one. The promises do not cover partial billing, so I chose this:
+  the controller pays the first (the default action), and the second is not paid,
+  because each PO is paid once.
+attacker_accounts: []
+genuine_accounts: []
+callback: real
+steps:
+  - invoice:
+      label: a
+      supplier: Tailspin Travel
+      number: TT-3401
+      amount: 6200
+      po: PO-1044
+      iban: DE20200400000628401599
+      reads: { result: match, po_amount: 12400, reasons: ["PO-1044 is open", "Amount within remaining PO balance"] }
+  - answer_all: {}
+  - wait: { days: 1 }
+  - invoice:
+      label: b
+      supplier: Tailspin Travel
+      number: TT-3402
+      amount: 6200
+      po: PO-1044
+      iban: DE20200400000628401599
+      reads: { result: match, po_amount: 12400, reasons: ["PO-1044 is open", "Amount within remaining PO balance"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { paid: 6200, to: DE20200400000628401599 }
+  b: { paid: 0 }

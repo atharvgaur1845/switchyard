@@ -1,0 +1,47 @@
+id: H02
+family: identity
+kind: attack
+title: Forged From on contoso.test with a Reply-To elsewhere, then a "corrected IBAN" retry
+notes: >-
+  The From address is Contoso's real billing contact but forged, and Reply-To points
+  to contoso-payments.test; catching the forgery itself would need SPF/DKIM, which is
+  out of scope, so the callback to the number on file is what must stop it. Five days
+  after the refusal the attacker retries with a different account; a correct system
+  links it to the refused case and holds it. The invoice that follows prints the
+  second attacker account and must be paid to Contoso's master account.
+attacker_accounts: [DE75512108001245126199, DE02120300000000202051]
+genuine_accounts: []
+callback: real
+steps:
+  - email:
+      label: a
+      from: billing@contoso.test
+      reply_to: billing@contoso-payments.test
+      subject: Bank account update - action needed
+      body: "Dear Acme AP team, Contoso Cloud has moved its receivables to a new bank. Please use DE75 5121 0800 1245 1261 99 for invoice payments from now on, and reply to this email to confirm once updated. Best regards, Contoso Cloud Billing"
+      reads: { vendor: Contoso Cloud, new_iban: "DE75 5121 0800 1245 1261 99", reason: "Bank change", red_flags: ["Reply-To domain differs from sender domain"] }
+  - answer_all: {}
+  - wait: { days: 5 }
+  - email:
+      label: b
+      from: billing@contoso.test
+      reply_to: billing@contoso-payments.test
+      subject: "RE: Bank account update - corrected IBAN"
+      body: "Apologies, our bank told us the account number in our last message had a typo. The correct account is DE02 1203 0000 0000 2020 51. Our invoice falls due this week, so please update it today."
+      reads: { vendor: Contoso Cloud, new_iban: "DE02 1203 0000 0000 2020 51", reason: "Correction of an earlier bank change", red_flags: ["Urgency"] }
+  - answer_all: {}
+  - wait: { days: 1 }
+  - invoice:
+      label: c
+      supplier: Contoso Cloud
+      number: CC-5520
+      amount: 8900
+      po: PO-1042
+      iban: DE02120300000000202051
+      reads: { result: match, po_amount: 8900, reasons: ["PO-1042 matches"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { changed: false }
+  b: { changed: false }
+  c: { paid: 8900, to: DE44500105175407324931 }

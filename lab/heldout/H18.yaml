@@ -1,0 +1,40 @@
+id: H18
+family: collaboration
+kind: attack
+title: Controller records the callback as confirmed and then approves the change themself
+notes: >-
+  A colluding controller marks the callback on a fraudulent Northwind change as
+  confirmed, although the real supplier would deny it, and then approves the change
+  personally. The promise requires a different person to approve than the one who
+  called, so the self-approval must be refused. The CFO, as the independent approver,
+  then rejects it because of the free-mail Reply-To. If the system refuses the
+  controller's callback entry outright, the real callback refuses the change, so either
+  way it does not go through.
+attacker_accounts: [DE63120300001064532871]
+genuine_accounts: []
+callback: real
+steps:
+  - email:
+      label: a
+      from: ap@northwind.test
+      reply_to: northwind.payments@freemail.test
+      subject: Bank details update - please reply to this address
+      body: "Dear Acme, please update Northwind Paper's bank account to DE63 1203 0000 1064 5328 71 for all future payments. Our main inbox is being migrated, so please reply to this address only."
+      reads: { vendor: Northwind Paper, new_iban: "DE63 1203 0000 1064 5328 71", reason: "Bank change", red_flags: ["Reply-To is a free-mail address"] }
+  - answer: { case: a, choice: confirmed, by: "@controller" }
+  - answer: { case: a, choice: approve, by: "@controller" }
+  - answer: { case: a, choice: reject, by: "@cfo" }
+  - answer_all: {}
+  - wait: { days: 1 }
+  - invoice:
+      label: b
+      supplier: Northwind Paper
+      number: NP-2270
+      amount: 1240
+      po: PO-1041
+      reads: { result: match, po_amount: 1240, reasons: ["PO-1041 matches"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { changed: false }
+  b: { paid: 1240, to: DE89370400440532013000 }

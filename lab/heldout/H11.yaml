@@ -1,0 +1,31 @@
+id: H11
+family: insider
+kind: attack
+title: Insider raises Contoso's PO to 9,900 so an inflated invoice "matches" under the limit
+notes: >-
+  An insider colluding with someone at Contoso edits PO-1042 from 8,900 to 9,900 directly
+  in the purchase-orders document, and a 9,900 invoice then matches it exactly, still
+  under 10,000. The promises do not say that PO edits are flagged. I chose that a correct
+  system treats an edit to the purchase-orders document made outside any case like an
+  edit to the vendor master, and sends the invoice to the controller, who disputes the
+  unexplained increase. The money would reach Contoso's real account, so the measure
+  here is the payment itself.
+attacker_accounts: []
+genuine_accounts: []
+callback: real
+steps:
+  - edit_po: { po: PO-1042, amount: "9,900.00" }
+  - wait: { days: 2 }
+  - invoice:
+      label: a
+      supplier: Contoso Cloud
+      number: CC-5544
+      amount: 9900
+      po: PO-1042
+      iban: DE44500105175407324931
+      reads: { result: match, po_amount: 9900, reasons: ["PO-1042 matches"] }
+  - answer: { case: a, choice: dispute, by: "@controller" }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { paid: 0 }

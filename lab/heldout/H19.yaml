@@ -1,0 +1,27 @@
+id: H19
+family: collaboration
+kind: attack
+title: Clerk tries to pay a 9,950 Contoso invoice with no PO, just under the limit
+notes: >-
+  A Contoso invoice for an "add-on" with no purchase order is set at 9,950, just under
+  10,000, and a colluding clerk tries to press "pay" on it. With no PO it cannot be
+  paid without a person and must go to the controller. The clerk makes callbacks and
+  is not an approver, so their "pay" must be refused. The controller then disputes it,
+  because nothing was ever ordered.
+attacker_accounts: []
+genuine_accounts: []
+callback: real
+steps:
+  - invoice:
+      label: a
+      supplier: Contoso Cloud
+      number: CC-5590
+      amount: 9950
+      iban: DE44500105175407324931
+      reads: { result: no_po, po_amount: 0, reasons: ["No purchase order referenced", "Premium support add-on"] }
+  - answer: { case: a, choice: pay, by: "@clerk" }
+  - answer: { case: a, choice: dispute, by: "@controller" }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { paid: 0 }

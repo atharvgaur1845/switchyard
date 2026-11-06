@@ -1,0 +1,46 @@
+id: H14
+family: temporal
+kind: benign
+title: Fabrikam genuinely changes banks a week after a look-alike tried the same
+notes: >-
+  A look-alike domain (fabrikamprint.test) asks to move Fabrikam to an attacker account
+  and is refused. Eight days later Fabrikam itself, from its real domain, announces a
+  real bank change. A correct system may link the two and hold the second request.
+  Someone doing the job then sends it to callback anyway, because it came from the
+  domain on file, and the callback confirms. The genuine change must not be lost
+  because of the earlier fraud.
+attacker_accounts: [DE02120300000000202051]
+genuine_accounts: [DE75512108001245126199]
+callback: real
+steps:
+  - email:
+      label: a
+      from: accounts@fabrikamprint.test
+      subject: Fabrikam Print - change of bank
+      body: "Dear customer, please note Fabrikam Print's new bank account DE02 1203 0000 0000 2020 51, effective immediately for all payments."
+      reads: { vendor: Fabrikam Print, new_iban: "DE02 1203 0000 0000 2020 51", reason: "Bank change", red_flags: [] }
+  - answer_all: {}
+  - wait: { days: 8 }
+  - email:
+      label: b
+      from: accounts@fabrikam.test
+      subject: Our new bank account - genuine notice
+      body: "Hello, we understand some customers received a fraudulent email last week claiming to be from us. This message is genuine: Fabrikam Print's new account is DE75 5121 0800 1245 1261 99. Please call us on the number you already have to confirm before updating."
+      reads: { vendor: Fabrikam Print, new_iban: "DE75 5121 0800 1245 1261 99", reason: "Bank change", red_flags: ["Bank change shortly after a suspected fraudulent request"] }
+  - answer: { case: b, choice: call-anyway }
+  - answer_all: {}
+  - wait: { days: 2 }
+  - invoice:
+      label: c
+      supplier: Fabrikam Print
+      number: FP-0955
+      amount: 3150
+      po: PO-1043
+      iban: DE75512108001245126199
+      reads: { result: match, po_amount: 3150, reasons: ["PO-1043 matches"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { changed: false }
+  b: { changed: true }
+  c: { paid: 3150, to: DE75512108001245126199 }

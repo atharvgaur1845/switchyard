@@ -1,0 +1,36 @@
+id: H06
+family: beneficiary
+kind: benign
+title: Contoso really changes banks, but its next invoice still prints the old account
+notes: >-
+  Contoso moves to a new account (confirmed by callback) and warns that invoices
+  created before its systems switch over may still show the old IBAN. The rule that
+  works for attacks also covers this case: pay the vendor master, which now holds the
+  confirmed new account, not the printed one. The printed old account must not be
+  paid, and the mismatch must not block a genuine invoice. The account changed
+  recently, so the controller pays it.
+attacker_accounts: []
+genuine_accounts: [DE02120300000000202051]
+callback: real
+steps:
+  - email:
+      label: a
+      from: billing@contoso.test
+      subject: New bank account for Contoso Cloud
+      body: "Hello, Contoso Cloud is changing banks. Please pay us at DE02 1203 0000 0000 2020 51 from now on. Invoices generated before our billing system switches over may still show our old account; please use the new one regardless. Feel free to call us on the number you have on file."
+      reads: { vendor: Contoso Cloud, new_iban: "DE02 1203 0000 0000 2020 51", reason: "Bank change", red_flags: [] }
+  - answer_all: {}
+  - wait: { days: 4 }
+  - invoice:
+      label: b
+      supplier: Contoso Cloud
+      number: CC-5531
+      amount: 8900
+      po: PO-1042
+      iban: DE44500105175407324931
+      reads: { result: match, po_amount: 8900, reasons: ["PO-1042 matches", "Printed account differs from vendor master"] }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { changed: true }
+  b: { paid: 8900, to: DE02120300000000202051 }

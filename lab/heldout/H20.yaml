@@ -1,0 +1,38 @@
+id: H20
+family: collaboration
+kind: benign
+title: Controller on leave, so the CFO approves a genuine Fabrikam change and pays the next invoice
+notes: >-
+  Fabrikam genuinely changes banks while the controller is away. The clerk makes the
+  callback, which confirms, and the CFO approves as the named backup approver, then
+  pays the next invoice, which goes to a person because the account just changed. The
+  separation-of-duties rule must accept a different, authorised approver and must not
+  insist on the controller.
+attacker_accounts: []
+genuine_accounts: [DE88500700100175526303]
+callback: real
+steps:
+  - email:
+      label: a
+      from: accounts@fabrikam.test
+      subject: Fabrikam Print - new bank account
+      body: "Hello, Fabrikam Print has moved to a new bank. Please make future payments to DE88 5007 0010 0175 5263 03. You can confirm this with us on our usual phone number."
+      reads: { vendor: Fabrikam Print, new_iban: "DE88 5007 0010 0175 5263 03", reason: "Bank change", red_flags: [] }
+  - answer: { case: a, choice: confirmed, by: "@clerk" }
+  - answer: { case: a, choice: approve, by: "@cfo" }
+  - answer_all: {}
+  - wait: { days: 3 }
+  - invoice:
+      label: b
+      supplier: Fabrikam Print
+      number: FP-0977
+      amount: 3150
+      po: PO-1043
+      iban: DE88500700100175526303
+      reads: { result: match, po_amount: 3150, reasons: ["PO-1043 matches"] }
+  - answer: { case: b, choice: pay, by: "@cfo" }
+  - answer_all: {}
+expect:
+  attacker_paid_eur: 0
+  a: { changed: true }
+  b: { paid: 3150, to: DE88500700100175526303 }
