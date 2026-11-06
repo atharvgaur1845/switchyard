@@ -87,7 +87,9 @@ export function investigations(store: Store, flows: Flow[]): { clusters: Cluster
       const when = (e as { at_iso?: string }).at_iso ?? at;
       if (e.type === "flagged") {
         signal.add(e.iban);
-        decisions.push({ caseId: id, iban: e.iban, relation: "blocked", at: new Date(e.at).toISOString(), by: e.by, source: `a person answered "block" on a request from ${e.sender || "an unknown sender"}`, status: "blocked by a person: suspected, not confirmed fraud" });
+        decisions.push(e.how === "callback"
+          ? { caseId: id, iban: e.iban, relation: "blocked", at: new Date(e.at).toISOString(), by: e.by, source: `callback on the number on file: ${e.vendor} said it is not their account (request from ${e.sender || "an unknown sender"})`, status: "not confirmed by the supplier: refused, fraud not proven" }
+          : { caseId: id, iban: e.iban, relation: "blocked", at: new Date(e.at).toISOString(), by: e.by, source: `a person answered "block" on a request from ${e.sender || "an unknown sender"}`, status: "blocked by a person: suspected, not confirmed fraud" });
       }
       if (e.type === "cleared") {
         decisions.push({ caseId: id, iban: e.iban, relation: "cleared", at: new Date(e.at).toISOString(), by: e.by, source: "people called the supplier and approved a change to it", status: "cleared after a callback and a second approver" });
@@ -176,7 +178,7 @@ export function investigations(store: Store, flows: Flow[]): { clusters: Cluster
         const seq = e.seq;
         if (e.type === "opened") timeline.push({ at, seq, caseId: id, tone: "neutral", text: `opened: ${c.title} (${e.source ?? e.flow})` });
         if (e.type === "verified" && e.check === "links" && rec(e.value).ok === false) timeline.push({ at, seq, caseId: id, tone: "stop", text: `linked by code: ${String(rec(e.value).detail)}` });
-        if (e.type === "flagged") timeline.push({ at, seq, caseId: id, tone: "stop", by: e.by, text: `${mask(e.iban)} recorded as blocked by a person (suspected, not confirmed)` });
+        if (e.type === "flagged") timeline.push({ at, seq, caseId: id, tone: "stop", by: e.by, text: e.how === "callback" ? `${mask(e.iban)} recorded: the supplier said on the phone it is not theirs` : `${mask(e.iban)} recorded as blocked by a person (suspected, not confirmed)` });
         if (e.type === "cleared") timeline.push({ at, seq, caseId: id, tone: "act", by: e.by, text: `${mask(e.iban)} cleared: called and approved after the block` });
         if (e.type === "gate_answered") {
           const step = flow?.steps.find((s) => s.id === e.step);

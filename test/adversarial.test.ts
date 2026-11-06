@@ -70,8 +70,8 @@ async function rig() {
 }
 
 describe("attacks on paying an invoice", () => {
-  it("a second invoice for an already invoiced PO, under a new number, waits for a person", async () => {
-    const { store, open, paid } = await rig();
+  it("a second invoice for an already invoiced PO, under a new number, is held with no pay button", async () => {
+    const { chat, store, runner, open, paid } = await rig();
     const first = await open(fabrikam("FP-0912"));
     const before = paidInLedger().length;
     // A new number, a longer number, and a Cyrillic "Р" that looks like "P".
@@ -79,7 +79,14 @@ describe("attacks on paying an invoice", () => {
       const id = await open(fabrikam(number));
       expect(paid(id)).toHaveLength(0);
       expect(store.load(id).pending?.kind).toBe("gate");
-      expect(store.load(id).results.po_check).toMatchObject({ ok: false, detail: expect.stringContaining(`PO-1043 is invoiced FP-0912 (case ${first})`) });
+      expect(store.load(id).results.po_check).toMatchObject({ ok: false, invoiced: true, detail: expect.stringContaining(`PO-1043 is invoiced FP-0912 (case ${first})`) });
+      const card = chat.cards.findLast((c) => c.requestId.startsWith(id))!;
+      expect(card.title).toMatch(/hold Fabrikam Print invoice .*: PO-1043 is already invoiced FP-0912 .*each PO is paid once/);
+      expect(card.options).not.toContain("pay");
+      // A forged "pay" on that card decides nothing.
+      await runner.onApproval({ requestId: card.requestId, answer: "pay", answeredBy: "mx:@controller" });
+      expect(paid(id)).toHaveLength(0);
+      expect(store.events(id).some((e) => e.type === "gate_answered")).toBe(false);
     }
     expect(paid(first)).toHaveLength(1);
     expect(paidInLedger().length).toBe(before);
@@ -98,7 +105,7 @@ describe("attacks on paying an invoice", () => {
     expect(paid(b)).toHaveLength(0);
     expect(store.events(b).some((e) => e.type === "rewound")).toBe(true);
     expect(store.load(b).results.po_check).toMatchObject({ ok: false, detail: expect.stringContaining("PO-1043 is invoiced FP-2001") });
-    expect(store.load(b).pending?.kind).toBe("gate");
+    expect(store.load(b).pending).toMatchObject({ kind: "gate", step: "duplicate" });
   });
 
   it("a supplier named only part of the name on the PO is not that supplier", () => {
@@ -488,6 +495,31 @@ describe("attacks across cases", () => {
     await answer(await email("ap@fabrikam-pay.test", ATTACKER), "block", "@controller");
     expect(store.events(real).filter((e) => e.type === "rewound")).toHaveLength(1);
     expect(chat.said("Another request naming this case's account DE88500700100175526303 was blocked")).toBe(true);
+  });
+
+  it("a callback the supplier does not confirm is evidence, even for a request from its own domain", async () => {
+    const { chat, store, runner, email, card, answer, settle } = await world();
+    // The compromised mailbox: the real domain, and the supplier on the phone says no.
+    const real = await email(REAL, ATTACKER);
+    await answer(real, "not-confirmed", "@clerk");
+    expect(store.events(real).find((e) => e.type === "flagged")).toMatchObject({ iban: "DE88500700100175526303", how: "callback" });
+    // The attacker tries again from the same mailbox: it goes to the controller before any call.
+    const again = await email(REAL, ATTACKER);
+    expect(store.load(again).results.links).toMatchObject({ ok: false, linked_cases: [real] });
+    expect(card(again).title).toMatch(/Fabrikam Print, called by @clerk on the number on file, said it is not their account/);
+    // And an invoice printing that account goes to a person.
+    const invoice = await runner.open("invoice-check", fabrikam("FP-7101", { iban: "DE88500700100175526303" }), "webhook");
+    await settle();
+    expect(store.load(invoice).results.links).toMatchObject({ ok: false });
+    expect(chat.said("Linked cases:")).toBe(true);
+  });
+
+  it("an answer that is not one of the card's options decides nothing", async () => {
+    const { store, email, card, runner } = await world();
+    const real = await email(REAL, ATTACKER);
+    await runner.onApproval({ requestId: card(real).requestId, answer: "call-anyway", answeredBy: "mx:@clerk" });
+    expect(store.events(real).some((e) => e.type === "gate_answered")).toBe(false);
+    expect(store.load(real).pending).toMatchObject({ kind: "gate", step: "callback" });
   });
 
   it("the same sender blocked again only adds a note to an open case", async () => {

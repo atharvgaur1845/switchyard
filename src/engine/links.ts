@@ -15,6 +15,9 @@ export interface Blocked {
   sender: string;
   by: string;
   at: number;
+  // "block": a person blocked the request. "callback": the supplier, called
+  // on the number on file, said the account is not theirs.
+  how?: "block" | "callback";
 }
 
 export interface Link {
@@ -41,7 +44,7 @@ export function blockedAccount(
   checks: Record<string, unknown>,
   email: string,
   master: string,
-  meta: { caseId: string; by: string; at: number },
+  meta: { caseId: string; by: string; at: number; how?: "block" | "callback" },
 ): Blocked | undefined {
   const iban = compactIban(String(checks.new_iban ?? ""));
   const vendor = String(checks.vendor ?? "");
@@ -54,10 +57,14 @@ export function blockedAccount(
   // naming a vendor's real account must not get that account flagged.
   if (tableRows(master).some(([, , onFile = ""]) => compactIban(onFile) === iban)) return undefined;
   // A block of a request from the vendor's own domain (or a subdomain of it)
-  // says nothing about the account; only a request from elsewhere does.
+  // says nothing about the account; only a request from elsewhere does. A
+  // failed callback does, from any sender: the supplier itself, on the phone
+  // number on file, said the account is not theirs. That is how a
+  // compromised mailbox is found out.
   const domain = String(checks.domain ?? "").toLowerCase();
-  if (sender && domain && (sender.toLowerCase() === domain || sender.toLowerCase().endsWith(`.${domain}`))) return undefined;
-  return { iban, caseId: meta.caseId, vendor, sender, by: meta.by, at: meta.at };
+  const how = meta.how ?? "block";
+  if (how === "block" && sender && domain && (sender.toLowerCase() === domain || sender.toLowerCase().endsWith(`.${domain}`))) return undefined;
+  return { iban, caseId: meta.caseId, vendor, sender, by: meta.by, at: meta.at, how };
 }
 
 // The links for one case. `iban` is the account the case would pay or write;
@@ -76,7 +83,9 @@ export function findLinks(args: { iban?: string; printed?: string; vendor?: stri
         role,
         caseId: b.caseId,
         sender: b.sender,
-        detail: `${mask(iban)} was requested for ${b.vendor} from ${b.sender || "an unknown sender"}, and ${b.by} blocked that request (case ${b.caseId})`,
+        detail: b.how === "callback"
+          ? `${mask(iban)} was requested for ${b.vendor} from ${b.sender || "an unknown sender"}, and ${b.vendor}, called by ${b.by} on the number on file, said it is not their account (case ${b.caseId})`
+          : `${mask(iban)} was requested for ${b.vendor} from ${b.sender || "an unknown sender"}, and ${b.by} blocked that request (case ${b.caseId})`,
       });
     }
     for (const [other = "", , onFile = ""] of tableRows(master)) {

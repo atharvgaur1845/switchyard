@@ -52,7 +52,7 @@ function graph(cluster, selectedEdge) {
     const mx = (x1 + x2) / 2;
     const d = `M${x1},${a.y} C${mx},${a.y + bend} ${mx},${b.y + bend} ${x2},${b.y}`;
     const r = RELATION[e.relation] ?? { text: e.relation, tone: "muted", dash: "" };
-    const label = e.relation === "blocked" && e.by ? `blocked by ${e.by}` : r.text;
+    const label = e.relation === "blocked" && e.source.startsWith("callback") ? "supplier: not theirs" : e.relation === "blocked" && e.by ? `blocked by ${e.by}` : r.text;
     // The label sits a third of the way along the curve, near its case,
     // so lines that meet at one account keep their labels apart.
     const t = 0.32;

@@ -375,7 +375,7 @@ export class Runner {
     const cleared = new Map<string, number>();
     for (const id of this.store.caseIds()) {
       for (const e of this.store.events(id)) {
-        if (e.type === "flagged") flagged.push({ iban: e.iban, caseId: id, vendor: e.vendor, sender: e.sender, by: e.by, at: e.at });
+        if (e.type === "flagged") flagged.push({ iban: e.iban, caseId: id, vendor: e.vendor, sender: e.sender, by: e.by, at: e.at, how: e.how ?? "block" });
         if (e.type === "cleared") cleared.set(e.iban, Math.max(cleared.get(e.iban) ?? 0, e.at));
       }
     }
@@ -384,14 +384,14 @@ export class Runner {
 
   // After a "block" answer: records the blocked account as evidence for other
   // cases, if it is safe evidence (links.ts).
-  private async flagBlocked(state: CaseState, by: string): Promise<boolean> {
+  private async flagBlocked(state: CaseState, by: string, how: "block" | "callback" = "block"): Promise<boolean> {
     const step = this.flowOf(state).steps.find((s) => isVerify(s) && s.verify.check === "bank_change");
     const checks = step ? (state.results[step.id] as Record<string, unknown> | undefined) : undefined;
     if (!step || !isVerify(step) || !checks || !this.chat.documents) return false;
     const master = (await this.chat.documents(state.room)).filter((d) => d.name === step.verify.doc).map((d) => d.content).join("\n");
-    const found = blockedAccount(checks, String(state.data.body ?? ""), master, { caseId: state.id, by, at: this.now() });
+    const found = blockedAccount(checks, String(state.data.body ?? ""), master, { caseId: state.id, by, at: this.now(), how });
     if (!found) return false;
-    this.store.append(state.id, { type: "flagged", iban: found.iban, vendor: found.vendor, sender: found.sender, by, at: found.at });
+    this.store.append(state.id, { type: "flagged", iban: found.iban, vendor: found.vendor, sender: found.sender, by, at: found.at, how });
     return true;
   }
 
@@ -422,6 +422,7 @@ export class Runner {
     if (!this.chat.documents) return;
     const docs = await this.chat.documents(room);
     const flagged = this.store.events(blockedIn).filter((e) => e.type === "flagged").at(-1);
+    const what = flagged?.type === "flagged" && flagged.how === "callback" ? "The supplier, called on the number on file, just said a requested account is not theirs" : "A person just blocked a request naming this case's account";
     for (const open of this.store.openCases().filter((c) => c.room === room && c.id !== blockedIn)) {
       const drift: Record<string, [string, string]> = {};
       for (const [name, b] of Object.entries(open.basis)) {
@@ -442,7 +443,7 @@ export class Runner {
       // A case in doubt, or with an action in flight, keeps its doubt card: a
       // person must still say whether that action happened. It is only told.
       if (open.pending?.kind === "in_doubt" || Object.keys(open.executing).length > 0) {
-        await this.say(open, `A person just blocked a request naming this case's account. This case is waiting on whether an action went out; decide that first, then check it again.`);
+        await this.say(open, `${what}. This case is waiting on whether an action went out; decide that first, then check it again.`);
         continue;
       }
       const at = this.flowOf(open).steps.find((s) => open.pending && s.id === open.pending.step);
@@ -450,8 +451,8 @@ export class Runner {
       const first = Math.min(...Object.keys(drift).map((doc) => order.indexOf(open.basis[doc].step)));
       const steps = order.slice(first).filter((id) => open.finished.has(id) || id === open.pending?.step);
       this.store.append(open.id, { type: "rewound", step: at?.id ?? order[first], steps, docs: drift });
-      const what = Object.entries(drift).map(([doc, [was, now]]) => `${doc.slice("links:".length)}: ${was} → ${now}`).join(", ");
-      await this.say(open, `A person just blocked a request naming this case's account (${what}). Checking again; the open card no longer counts.`);
+      const changes = Object.entries(drift).map(([doc, [was, now]]) => `${doc.slice("links:".length)}: ${was} → ${now}`).join(", ");
+      await this.say(open, `${what} (${changes}). Checking again; the open card no longer counts.`);
       await this.advance(open.id);
     }
   }
@@ -789,7 +790,10 @@ export class Runner {
     });
     await this.advance(state.id);
     // A block is evidence for other cases on the same account.
-    if (outcome.answer === "block" && (await this.flagBlocked(this.store.load(state.id), answerer!)) && this.crossCase) await this.relinkOpen(state.room, state.id);
+    // A block, or a callback the supplier did not confirm, is evidence for
+    // other cases on the same account.
+    const how = outcome.answer === "block" ? "block" : outcome.answer === "not-confirmed" && step.id === "callback" ? "callback" : undefined;
+    if (how && (await this.flagBlocked(this.store.load(state.id), answerer!, how)) && this.crossCase) await this.relinkOpen(state.room, state.id);
   }
 
   async cancel(caseId: string, by: string): Promise<boolean> {

@@ -64,7 +64,7 @@ export type CaseEvent =
   // Evidence for other cases (links.ts): a person blocked a request for this
   // account, decided when the block was answered. `cleared`: people later
   // called the supplier anyway and approved a change to it.
-  | { type: "flagged"; iban: string; vendor: string; sender: string; by: string; at: number }
+  | { type: "flagged"; iban: string; vendor: string; sender: string; by: string; at: number; how?: "block" | "callback" }
   | { type: "cleared"; iban: string; by: string; at: number };
 
 // What a case is waiting on. `at` is when the wait began (epoch ms), which the

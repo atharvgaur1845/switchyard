@@ -31,3 +31,27 @@ describe("the attack lab", () => {
     expect(results.filter((r) => r.kind === "benign").every((r) => r.runs.first.links.toAttacker === 0 && r.runs.callback.links.toAttacker === 0)).toBe(true);
   }, 30_000);
 });
+
+// The held-out scenarios (lab/heldout), as the README quotes them. Their
+// first run is kept in lab/heldout/FIRST-RUN.md; these are the results after
+// the two fixes it led to.
+describe("the held-out scenarios", () => {
+  it("meet their expectations, except the factoring cost of links, and the frozen files are unchanged", async () => {
+    const { createHash } = await import("node:crypto");
+    const { readFileSync } = await import("node:fs");
+    for (const line of readFileSync("lab/heldout/FROZEN.sha256", "utf8").trim().split("\n")) {
+      const [hash, file] = line.split(/\s+/);
+      expect(createHash("sha256").update(readFileSync(`lab/heldout/${file}`)).digest("hex"), file).toBe(hash);
+    }
+    const { heldOutLab } = await import("../src/lab-heldout.ts");
+    const results = await heldOutLab();
+    expect(results).toHaveLength(20);
+    expect(results.filter((r) => !r.baseline.pass).map((r) => r.scenario.id)).toEqual([]);
+    expect(results.filter((r) => !r.links.pass).map((r) => r.scenario.id)).toEqual(["H05"]);
+    expect(results.reduce((n, r) => n + r.baseline.toAttacker + r.links.toAttacker, 0)).toBe(0);
+    // With every callback fooled, these single-case attacks get through, links or not.
+    const fooled = results.filter((r) => r.fooled.links > 0).map((r) => r.scenario.id);
+    expect(fooled).toEqual(["H02", "H04", "H13", "H15", "H18"]);
+    expect(results.every((r) => r.fooled.links === r.fooled.baseline)).toBe(true);
+  }, 60_000);
+});
