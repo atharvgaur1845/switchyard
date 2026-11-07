@@ -74,7 +74,7 @@ describe("a contract decision", () => {
     expect(r.policy.margin).toBe(28.5);
     expect(r.counter_fit.ok && r.counter_policy.ok).toBe(true);
     expect(card(id).options).toEqual(["counter", "decline"]);
-    expect(card(id).title).toMatch(/As proposed it breaks: max discount 15% \(set by @cfo\): 25%/);
+    expect(card(id).title).toMatch(/breaks 4 company rules \(max discount, min gross margin, max uptime promised, new fixed costs this quarter\), and promises already made stand in its way \(C-101, C-102, C-103\)\. The counteroffer passes both\. 8 objections stay open/);
   });
 
   it("keeps every objection with its quote, and does not average them into a vote", async () => {

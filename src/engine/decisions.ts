@@ -24,7 +24,8 @@ export interface Commitment {
 }
 
 const num = (v: unknown) => Number(String(v ?? "").replace(/[,%\s]|INR/g, ""));
-const fmt = (n: number) => n.toLocaleString("en", { maximumFractionDigits: 1 });
+const fmt = (n: number, digits = 1) => n.toLocaleString("en", { maximumFractionDigits: digits });
+const money = (n: number) => fmt(Math.round(n), 0);
 const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
 
 export function commitmentsOf(content: string): Commitment[] {
@@ -92,6 +93,7 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
         shortfall,
         shortfall_gpu_hours: shortfall.gpu_hours ?? 0,
         conflicts,
+        conflict_ids: [...new Set(conflicts.map((c) => c.id))].join(", ") || "none",
         start: iso(start),
         end: iso(end),
         // A service promise runs for the contract's term, a year by default.
@@ -131,20 +133,22 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
       const fixed = num(args.shortfall_gpu_hours) > 0 ? num(args.shortfall_gpu_hours) * 12 * gpuCost : 0;
       const checks = [
         { rule: "max discount", value: discount, shown: `${fmt(discount)}%`, ok: (r: number) => discount <= r },
-        { rule: "min gross margin", value: margin, shown: `${fmt(margin)}% (code: ${fmt(net)} after discount, ${fmt(cost)} cost = ${fmt(gpu)} GPU-hours × 12 × ${fmt(gpuCost)} + ${fmt(engineers)} engineers × ${fmt(months)} months × ${fmt(engCost)})`, ok: (r: number) => margin >= r },
-        { rule: "max uptime promised", value: uptime, shown: `${fmt(uptime)}%`, ok: (r: number) => uptime <= r },
-        { rule: "new fixed costs this quarter", value: fixed, shown: fixed ? `${fmt(fixed)} a year, to buy the GPU-hours that are already promised to others` : "none", ok: (r: number) => fixed <= r },
+        { rule: "min gross margin", value: margin, shown: `${fmt(margin)}% (code: ${money(net)} after discount, ${money(cost)} cost = ${fmt(gpu)} GPU-hours × 12 × ${money(gpuCost)} + ${fmt(engineers)} engineers × ${fmt(months)} months × ${money(engCost)})`, ok: (r: number) => margin >= r },
+        { rule: "max uptime promised", value: uptime, shown: `${fmt(uptime, 3)}%`, ok: (r: number) => uptime <= r },
+        { rule: "new fixed costs this quarter", value: fixed, shown: fixed ? `${money(fixed)} a year, to buy the GPU-hours that are already promised to others` : "none", ok: (r: number) => fixed <= r },
       ].map((c) => {
         const r = rule(c.rule);
         if (!r || Number.isNaN(r.limit)) return { rule: c.rule, limit: "missing", set_by: "", value: c.value, ok: false, detail: `the policy has no "${c.rule}" rule, so this cannot pass` };
         const ok = !Number.isNaN(c.value) && c.ok(r.limit);
-        return { rule: c.rule, limit: r.text, set_by: r.set_by, value: Math.round(c.value * 10) / 10, ok, detail: `${c.rule} ${r.text} (set by ${r.set_by}): ${c.shown}${ok ? "" : ", which breaks it"}` };
+        return { rule: c.rule, limit: r.text, set_by: r.set_by, value: Math.round(c.value * 100) / 100, ok, detail: `${c.rule} ${r.text} (set by ${r.set_by}): ${c.shown}${ok ? "" : ", which breaks it"}` };
       });
       const broken = checks.filter((c) => !c.ok);
       return {
         ok: broken.length === 0 && !Number.isNaN(margin),
-        detail: broken.length ? broken.map((c) => c.detail).join("; ") : `within every rule in ${doc.name}: margin ${fmt(margin)}%, discount ${fmt(discount)}%, uptime ${fmt(uptime)}%`,
+        detail: broken.length ? broken.map((c) => c.detail).join("; ") : `within every rule in ${doc.name}: margin ${fmt(margin)}%, discount ${fmt(discount)}%, uptime ${fmt(uptime, 3)}%`,
         rules: checks,
+        broken: broken.length,
+        broken_rules: broken.map((c) => c.rule).join(", ") || "none",
         margin: Math.round(margin * 10) / 10,
         net,
         cost: Math.round(cost),
@@ -189,7 +193,7 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
       const open = ledger.filter((l) => l.status.startsWith("open"));
       return {
         ok: open.length === 0,
-        detail: `${stances.map((s) => `${s.role}: ${s.position}`).join(", ")}; ${open.length} objection${open.length === 1 ? "" : "s"} open${ledger.length - open.length - binding.length ? `, ${ledger.length - open.length - binding.length} set aside` : ""}; ${binding.length} rule${binding.length === 1 ? "" : "s"} the proposal breaks`,
+        detail: `${stances.map((s) => `${s.role}: ${s.position}`).join(", ")}; ${open.length} objection${open.length === 1 ? "" : "s"} open${ledger.length - open.length - binding.length ? `, ${ledger.length - open.length - binding.length} set aside` : ""}; ${binding.length} binding finding${binding.length === 1 ? "" : "s"} by code against the proposal as it stands`,
         stances,
         ledger,
         open: open.length,

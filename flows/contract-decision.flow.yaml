@@ -80,7 +80,7 @@ steps:
     when: counter_fit.ok == true and counter_policy.ok == true
     gate:
       approver: "@cfo"
-      title: "counter {case.customer}'s proposal? As proposed it breaks: {policy.detail}; {fit.detail}. The counteroffer passes: {counter_policy.detail}; {counter_fit.detail}. Open objections: {dissent.open}. Choosing counter makes you answerable for them."
+      title: "counter {case.customer}'s proposal? Code finds that as proposed it breaks {policy.broken} company rules ({policy.broken_rules}), and promises already made stand in its way ({fit.conflict_ids}). The counteroffer passes both. {dissent.open} objections stay open; choosing counter makes you answerable for them."
       options: [counter, decline]
       deadline: 1d
       approves: [reserve_capacity, commit_team, commit_sla, send_counteroffer]
@@ -89,7 +89,7 @@ steps:
     when: not (counter_fit.ok == true and counter_policy.ok == true)
     gate:
       approver: "@cfo"
-      title: "decline {case.customer}'s proposal? It breaks: {policy.detail}; {fit.detail}. No counteroffer passes the checks either: {counter_policy.detail}; {counter_fit.detail}."
+      title: "decline {case.customer}'s proposal? Code finds that as proposed it breaks {policy.broken} company rules ({policy.broken_rules}), and promises already made stand in its way ({fit.conflict_ids}). No counteroffer passes either: {counter_policy.broken_rules} broken; in its way: {counter_fit.conflict_ids}."
       options: [decline, hold]
       deadline: 1d
 
@@ -108,15 +108,15 @@ steps:
   - id: reserve_capacity
     when: decide == "counter" and cosign == "approve"
     outlet:
-      document: { room: finance, name: commitments, row: ["D-{this.id}-gpu", capacity, "{case.customer}", gpu-hours, "{counter_fit.needs.gpu_hours}", "{counter_fit.term_end}", "{by.decide}, co-signed", "case {this.id}: counteroffer to {case.customer}"] }
+      document: { room: finance, name: commitments, row: ["D-{this.id}-gpu", capacity, "{case.customer}", gpu-hours, "{counter_fit.needs.gpu_hours}", "{counter_fit.term_end}", "@cfo and @cto", "case {this.id}: counteroffer to {case.customer}"] }
   - id: commit_team
     when: decide == "counter" and cosign == "approve"
     outlet:
-      document: { room: finance, name: commitments, row: ["D-{this.id}-eng", delivery, "{case.customer}", engineers, "{counter_fit.needs.engineers}", "{counter_fit.end}", "{by.decide}, co-signed", "case {this.id}: counteroffer to {case.customer}"] }
+      document: { room: finance, name: commitments, row: ["D-{this.id}-eng", delivery, "{case.customer}", engineers, "{counter_fit.needs.engineers}", "{counter_fit.end}", "@cfo and @cto", "case {this.id}: counteroffer to {case.customer}"] }
   - id: commit_sla
     when: decide == "counter" and cosign == "approve"
     outlet:
-      document: { room: finance, name: commitments, row: ["D-{this.id}-sla", uptime, "{case.customer}", uptime, "{assess.checker.counteroffer.uptime}", "{counter_fit.term_end}", "{by.decide}, co-signed", "case {this.id}: counteroffer to {case.customer}"] }
+      document: { room: finance, name: commitments, row: ["D-{this.id}-sla", uptime, "{case.customer}", uptime, "{assess.checker.counteroffer.uptime}", "{counter_fit.term_end}", "@cfo and @cto", "case {this.id}: counteroffer to {case.customer}"] }
   - id: send_counteroffer
     when: decide == "counter" and cosign == "approve"
     outlet:
