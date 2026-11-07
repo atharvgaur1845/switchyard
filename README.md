@@ -1,8 +1,32 @@
 # Switchyard
 
-**Proof-carrying supplier payments, run by agents and people in [Switch](https://github.com/sandbox-quantum/switch) rooms.** A payment leaves only with evidence that it is the right one: agents investigate, code verifies, named people authorize, and the engine executes exactly what they approved.
+**A control plane for consequential company decisions and the actions that carry them out, run by agents and people in [Switch](https://github.com/sandbox-quantum/switch) rooms.** Agents investigate and argue, code checks every claim against the company's rules, what it has already promised and the bank, named people decide on Switch cards, and the engine carries out exactly what they signed. When the facts a decision rested on stop being true, it is decided again.
 
-> Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is paid on facts that changed after the checks ran, or on a vendor row someone edited in the room outside a case. Nothing is paid twice on one purchase order. And nothing goes to an account a person already refused without a person deciding again.
+> Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is carried out on facts that changed after the checks ran. And a decision that was carried out is checked again when what it rested on changes.
+
+Two applications run on the same engine:
+
+1. **Company decisions** (`flows/contract-decision.flow.yaml`). A sales proposal (a large contract at a deep discount, four-nines uptime, six weeks to deliver) is argued by four views, checked by code against the company's **policy** and its **commitments**, decided by two people, and written back as new commitments. When capacity it reserved is lost, **Assumption Watch** opens the decision again.
+2. **Supplier payments** (`flows/invoice-check.flow.yaml`, `flows/bank-change.flow.yaml`). A payment leaves only with evidence that it is the right one, and nothing goes to an account people already refused.
+
+Both leave a **signed proof** that anyone can check with no model, no Switch and no bank.
+
+### A company decision
+
+A company is a set of commitments made under uncertainty: capacity reserved for a customer, engineers promised to a release, an uptime guarantee, a budget. A decision made yesterday constrains the one being made today. Switchyard keeps those promises in a Switch room document and checks every new proposal against them before anyone is asked:
+
+- **Four views, not a vote.** Two agents on two vendors take four jobs: the finance desk, the engineering desk, the operations desk and a red team. Each gives a position and objections, and every objection must quote the proposal. Code keeps an objection only if its quote is there, records where, and never averages the views into a score. The finance desk also proposes a counteroffer.
+- **The company constitution, by code.** The `policy` document holds the rules and who set each one: maximum discount, minimum gross margin, maximum uptime promised, no new fixed costs this quarter (the board's), and the cost rates. Code computes the margin and the fixed cost itself; nothing an agent estimated is used.
+- **The Commitment Graph, by code.** The `commitments` document holds every promise: to whom, which resource, how much, until when, and who decided it. With the `capacity` document, code finds what is free in the proposal's window and names each promise in the way: "C-101 holds 600 for Northwind Paper until 2027-03-31 (decided by @cto)".
+- **Only an alternative that passes is offered.** A proposal that breaks a rule or a promise is never put on a card. The CFO is offered the counteroffer, which code checked the same way, or a decline. Choosing it with objections still open is recorded as answering for them.
+- **Four eyes, then commitments.** A different person, the CTO, co-signs the exact actions. Switchyard then writes the new commitments into the room (capacity, the delivery team, the uptime promise) and sends the counteroffer. The next proposal sees them.
+- **Assumption Watch.** A decision rests on facts that can change after it is carried out. Each tick, code checks a carried-out decision's assumptions again on the room as it is now. When operations reports lost capacity, the decision is marked, its thread says why, and a new case decides again on the current facts; the original and what it did stay as they were. Before it is carried out, the same change voids the approval instead.
+
+![The Decision Room: the proposal and the counteroffer as code checked them, the promises in the way and who made them, four views, and the dissent ledger with each quote marked in the proposal](docs/img/console-decision.png)
+
+![The Commitment Graph after capacity was lost: the decision's new commitments, the promises that stood in its way, and GPU-hours over-committed, 1,000 held of 700](docs/img/console-commitments.png)
+
+### A supplier payment
 
 Each payment carries this chain, and each link is evidence someone can check on the card and in the event log:
 
@@ -44,14 +68,17 @@ npm run demo:offline
 
 This is the real engine, with three stand-ins: canned agent replies, approval cards clicked by the script, and a sandbox bank started in the same process. You will see:
 
-1. **A "we changed banks" email from `fabrikarn.test`.** Code finds it is 2 characters away from `fabrikam.test` on file, the controller blocks it, and the real supplier is warned *at the address on file*.
-2. **A Fabrikam invoice that prints a different account.** The investigator quotes the invoice's "Please note our new bank details", and code confirms the quote is in it. Code also finds the account differs from the vendor master. The card shows the payment going to the account *on file*, and it waits for the controller.
-3. **The same account again, now from Fabrikam's real domain.** Every check on this email passes: right domain, valid IBAN, written in the email. But the account is the one the controller just blocked, so the controller decides before anyone calls, and the room is told which cases share the account.
-4. **Meanwhile, a genuine change from Fabrikam's own domain.** A callback card goes to the AP clerk, who confirms. The clerk then tries to approve the change too and is refused (four eyes). The controller approves, and Switchyard writes the new account into the vendor master.
-5. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to act, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it marks PO-1043 as invoiced in the room, pays the new account through the bank and reads the payment back. All three hashes match: the approved one, the one sent and the bank's copy.
-6. **Someone edits the vendor master in the room directly**, swapping Northwind's account and leaving the old date and the word "callback". The next Northwind invoice would have been paid by the rule. Instead it is held: the row is not the one Switchyard first saw, and no pay card is offered.
-7. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the invoice is held, with no pay button.
-8. **The payment's proof.** The run writes the paid invoice's signed proof and checks it: 31 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself.
+1. **A company decision: Tailspin Analytics proposes 12,000,000 INR a year at a 25% discount, 99.99% uptime, in six weeks.** Four views argue it. Code finds it breaks four company rules (discount, a 28.5% margin, uptime, and the board's no-new-fixed-costs rule, because the GPU-hours are already promised) and runs into three promises already made (C-101, C-102, C-103), naming who made each. The finance desk's counteroffer passes every check, and it is the only thing offered on the CFO's card, with eight objections still open.
+2. **Two different people decide.** The CFO chooses the counteroffer; the CFO's attempt to co-sign is refused; the CTO co-signs. Switchyard writes three new commitments into the room and sends the counteroffer.
+3. **Assumption Watch.** Operations reports GPU capacity down from 1,000 to 700 a month. On the next tick, code finds the reserved capacity is no longer there; the decision is marked at risk and a new case decides again, where the finance desk offers a smaller tier and code passes it.
+4. **A "we changed banks" email from `fabrikarn.test`.** Code finds it is 2 characters away from `fabrikam.test` on file, the controller blocks it, and the real supplier is warned *at the address on file*.
+5. **A Fabrikam invoice that prints a different account.** The investigator quotes the invoice's "Please note our new bank details", and code confirms the quote is in it. Code also finds the account differs from the vendor master. The card shows the payment going to the account *on file*, and it waits for the controller.
+6. **The same account again, now from Fabrikam's real domain.** Every check on this email passes: right domain, valid IBAN, written in the email. But the account is the one the controller just blocked, so the controller decides before anyone calls, and the room is told which cases share the account.
+7. **Meanwhile, a genuine change from Fabrikam's own domain.** A callback card goes to the AP clerk, who confirms. The clerk then tries to approve the change too and is refused (four eyes). The controller approves, and Switchyard writes the new account into the vendor master.
+8. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to act, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it marks PO-1043 as invoiced in the room, pays the new account through the bank and reads the payment back. All three hashes match: the approved one, the one sent and the bank's copy.
+9. **Someone edits the vendor master in the room directly**, swapping Northwind's account and leaving the old date and the word "callback". The next Northwind invoice would have been paid by the rule. Instead it is held: the row is not the one Switchyard first saw, and no pay card is offered.
+10. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the invoice is held, with no pay button.
+11. **The proofs.** The run writes the paid invoice's signed proof and checks it: 32 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself. The decision's proof, with its dissent ledger and the assumption that broke, holds all 34 of its checks.
 
 The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep the console of the run's cases open at `http://localhost:4101`.
 
@@ -59,7 +86,9 @@ The same run also shows an expense refused when the wrong person clicks, and a p
 
 `npm run switchyard up` (or `demo:offline -- --serve`) serves a console on localhost. Every number and line in it is read from the event log, the flow files or a run made on the spot; nothing is stored for show.
 
-- **Command.** What is being protected right now: linked investigations, cards waiting on a person, accounts the bank did not confirm, payments stopped before money moved, payments whose bank copy hashes to the approved action, and signed proofs. Below that, the nine links of the payment chain, each with its count from the log, the event stream, case outcomes, recent decisions and the engine's health.
+- **Decisions.** The Decision Room: a decision's alternatives side by side as code checked them (discount, uptime, margin, fixed cost, free capacity, the promises in the way), the four views and their positions, the dissent ledger with each quote marked in the proposal, who chose and who co-signed, the commitments it wrote, and the state of each assumption it rests on.
+- **Commitments.** The Commitment Graph: every promise, the resource it holds and how full each resource is, the decisions that created a promise or ran into one, and any assumption that broke. Drawn from what code last read in the room and the rows decisions wrote.
+- **Command.** What is being protected right now: cards waiting on a person, open objections, broken assumptions, linked investigations, cards waiting on a person, accounts the bank did not confirm, payments stopped before money moved, payments whose bank copy hashes to the approved action, and signed proofs. Below that, the nine links of the payment chain, each with its count from the log, the event stream, case outcomes, recent decisions and the engine's health.
 - **Cases.** Each case's track, its receipts (approved = sent = read back), its story and its raw log.
 - **Investigations.** The cases one account connects, as a graph you can search, zoom, pan and click. A line is a recorded fact, and the kinds are kept apart: a person's block (suspicion), a failed callback, an account on file, what the bank said about the holder (confirmed, under a mandate, a similar name, no match, no answer). Selecting a node lists every fact about it; the timeline filters by kind and by case.
 - **Agents.** Every request to each agent, by its job: when it was asked, how long it took, its structured answer as recorded, retries and hand-offs to a backup. Then every code check with the document versions it read, the payment policy (what may release each action, a person or a rule), how each action was actually released, and what @yard did. Agents run with their tools switched off and no reasoning is recorded, so there are no tool calls or chains of thought to show.
@@ -73,7 +102,7 @@ The same run also shows an expense refused when the wrong person clicks, and a p
 
 ![The Attack lab: all 20 held-out scenarios under links off and on, and H05, the factoring company, held with links on](docs/img/console-lab.png)
 
-What it does not show, because the log does not hold it: how long a code check took (checks record their result, not a start time), purchase orders and emails as nodes of their own (each email or invoice is its case's node, and a PO is in its case's checks), and tool calls (there are none). The walkthrough replays a case that exists; it does not start one, since cases come in only through the inlets. The lab runs the held-out set; the nine built-in scenarios still run with `npm run lab`. Tests: "names the key it trusts, and passes the proof it handed out", "fails an edited copy, and says what is wrong", "runs one under the controls asked for, with its trace".
+What it does not show, because the log does not hold it: how long a code check took (checks record their result, not a start time), purchase orders and emails as nodes of their own (each email or invoice is its case's node, and a PO is in its case's checks), and tool calls (there are none). The Commitment Graph shows the room's documents as code last read them, not a live copy. The walkthrough replays a case that exists; it does not start one, since cases come in only through the inlets. The lab runs the held-out set; the nine built-in scenarios still run with `npm run lab`. Tests: "names the key it trusts, and passes the proof it handed out", "fails an edited copy, and says what is wrong", "runs one under the controls asked for, with its trace".
 
 ## What it looked like live, on Slack
 
@@ -89,7 +118,7 @@ And case `1c5cc185`, the look-alike bank-change email. The block card was answer
 
 | Switchyard needs | Switch provides | Without Switch |
 |---|---|---|
-| **A system of record that agents, code and people all read** | **Room documents** (`vendor-master`, `purchase-orders`). Checks read them, every agent request is grounded in them, and bank-change cases write them. | No shared, versioned rules. The checks would read a file nobody in the room can see. |
+| **A system of record that agents, code and people all read** | **Room documents**: `commitments`, `capacity` and `policy` for decisions; `vendor-master`, `purchase-orders` and `payment-mandates` for payments. Checks read them, every agent request is grounded in them, and cases write them (a decision its commitments, a bank change its vendor row). | No shared, versioned rules. The checks would read a file nobody in the room can see. |
 | **A decision with a name on it** | **Approval cards** in Slack (`/agent-sessions/{id}/approvals`), with **participant identity** on each answer (`answered_by`, matched to `list_participants`) | Nobody to hold to four eyes, and no record of who decided. |
 | **A place for each case** | A **room** per team (`#finance`) and a **thread** per case | Cases scattered across inboxes. |
 | **Work done by agents** | Agents in the room, asked with **targeted messages** and answering on the room's **event stream** (SSE, heartbeat, resumable) | No agents to ask. |
@@ -125,7 +154,7 @@ Each claim is a test in `test/` (named in quotes), or a case recorded live (see 
 - **Agents cannot act.** Every agent CLI is started with its tools, MCP servers and settings switched off, and Switchyard refuses to start one it cannot lock down. Test: "refuses a CLI it cannot lock down".
 - **Two vendors, so one outage doesn't stop the room.** The two invoice agents run on different vendors (Claude and Gemini), and one that cannot answer sends the invoice to a person rather than stopping it. The bank-change agent and most other agent steps have a backup agent on another vendor; the weekly report's review step has none. On case `94221172` the Claude checker hit its real usage limit mid-run, and the case still went to a person with the evidence it had.
 
-## Every payment's proof
+## Every decision's and payment's proof
 
 ```bash
 npm run switchyard proof <case id>                       # writes data/proofs/<case id>.proof.json
@@ -141,6 +170,7 @@ A finance director asks "why did we pay this?". The answer is one file:
   - who the bank says holds the account;
   - links to other cases;
   - the approvals that stopped counting;
+  - for a company decision, the dissent ledger, and any assumption that broke after it was carried out;
   - each decision, with the person, their role and what they approved;
   - each action as sent, the bank's receipt and its read-back.
 - **The flow** the case ran under.
@@ -347,9 +377,15 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
 - **Simulated, and labelled so:**
   - The bank. A local sandbox, `src/sandbox/bank.ts`; no real money moves. Its answers about who holds an account come from a registry file, not a bank's records.
   - The suppliers, their `.test` domains and IBANs. They are fictitious, with valid check digits.
+  - The company in the decision: Tailspin Analytics, its proposal, the commitments, the capacity and the policy are written for the demo. No CRM, HR or ERP is connected; the counteroffer email goes to Mailpit.
 - **One person.** The live run had one Slack user holding every role. There, four eyes shows as the refusal. The approval by a second person is shown in `demo:offline` and in the tests.
 
 ## Known limits
+
+- **Decisions: the counteroffer comes from an agent.** Code checks it, and nothing it does not pass is offered, but code does not search for the best alternative. If the finance desk proposes none that passes, the CFO is offered decline or hold.
+- **Decisions: a card carries options, not reasons.** Choosing the counteroffer with objections open is recorded as answering for them, by name and time; Switch cards have no free-text field for why.
+- **Decisions: promises have an end date and no start date.** The commitments check counts every promise not yet ended as holding its resource, which is cautious: a promise that starts later still counts now.
+- **Assumption Watch runs on the engine's tick** and re-checks only the assumptions a flow declares (here, the capacity a decision reserved). It opens a new case; it never undoes what the first decision did.
 
 - **Sender authentication needs a trusted mail gateway.** Switchyard does not verify SPF, DKIM or DMARC itself; it reads the results the company's own gateway wrote. The local setup has no gateway (Mailpit), so live cards say "sender not authenticated", and a forged `From` on the right domain passes the domain check there. That is why a passing change still needs a callback to the number on file and a second approver. The gateway must remove incoming `Authentication-Results` headers that carry its name, as RFC 8601 requires; otherwise a planted one could sit on top.
 - **Who holds an account comes from a sandbox registry.** The check digits catch typos only; the payee check is as good as the bank's answer, and here that answer comes from `fixtures/payees.yaml`, which we wrote. A mule account opened in exactly the supplier's name would match, as it can with real Verification of Payee. A close match (like the demo attacker's "Fabrikam Print Services s.r.o.") goes to a person, and a hurried person can still pay it. That is why the links between cases and the callback stay. Real Verification of Payee covers SEPA payments in the EU; elsewhere the bank may not answer, and then nothing is paid without a person.
@@ -390,7 +426,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 293 tests
+npm test             # 306 tests
 npm run lab          # the attack lab, links off and on
 npm run lab -- --heldout   # the 20 held-out scenarios
 npm run typecheck
@@ -403,13 +439,13 @@ CI runs all four on pushes to main and on pull requests. The suite includes a fa
 ## Layout
 
 ```text
-src/engine/    flow schema and lint, expressions, contracts, gates, runner, event store, code checks, chat commands
+src/engine/    flow schema and lint, expressions, contracts, gates, runner, event store, code checks (payments in verifiers.ts, decisions in decisions.ts), chat commands
 src/switch/    the Switch agent-protocol client (SSE, heartbeat, ops, approvals, room documents)
 src/agents/    locked-down CLI agents, and the fixture agent for offline runs
 src/inlets/    form, webhook, email (Mailpit), schedule, front-desk screen
 src/outlets/   bank payment, room document, csv, email, webhook, room post, visitor reply; payload hashing
 src/sandbox/   the sandbox bank
-src/web/       the console (command, cases, investigations, agents, proofs, attack lab, walkthrough, flows) and the chat widget
+src/web/       the console (command, decisions, commitments, cases, investigations, agents, proofs, attack lab, walkthrough, flows) and the chat widget
 src/proof.ts   signed proofs of a case, and their verifier
 lab/           the held-out scenarios, the brief they were written from, and their first run
 flows/         the flows; templates/ has a Switch template for each

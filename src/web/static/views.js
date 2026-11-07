@@ -100,6 +100,7 @@ export function describe(e) {
     case "flagged": return { tone: "stop", kind: "person", who: e.by, text: `${mask(e.iban)} recorded as ${e.how === "callback" ? "refused on the callback" : "blocked by a person"}` };
     case "cleared": return { tone: "act", kind: "person", who: e.by, text: `${mask(e.iban)} cleared after a callback and a second approver` };
     case "executed": return { tone: "act", kind: "action", who: "@yard", text: e.receipt };
+    case "assumption_broken": return { tone: "person", kind: "code", who: "code", text: `assumption broken: ${e.title}; case ${e.reopened} decides again` };
     case "in_doubt": return { tone: "stop", kind: "action", who: "@yard", text: `could not tell whether ${step} happened; a person decides` };
     case "failed": return { tone: "stop", kind: "action", who: "@yard", text: `stopped at ${step}: ${e.reason}` };
     case "cancelled": return { tone: "stop", kind: "action", who: e.by, text: "cancelled the case" };

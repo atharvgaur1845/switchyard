@@ -21,6 +21,7 @@ export function commandFacts(state) {
   const payee = cases.map((c) => ({ c, v: checksOf(c).payee })).filter((x) => x.v);
   const payments = cases.flatMap(paymentsOf);
   const evidence = verified.filter((e) => e.check === "agent_evidence");
+  const dissent = verified.filter((e) => e.check === "dissent");
   return {
     cases,
     events,
@@ -35,7 +36,7 @@ export function commandFacts(state) {
     chain: [
       { k: "Arrives", icon: "mail", n: cases.length, sub: `${plural(cases.length, "case")} from email, webhooks and forms`, view: "#cases" },
       { k: "Agents read", icon: "bot", n: events.filter((e) => e.type === "partial" || (e.type === "answered" && !("agreed" in (e.value ?? {})))).length, sub: `answers · ${events.filter((e) => e.type === "reply_rejected" || e.value?.unavailable).length} refused or unavailable`, view: "#agents" },
-      { k: "Quotes grounded", icon: "doc", n: evidence.reduce((n, e) => n + (e.value?.quotes?.length ?? 0) + (e.value?.findings?.length ?? 0), 0), sub: `quotes at their offsets · ${evidence.reduce((n, e) => n + (e.value?.dropped?.length ?? 0), 0)} dropped`, view: "#agents" },
+      { k: "Quotes grounded", icon: "doc", n: evidence.reduce((n, e) => n + (e.value?.quotes?.length ?? 0) + (e.value?.findings?.length ?? 0), 0) + dissent.reduce((n, e) => n + (e.value?.ledger ?? []).filter((l) => l.grounded).length, 0), sub: `quotes at their offsets · ${evidence.reduce((n, e) => n + (e.value?.dropped?.length ?? 0), 0) + dissent.reduce((n, e) => n + (e.value?.ledger ?? []).filter((l) => l.quote && !l.grounded).length, 0)} set aside`, view: "#decisions" },
       { k: "Code checks", icon: "code", n: verified.length, sub: `${verified.filter((e) => e.value?.ok === false).length} failed`, view: "#agents" },
       { k: "Bank names holder", icon: "user", n: payee.length, sub: `${payee.filter((x) => x.v.result === "match" || x.v.result === "mandate").length} confirmed · ${payee.length - payee.filter((x) => x.v.result === "match" || x.v.result === "mandate").length} not`, view: "#investigations", sandbox: true },
       { k: "Promises and other cases", icon: "link", n: verified.filter((e) => (e.check === "links" || e.check === "commitments") && e.value?.ok === false).length, sub: `conflicts found · ${events.filter((e) => e.type === "rewound").length} approvals voided`, view: "#commitments" },
@@ -133,7 +134,7 @@ export function renderCommand(state, ui) {
   </section>
   <section class="cc-tiles" aria-label="Summary">${tiles.join("")}</section>
   <section class="card cc-chain-card" aria-label="How a payment is controlled">
-    <h3>How a payment is controlled · counted from the log</h3>
+    <h3>How an action is controlled · counted from the log</h3>
     <div class="cc-chain">${chain}</div>
   </section>
   <div class="cc-grid">

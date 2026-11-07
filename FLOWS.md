@@ -104,6 +104,22 @@ With `roles`, the agents still work at once but each has its own job. A role's `
   auto_approve: case.amount <= 500 and check.verdict == "ok"   # optional
 ```
 
+**Assumptions.** What a decision rests on after it is carried out. On each tick, a closed case that carried out an action has each `recheck` step (a verify step) run again on the room's documents as they are now. When `holds` is false (default: the step's `ok`), the case is marked, its thread says why, and a new case of the same flow decides again with `case.reconsider` set to the first case's id. Nothing the first case did is undone.
+
+```yaml
+assumptions:
+  - id: capacity
+    title: the capacity the counteroffer reserved is still there
+    recheck: counter_fit
+```
+
+**Checks for company decisions** (`src/engine/decisions.ts`):
+- `commitments` reads the `commitments` document (one row per promise: id, kind, to, resource, amount, until, decided by, basis) and the `capacity` document, and passes when the resources asked for are free for the whole window after the promises already made. It names every promise in the way and who made it, and watches `capacity`, so an approval stops counting when capacity changes.
+- `constitution` reads the `policy` document (rule, limit, set by) and computes the margin and any new fixed cost itself from the policy's own rates.
+- `dissent` keeps every objection from each role (`by_<role>` arguments), with its quote and where it is in the proposal; an objection whose quote is not there is set aside. What code found binding against the proposal is listed too, and no card answer overrides it.
+
+An agent's `expect` can also ask for an `object` (or `object?`), such as a counteroffer.
+
 ## Names you can use
 
 - `case.<field>` is the case data from the inlet.

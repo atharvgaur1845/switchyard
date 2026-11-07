@@ -83,9 +83,9 @@ function titleOf(state: CaseState): string {
     return `Sales report · ${String(d.period ?? "").replace(/-/g, " ")}`;
   }
   const pick = (...keys: string[]) => keys.map((k) => d[k]).find((v) => typeof v === "string" || typeof v === "number");
-  const who = pick("name", "from_name", "from", "supplier", "client");
+  const who = pick("name", "from_name", "from", "supplier", "client", "customer");
   const what = pick("subject", "category", "number", "period", "role");
-  const amount = typeof d.amount === "number" ? ` · ${d.amount.toLocaleString("en")}` : "";
+  const amount = typeof d.amount === "number" ? ` · ${d.amount.toLocaleString("en")}` : typeof d.value === "number" ? ` · ${d.value.toLocaleString("en")} a year${d.reconsider ? " · decided again" : ""}` : "";
   const text = [who, what].filter(Boolean).map(String).join(" — ");
   const short = text.length > 70 ? `${text.slice(0, 69)}…` : text;
   return (short || state.flow) + amount;
