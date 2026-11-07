@@ -1,41 +1,40 @@
 /* Switchyard theme: shared by the dashboard, the forms and the chat widget. */
 :root {
-  /* A ledger on paper: warm stock, iron-gall ink, hairline rules, and
-     pigments for meaning. Prussian blue selects; madder is a violation;
-     verdigris is verified; ochre is uncertainty or a person's turn;
-     aubergine is an agent. */
-  --bg: #f3efe6;
-  --surface: #fbf9f4;
-  --surface-2: #f2ede3;
-  --surface-3: #e9e2d5;
-  --ink: #1d1a16;
-  --ink-2: #4a443b;
-  --muted: #776f63;
-  --line: #e1d9ca;
-  --line-strong: #cbbfab;
-  --focus: #1f3f66;
-  --accent: #1f3f66;       /* Prussian blue */
-  --accent-soft: #e2e8ef;
-  --on-accent: #fbf9f4;
+  /* Google's product palette: white surfaces on a light grey page, one
+     blue for everything you can act on, and Google red, yellow and green
+     for a violation, a person's turn and a verified result. */
+  --bg: #f8f9fa;
+  --surface: #ffffff;
+  --surface-2: #f1f3f4;
+  --surface-3: #e8eaed;
+  --ink: #202124;
+  --ink-2: #3c4043;
+  --muted: #5f6368;
+  --line: #dadce0;
+  --line-strong: #bdc1c6;
+  --focus: #1a73e8;
+  --accent: #1a73e8;
+  --accent-soft: #e8f0fe;
+  --on-accent: #ffffff;
 
-  --agent: #6a3d74;        /* aubergine */
-  --agent-soft: #efe6ef;
-  --person: #96600f;       /* ochre, AA on paper */
-  --person-soft: #f5ead2;
-  --act: #2d6a55;          /* verdigris */
-  --act-soft: #e0ede6;
-  --stop: #a8321e;         /* madder */
-  --stop-soft: #f5e0d8;
-  --yard: #4a5560;
-  --yard-soft: #e6e6e1;
-  --on-act: #fbf9f4;
+  --agent: #9334e6;
+  --agent-soft: #f3e8fd;
+  --person: #b06000;
+  --person-soft: #fef7e0;
+  --act: #188038;
+  --act-soft: #e6f4ea;
+  --stop: #d93025;
+  --stop-soft: #fce8e6;
+  --yard: #5f6368;
+  --yard-soft: #f1f3f4;
+  --on-act: #ffffff;
 
-  --radius: 6px;
+  --radius: 8px;
   --radius-sm: 4px;
-  --shadow: none;
-  --font: "Inter", "Source Sans 3", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --serif: "Charter", "Bitstream Charter", "Iowan Old Style", "Palatino Linotype", Palatino, "Source Serif 4", "Noto Serif", Georgia, serif;
-  --mono: "IBM Plex Mono", "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --shadow: 0 1px 2px 0 rgba(60, 64, 67, .3), 0 1px 3px 1px rgba(60, 64, 67, .15);
+  --font: "Google Sans Text", "Google Sans", Roboto, "Segoe UI", Arial, sans-serif;
+  --display: "Google Sans", "Google Sans Text", Roboto, "Segoe UI", Arial, sans-serif;
+  --mono: "Roboto Mono", "SF Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
 }
 /* Dark: graphite and deep navy. Cyan is the accent (focus, selection,
