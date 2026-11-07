@@ -1,5 +1,7 @@
 # Demo script (about 5 min; trim to taste)
 
+For the live two-contract demonstration, step by step with preflight, fallbacks and what not to claim, use [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md) and its one-page [cheat sheet](DEMO_CHEATSHEET.md).
+
 **Opening line:** "Agents shouldn't run a company. They should investigate, argue and plan inside a system that knows what the company has already promised, and lets named people decide. Switchyard is that system: the control plane for consequential decisions and the actions that carry them out. Payments were its first application; company decisions are the second."
 
 Screen: Slack (`#finance`) on the left, the console (`localhost:4100`) on the right, open on **Command**. Keep Mailpit (`localhost:8025`) and the sandbox bank (`localhost:4300`) in tabs, and a terminal for the `demo send` commands.

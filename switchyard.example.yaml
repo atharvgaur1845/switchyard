@@ -17,6 +17,9 @@ people:
   "@controller": "@you"
   "@ap-clerk": "@you"
   "@cfo": "@you"
+  # The co-sign on company decisions: a different real person from @cfo,
+  # or the four-eyes rule refuses the second click.
+  "@cto": "@someone-else"
 flows: flows
 data: data
 port: 4100
