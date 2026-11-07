@@ -4,6 +4,8 @@
 
 > Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is carried out on facts that changed after the checks ran. And a decision that was carried out is checked again when what it rested on changes.
 
+**Live demo:** [huggingface.co/spaces/atharvgaur18/switchyard](https://huggingface.co/spaces/atharvgaur18/switchyard) (the offline run's console, read-only, no sign-in)
+
 **Contents:** [See it in one minute](#see-it-in-one-minute-with-no-accounts) · [The console](#the-console) · [How it works, in diagrams](#how-it-works-in-diagrams) · [How Switch is used](#how-switch-is-used-and-what-breaks-without-it) · [What makes it hard to fool](#what-makes-it-hard-to-fool) · [Proofs](#every-decisions-and-payments-proof) · [Attacks](#attacks-and-what-stops-each) · [Run it live](#run-it-live-on-switch-and-slack) · [Real and simulated](#what-is-real-and-what-is-simulated) · [Known limits](#known-limits)
 
 Two applications run on the same engine:
@@ -78,7 +80,7 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 10. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the invoice is held, with no pay button.
 11. **The proofs.** The run writes the paid invoice's signed proof and checks it: 32 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself. The decision's proof, with its dissent ledger and the assumption that broke, holds all 34 of its checks.
 
-The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep the console of the run's cases open at `http://localhost:4101`. The same run can be hosted read-only (`demo offline --serve --public`, on `$PORT`); `deploy/hf-space/` is a Hugging Face Space that does that.
+The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep the console of the run's cases open at `http://localhost:4101`. The same run can be hosted read-only (`demo offline --serve --public`, on `$PORT`); `deploy/hf-space/` is the Hugging Face Space that does that, live at https://huggingface.co/spaces/atharvgaur18/switchyard.
 
 ## The console
 
