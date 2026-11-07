@@ -5,7 +5,7 @@
 // from the case's events.
 
 import { esc, hx, icon } from "./icons.js";
-import { money, plural, stamp, stepsOf } from "./views.js";
+import { money, plural, setHash, stamp, stepsOf } from "./views.js";
 
 const ROLE_STEPS = ["assess", "challenge"];
 
@@ -140,6 +140,6 @@ export function decisionClick(e, ui, rerender) {
   const pick = e.target.closest("[data-decision]");
   if (!pick) return;
   ui.id = pick.dataset.decision;
-  history.replaceState(null, "", `#decisions/${ui.id}${location.search}`);
+  setHash(`decisions/${ui.id}`);
   rerender();
 }

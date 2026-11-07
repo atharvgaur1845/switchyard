@@ -5,6 +5,9 @@
 import { esc, sameHash } from "./icons.js";
 
 export const token = new URLSearchParams(location.search).get("token");
+// Moves to a view or case without reloading. The query (?token=) stays
+// before the hash, where the server reads it.
+export const setHash = (hash) => history.replaceState(null, "", `${location.pathname}${location.search}#${hash}`);
 export const withToken = (path) => path + (token ? `${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : "");
 export const api = (path, init) =>
   fetch(withToken(path), init).then(async (r) => {

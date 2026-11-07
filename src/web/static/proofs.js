@@ -5,7 +5,7 @@
 // edited copy, or a file a person drops in.
 
 import { esc, hx, icon } from "./icons.js";
-import { api, money, plural, stamp, tree, withToken } from "./views.js";
+import { api, money, plural, setHash, stamp, tree, withToken } from "./views.js";
 
 const SECTIONS = [
   ["source", "What arrived", "mail", "a digest of the case's data and text, the sender, the mail gateway's results"],
@@ -217,7 +217,7 @@ export function proofClick(e, state, ui, rerender) {
   if (pick) {
     ui.id = pick.dataset.proof;
     ui.tamper = null;
-    history.replaceState(null, "", `#proofs/${ui.id}${location.search}`);
+    setHash(`proofs/${ui.id}`);
     return rerender();
   }
   const head = e.target.closest("[data-section]");

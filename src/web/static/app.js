@@ -13,12 +13,12 @@ import { renderInvestigations, wireInvestigations } from "./investigations.js";
 import { labClick, renderLab } from "./lab.js";
 import { proofClick, proofDrop, renderProofs } from "./proofs.js";
 import { renderReplay, replayChange, replayClick } from "./replay.js";
-import { api, receiptsOf as receipts, token } from "./views.js";
+import { api, receiptsOf as receipts, setHash, token } from "./views.js";
 
 // Every view, by the hash that opens it. A bare case id opens that case.
 const VIEWS = ["command", "decisions", "commitments", "cases", "investigations", "agents", "proofs", "lab", "flows", "replay"];
 const routeOf = (hash) => {
-  const [view, arg] = hash.replace(/^#/, "").split("/");
+  const [view, arg] = hash.replace(/^#/, "").split("?")[0].split("/");
   return VIEWS.includes(view) ? { view, arg } : view ? { view: "cases", arg: view } : { view: "command" };
 };
 
@@ -584,7 +584,7 @@ function hero(cases) {
 function select(id) {
   if (!id) return;
   state.selected = id;
-  history.replaceState(null, "", `#${id}${location.search}`);
+  setHash(id);
   if (state.view !== "cases") return showView("cases");
   render();
   if (matchMedia("(max-width: 900px)").matches) document.getElementById("detail").scrollIntoView({ block: "start" });
@@ -635,8 +635,8 @@ function showView(view, arg) {
   state.view = view;
   if (view === "cases") {
     if (arg) state.selected = arg;
-    history.replaceState(null, "", state.selected ? `#${state.selected}${location.search}` : `#cases${location.search}`);
-  } else history.replaceState(null, "", `#${view}${arg ? `/${arg}` : ""}${location.search}`);
+    setHash(state.selected ?? "cases");
+  } else setHash(`${view}${arg ? `/${arg}` : ""}`);
   if (view === "proofs" && arg) state.ui.proofs.id = arg;
   if (view === "decisions" && arg) state.ui.decisions.id = arg;
   if (view === "replay") state.ui.replay.id = arg ?? state.ui.replay.id ?? hero(state.cases);

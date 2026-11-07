@@ -4,7 +4,7 @@
 // checked by `verifyProof` when the walkthrough reaches them.
 
 import { esc, hx, icon } from "./icons.js";
-import { api, checksOf, describe, mask, money, plural, seconds, stamp, tree } from "./views.js";
+import { api, checksOf, describe, mask, money, plural, seconds, setHash, stamp, tree } from "./views.js";
 
 const STAGES = [
   { k: "Arrives", icon: "mail", what: "An email or an invoice opens a case", has: (e) => e.type === "opened" },
@@ -218,6 +218,6 @@ export function replayChange(e, ui, rerender) {
   const sel = e.target.closest("[data-replay-case]");
   if (!sel) return;
   ui.id = sel.value;
-  history.replaceState(null, "", `#replay/${ui.id}${location.search}`);
+  setHash(`replay/${ui.id}`);
   rerender();
 }
