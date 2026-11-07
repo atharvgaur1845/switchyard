@@ -543,3 +543,4 @@ h1, h2, .brand, .cc-hero h1, .pf-top h2, .dr-top h2, .lab-head h1, .rp-head h1, 
 @media (max-width: 1560px) { .brand-sub { display: none; } }
 .topbar { flex-wrap: nowrap; }
 .tabs { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 1280px) { .topbar { flex-wrap: wrap; } .tabs { order: 3; flex-basis: 100%; } }
