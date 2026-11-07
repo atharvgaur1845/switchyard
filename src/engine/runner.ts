@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, inputsOf, lookup, render, type Scope } from "./expr.ts";
 import { CHECKS } from "./checks.ts";
+import { DECISION_CHECKS } from "./decisions.ts";
 import { basisHash, docHash, LEGACY, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
 import { type Blocked, blockedAccount, findLinks, linkDigest } from "./links.ts";
 import {
@@ -346,6 +347,9 @@ export class Runner {
           : spec.runAsync
             ? await spec.runAsync(args, docs, { payee: this.outlets.checkPayee ? (iban, name) => this.outlets.checkPayee!(iban, name) : undefined })
             : spec.run(args, docs, this.now(), history);
+    // A decision check is a pure function of its arguments, the documents it
+    // read and the clock: record all three, so a proof can run it again.
+    const replay = check in DECISION_CHECKS ? { args, now: this.now(), docs: Object.fromEntries(docs.filter((d) => Object.values(args).includes(d.name)).map((d) => [d.name, d.content])) } : undefined;
     const rows = used.length === 1 ? value.rows : undefined;
     const key = rows?.[used[0]?.name];
     if (key !== undefined && this.guarded.has(`${state.room}/${used[0].name}`)) {
@@ -366,6 +370,7 @@ export class Runner {
       value,
       ...(Object.keys(basisDocs).length ? { docs: basisDocs } : {}),
       ...(Object.keys(basisRows).length ? { rows: basisRows } : {}),
+      ...(replay ? { replay } : {}),
     });
     await this.say(state, `${value.ok ? "✓" : "✗"} Checked by code (${check}): ${value.detail}`);
     if (check === "links" && Array.isArray(value.links) && value.links.length > 0) await this.announceLinks(state, value);
@@ -1079,7 +1084,7 @@ function safeToRepeat(outlet: Outlet): boolean {
 
 // Fills a verify step's args. A value that is only a placeholder keeps the
 // type of what it names (a list of quote lines stays a list).
-function renderArgs(args: Record<string, unknown>, scope: Scope): Record<string, unknown> {
+export function renderArgs(args: Record<string, unknown>, scope: Scope): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(args).map(([k, v]) => {
       if (typeof v !== "string") return [k, v];

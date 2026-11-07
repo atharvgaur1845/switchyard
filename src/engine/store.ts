@@ -26,7 +26,7 @@ export type CaseEvent =
       // which version of the rules a verdict was based on.
       docs?: Record<string, string>;
     }
-  | { type: "verified"; step: string; check: string; value: unknown; docs?: Record<string, string>; rows?: Record<string, string> }
+  | { type: "verified"; step: string; check: string; value: unknown; docs?: Record<string, string>; rows?: Record<string, string>; replay?: { args: Record<string, unknown>; now: number; docs: Record<string, string> } }
   | { type: "fanned_out"; step: string; agents: string[]; at: number }
   | { type: "partial"; step: string; agent: string; value: unknown }
   | { type: "failed_over"; step: string; from: string; to: string; reason: string }

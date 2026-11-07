@@ -110,7 +110,7 @@ room:
         | rule | limit | set by |
         |---|---|---|
         | max discount | 15% | @cfo |
-        | min gross margin | 30% | @cfo |
+        | min year-1 margin | 30% | @cfo |
         | max uptime promised | 99.9% | @cto |
         | new fixed costs this quarter | 0 INR | board, 2026-10-01 |
         | gpu-hour cost | 900 INR | @cfo |

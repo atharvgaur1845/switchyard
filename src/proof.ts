@@ -2,11 +2,12 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, typ
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Flow } from "./engine/flow-schema.ts";
-import { isGate, isOutlet } from "./engine/flow-schema.ts";
+import { isGate, isOutlet, isVerify } from "./engine/flow-schema.ts";
 import { compile, inputsOf } from "./engine/expr.ts";
-import { scopeOf } from "./engine/runner.ts";
+import { DECISION_CHECKS } from "./engine/decisions.ts";
+import { renderArgs, scopeOf } from "./engine/runner.ts";
 import { type CaseEvent, fold, type Store } from "./engine/store.ts";
-import { LEGACY, sameHash } from "./engine/verifiers.ts";
+import { docHash, LEGACY, sameHash } from "./engine/verifiers.ts";
 import { canonical, hashOutlet, renderOutlet } from "./outlets/payload.ts";
 import type { Outlet } from "./engine/flow-schema.ts";
 
@@ -171,6 +172,31 @@ export function verifyProof(proof: Proof, pinned?: string): Finding[] {
   for (const q of [...(evidence?.quotes ?? []), ...(evidence?.findings ?? [])]) {
     if (q.in === "text") add(text !== undefined && q.start !== undefined && squash(text.slice(q.start, q.end)) === squash(q.quote), `"${q.quote}" is at ${q.start}–${q.end} in the invoice text`);
   }
+  // A company decision's checks, run again: each is a pure function of its
+  // arguments, the documents it read and the clock, all recorded. The
+  // arguments must be what the flow makes from the log, the documents must
+  // hash to what the log says the check read, and running the check on them
+  // must give exactly the result recorded. A signed record of a check is not
+  // taken as the check.
+  proof.log.forEach((e, i) => {
+    if (e.type !== "verified" || !(String(e.check) in DECISION_CHECKS)) return;
+    const step = String(e.step);
+    const replay = e.replay as { args: Record<string, unknown>; now: number; docs: Record<string, string> } | undefined;
+    if (!replay) return add(false, `${step}: the ${String(e.check)} check recorded what it read, so it can be run again`);
+    const spec = flow?.steps.find((s) => s.id === step);
+    if (!spec || !isVerify(spec)) return add(false, `${step}: is a check in the flow`);
+    const { check: _check, ...raw } = spec.verify;
+    const scope = scopeOf(fold(proof.case.id, proof.log.slice(0, i) as unknown as CaseEvent[]));
+    add(sha(replay.args) === sha(renderArgs(raw, scope)), `${step}: the ${String(e.check)} check's arguments are what the flow makes from the log`);
+    const recorded = (e.docs ?? {}) as Record<string, string>;
+    const read = Object.entries(replay.docs);
+    add(read.every(([name, content]) => recorded[name] === undefined || sameHash(recorded[name], docHash(content), LEGACY.document)), `${step}: the documents it read (${read.map(([n]) => n).join(", ") || "none"}) hash to what the log recorded`);
+    const again = DECISION_CHECKS[String(e.check)].run(replay.args, read.map(([name, content]) => ({ id: name, name, content })), replay.now);
+    const same = sha(again) === sha(e.value);
+    const said = (v: unknown) => ((v as { ok?: boolean } | undefined)?.ok ? "passes" : "does not pass");
+    add(same, `${step}: the ${String(e.check)} check, run again on them, gives the result recorded (${same ? said(again) : `it ${said(again)}; the log says it ${said(e.value)}`})`);
+  });
+
   let approvals: Record<string, string> = {};
   let gate: Record<string, string> = {};
   let started: Record<string, number> = {};

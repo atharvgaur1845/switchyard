@@ -35,6 +35,10 @@ export const TAILSPIN = {
 const FP0912_TEXT = "Fabrikam Print, invoice FP-0912, print run for PO-1043. Total 3,150.00 EUR, due in 7 days. Please note our new bank details: IBAN DE88 5007 0010 0175 5263 03.";
 import { SwitchClient } from "./switch/client.ts";
 
+// The capacity document with every "as of" date set to today: what
+// operations does when it reports capacity again.
+const reportedToday = (content: string) => content.replace(/\b\d{4}-\d{2}-\d{2}\b/g, new Date().toISOString().slice(0, 10));
+
 // `switchyard demo send <what>`: the exact inputs of the recorded runs, sent
 // to a running Switchyard the way the outside world would send them.
 export const DEMO_INPUTS = [
@@ -95,7 +99,7 @@ export async function demoReset(config: Config): Promise<void> {
     for (const doc of await client.documents("finance")) {
       const template = seeded.find((d) => d.name === doc.name);
       if (!template) continue;
-      await client.updateDocument("finance", doc.id, template.content);
+      await client.updateDocument("finance", doc.id, doc.name === "capacity" ? reportedToday(template.content) : template.content);
       console.log(`Put #finance/${doc.name} back to the template`);
     }
   } finally {
@@ -240,7 +244,7 @@ export async function demoSend(what: string, config: Config): Promise<void> {
         const doc = (await client.documents("finance")).find((d) => d.name === "capacity");
         if (!doc) throw new Error("no capacity document in #finance; run `switchyard up` once first");
         if (!doc.content.includes(from)) return console.log(`capacity does not say "${from}"; nothing changed`);
-        await client.updateDocument("finance", doc.id, doc.content.replace(from, to));
+        await client.updateDocument("finance", doc.id, reportedToday(doc.content.replace(from, to)));
         return console.log(`#finance/capacity: gpu-hours ${what === "capacity-drop" ? "1000 → 700" : "700 → 1000"}`);
       } finally {
         client.stop();
@@ -300,7 +304,9 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     const template = join(root, "templates", `${flow.flow}.template.yaml`);
     const seeded = (parse(readFileSync(template, "utf8")).room?.docs ?? []) as { name: string; content: string }[];
     const room = docs.get(flow.room) ?? [];
-    for (const d of seeded) if (!room.some((r) => r.name === d.name)) room.push({ id: `${flow.room}/${d.name}`, name: d.name, content: d.content });
+    // Capacity is reported as of today, as operations would keep it: the
+    // decision checks refuse a capacity report more than a month old.
+    for (const d of seeded) if (!room.some((r) => r.name === d.name)) room.push({ id: `${flow.room}/${d.name}`, name: d.name, content: d.name === "capacity" ? reportedToday(d.content) : d.content });
     docs.set(flow.room, room);
   }
 
@@ -394,7 +400,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
 
     scene("3. Assumption Watch: the capacity the decision reserved is lost after it was carried out");
     const capacity = (docs.get("finance") ?? []).find((d) => d.name === "capacity")!;
-    capacity.content = capacity.content.replace("| gpu-hours | 1000 |", "| gpu-hours | 700 |");
+    capacity.content = reportedToday(capacity.content.replace("| gpu-hours | 1000 |", "| gpu-hours | 700 |"));
     console.log(`${dim("        capacity edited by operations:")} gpu-hours 1000 → 700`);
     await runner.tick();
     await settle();

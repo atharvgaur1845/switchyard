@@ -40,7 +40,7 @@ function alternatives(c, checks) {
   const rows = [
     ["Discount", (t) => (t ? `${t.discount_pct}%` : "—"), (x) => rule(x.policy, "max discount")?.ok],
     ["Uptime promised", (t) => (t ? `${t.uptime}%` : "—"), (x) => rule(x.policy, "max uptime promised")?.ok],
-    ["Gross margin (code)", (_, x) => (x.policy?.margin !== undefined ? `${x.policy.margin}%` : "—"), (x) => rule(x.policy, "min gross margin")?.ok],
+    ["Year-1 margin (code)", (_, x) => (x.policy?.margin !== undefined ? `${x.policy.margin}%` : "—"), (x) => rule(x.policy, "min year-1 margin")?.ok],
     ["New fixed cost (code)", (_, x) => (x.policy?.fixed_cost !== undefined ? money(x.policy.fixed_cost) : "—"), (x) => rule(x.policy, "new fixed costs this quarter")?.ok],
     ["GPU-hours a month", (t, x) => (t ? `${t.gpu_hours} <span class="t-muted">(${x.fit?.free?.gpu_hours ?? "?"} free)</span>` : "—"), (x) => (x.fit ? !(x.fit.shortfall?.gpu_hours > 0) : undefined)],
     ["Engineers", (t, x) => (t ? `${t.engineers} <span class="t-muted">(${x.fit?.free?.engineers ?? "?"} free)</span>` : "—"), (x) => (x.fit ? !(x.fit.shortfall?.engineers > 0) : undefined)],
@@ -98,12 +98,13 @@ function room(c, state) {
     </div>
     ${waiting ? `<div class="banner person">${icon("hand")}<span>Waiting on <b>${esc(waiting.approver ?? "a person")}</b> on a Switch card: ${esc(String(waiting.step).replace(/_/g, " "))}.</span></div>` : ""}
     <section class="dr-sec"><h3>${icon("code")} The alternatives, as code checked them</h3>
-      <p class="fine">Margins, capacity and rules are computed by code from the room's <code>policy</code>, <code>commitments</code> and <code>capacity</code> documents. Nothing an agent estimated is used. A proposal that breaks a rule is never offered on a card; only an alternative that passes is.</p>
+      <p class="fine">The margin is for the first contract year: a year of revenue after the discount, against a year of the GPU-hours and the one-off rollout team. Margins, capacity and rules are computed by code from the room's <code>policy</code>, <code>commitments</code> and <code>capacity</code> documents. Nothing an agent estimated is used. A proposal that breaks a rule is never offered on a card; only an alternative that passes is.</p>
       ${alternatives(c, checks)}</section>
     <section class="dr-sec"><h3>${icon("bot")} Four views, not a vote</h3>
       <div class="dr-views">${views.length ? views.map((v) => `<div class="dr-view"><div class="dr-view-head"><b>${esc(v.role)}</b><span class="mono t-muted">${esc(v.agent)}</span>${state.vendors?.[v.agent] ? `<span class="vendor v-${esc(state.vendors[v.agent])}">${esc(state.vendors[v.agent])}</span>` : ""}</div>
         ${v.value?.unavailable ? `<span class="pill stop">could not answer</span><p class="fine">${esc(v.value.reason ?? "")}</p>` : `<span class="pill ${v.value?.position === "accept" ? "act" : v.value?.position === "decline" ? "stop" : "person"}">${esc(v.value?.position ?? "?")}</span><p class="fine">${plural((v.value?.objections ?? []).length, "objection")}</p>`}</div>`).join("") : '<p class="fine">No view recorded yet.</p>'}</div></section>
     <section class="dr-sec"><h3>${icon("flag")} Dissent ledger</h3>
+      <p class="fine">Code checks that each objection's quote is in the proposal, and marks where. That makes it grounded, not right: whether the objection holds is for the people who decide.</p>
       ${typeof c.data.text === "string" ? `<blockquote class="pf-text">${marked(c.data.text, ledger)}</blockquote>` : ""}
       <table class="pf-table dr-ledger"><thead><tr><th>from</th><th>objection</th><th>quote, where it is</th><th>weight</th><th>status</th></tr></thead><tbody>${ledger
         .map((l) => `<tr class="${l.from === "code" ? "code" : ""}"><td><b>${esc(l.from)}</b></td><td>${esc(l.claim)}</td><td>${l.quote ? `<code>${esc(l.quote)}</code> ${l.grounded ? `<span class="mono t-accent">${l.grounded.start}–${l.grounded.end}</span>` : '<span class="t-stop">not in the proposal</span>'}` : '<span class="t-muted">code</span>'}</td><td><span class="pill ${l.materiality === "binding" ? "stop" : l.materiality === "high" ? "person" : "neutral"}">${esc(l.materiality)}</span></td><td>${esc(l.status)}</td></tr>`)

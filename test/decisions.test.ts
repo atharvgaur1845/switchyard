@@ -11,7 +11,7 @@ import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
 import { TAILSPIN } from "../src/demo.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
-import { buildProof, signProof, verifyProof } from "../src/proof.ts";
+import { buildProof, seal, signProof, verifyProof } from "../src/proof.ts";
 import { attestRooms, FakeSwitch } from "./fake-switch.ts";
 
 // A company decision, end to end: four views argue, code checks the
@@ -70,11 +70,11 @@ describe("a contract decision", () => {
     expect(r.fit.conflicts.map((c: { id: string }) => c.id)).toEqual(["C-101", "C-102", "C-103"]);
     expect(r.fit.detail).toMatch(/C-101 holds 600 for Northwind Paper until 2027-03-31 \(decided by @cto\)/);
     expect(r.policy.ok).toBe(false);
-    expect(r.policy.rules.filter((x: { ok: boolean }) => !x.ok).map((x: { rule: string }) => x.rule)).toEqual(["max discount", "min gross margin", "max uptime promised", "new fixed costs this quarter"]);
+    expect(r.policy.rules.filter((x: { ok: boolean }) => !x.ok).map((x: { rule: string }) => x.rule)).toEqual(["max discount", "min year-1 margin", "max uptime promised", "new fixed costs this quarter"]);
     expect(r.policy.margin).toBe(28.5);
     expect(r.counter_fit.ok && r.counter_policy.ok).toBe(true);
     expect(card(id).options).toEqual(["counter", "decline"]);
-    expect(card(id).title).toMatch(/breaks 4 company rules \(max discount, min gross margin, max uptime promised, new fixed costs this quarter\), and promises already made stand in its way \(C-101, C-102, C-103\)\. The counteroffer passes both\. 8 objections stay open/);
+    expect(card(id).title).toMatch(/breaks 4 company rules \(max discount, min year-1 margin, max uptime promised, new fixed costs this quarter\), and promises already made stand in its way \(C-101, C-102, C-103\)\. The counteroffer passes both\. 8 objections stay open/);
   });
 
   it("keeps every objection with its quote, and does not average them into a vote", async () => {
@@ -158,5 +158,97 @@ describe("a contract decision", () => {
     // Once per broken assumption.
     await runner.tick();
     expect(store.events(id).filter((e) => e.type === "assumption_broken")).toHaveLength(1);
+  });
+});
+
+// The commitments and policy checks fail closed: anything they cannot read,
+// or capacity that is not there, is a "no", never a resource skipped.
+describe("the decision checks, on bad or missing inputs", () => {
+  const NOW = Date.parse("2026-11-07T09:00:00Z");
+  const HEAD = "| id | kind | to | resource | amount | until | decided by | basis |\n|---|---|---|---|---|---|---|---|\n";
+  const CAP = "| resource | available | unit | as of |\n|---|---|---|---|\n";
+  const room = (commitments: string, capacity: string) => [
+    { id: "c", name: "commitments", content: HEAD + commitments },
+    { id: "k", name: "capacity", content: CAP + capacity },
+  ];
+  const fresh = "| gpu-hours | 1000 | a month | 2026-11-01 |\n| engineers | 8 | people | 2026-11-01 |\n";
+  const ask = { doc: "commitments", capacity: "capacity", max_age_days: 31, start: "2026-12-01", weeks: 6, gpu_hours: 400, engineers: 2 };
+  const fit = (args: Record<string, unknown>, docs = room("", fresh)) => DECISION_CHECKS.commitments.run({ ...ask, ...args }, docs, NOW) as Record<string, any>;
+
+  it("refuses an allocation the capacity cannot hold, even when no promise explains the gap", () => {
+    const r = fit({}, room("", "| gpu-hours | 200 | a month | 2026-11-01 |\n| engineers | 8 | people | 2026-11-01 |\n"));
+    expect(r.ok).toBe(false);
+    expect(r.shortfall).toEqual({ gpu_hours: 200 });
+    expect(r.conflicts).toEqual([]);
+    expect(r.detail).toMatch(/needs 400 GPU-hours a month .* and 200 of 200 are free, with nothing promised from them: there is not enough/);
+  });
+
+  it("refuses when the capacity document has no row, or two rows, for a resource asked for", () => {
+    expect(fit({}, room("", "| engineers | 8 | people | 2026-11-01 |\n"))).toMatchObject({ ok: false, detail: expect.stringMatching(/capacity has no row for gpu-hours/) });
+    expect(fit({}, room("", "| gpu-hours | 1000 | a month | 2026-11-01 |\n"))).toMatchObject({ ok: false, detail: expect.stringMatching(/capacity has no row for engineers/) });
+    expect(fit({}, room("", fresh + "| gpu-hours | 5000 | a month | 2026-11-02 |\n"))).toMatchObject({ ok: false, detail: expect.stringMatching(/2 rows for gpu-hours/) });
+    expect(fit({}, room("", "| gpu-hours | lots | a month | 2026-11-01 |\n| engineers | 8 | people | 2026-11-01 |\n"))).toMatchObject({ ok: false, detail: expect.stringMatching(/"lots" gpu-hours available/) });
+  });
+
+  it("refuses a request that is missing, negative or not a number, and passes one that needs none of a resource", () => {
+    for (const bad of [undefined, "", "-50", "a few"]) expect(fit({ gpu_hours: bad }).ok).toBe(false);
+    expect(fit({ engineers: undefined }).detail).toMatch(/does not say how many engineers/);
+    expect(fit({ gpu_hours: 0 }).ok).toBe(true);
+  });
+
+  it("refuses when a promise cannot be read, instead of leaving it out of the count", () => {
+    expect(fit({}, room("| C-1 | capacity | Northwind | gpu-hours | 600 | next spring | @cto | x |\n", fresh))).toMatchObject({ ok: false, detail: expect.stringMatching(/C-1 in commitments: "next spring" is not a date/) });
+    expect(fit({}, room("| C-1 | capacity | Northwind | gpu-hours |  | 2027-03-31 | @cto | x |\n", fresh)).detail).toMatch(/its amount is not a number of gpu-hours/);
+    expect(fit({}, room("| C-1 | capacity | Northwind | gpu-hours | -600 | 2027-03-31 | @cto | x |\n", fresh)).ok).toBe(false);
+    expect(fit({}, room("| C-1 | capacity | Northwind |  | 600 | 2027-03-31 | @cto | x |\n", fresh)).detail).toMatch(/does not say which resource/);
+  });
+
+  it("refuses a capacity report that is stale, undated or dated in the future", () => {
+    const at = (d: string) => room("", `| gpu-hours | 1000 | a month | ${d} |\n| engineers | 8 | people | ${d} |\n`);
+    expect(fit({}, at("2026-09-01")).detail).toMatch(/as of 2026-09-01, more than 31 days ago/);
+    expect(fit({}, at("")).detail).toMatch(/does not say when gpu-hours was last reported/);
+    expect(fit({}, at("2026-12-25")).detail).toMatch(/a date still to come/);
+    expect(fit({}, at("2026-10-20")).ok).toBe(true);
+  });
+
+  it("refuses terms with a missing cost driver, rather than counting it as free", () => {
+    const policy = [{ id: "p", name: "policy", content: doc("policy") }];
+    const terms = { doc: "policy", value: 12_000_000, discount_pct: 10, uptime: 99.9, weeks: 6, gpu_hours: 400, engineers: 3 };
+    expect(DECISION_CHECKS.constitution.run(terms, policy).ok).toBe(true);
+    for (const missing of ["gpu_hours", "engineers", "value", "uptime"]) expect(DECISION_CHECKS.constitution.run({ ...terms, [missing]: "" }, policy).ok).toBe(false);
+    expect(DECISION_CHECKS.constitution.run({ ...terms, discount_pct: 140 }, policy).ok).toBe(false);
+  });
+});
+
+describe("a decision's proof", () => {
+  it("runs the decision checks again from the documents they read, and catches a recorded result that was changed", async () => {
+    const { store, answer, propose } = world();
+    const id = await propose();
+    await answer(id, "counter", "@cfo");
+    await answer(id, "approve", "@cto");
+    const key = generateKeyPairSync("ed25519").privateKey;
+    const proof = signProof(buildProof(store, [flow], id), key);
+    const fp = proof.signature!.fingerprint;
+    const replays = verifyProof(proof, fp).filter((f) => /run again on them/.test(f.what));
+    expect(replays).toHaveLength(5);
+    expect(replays.every((f) => f.ok)).toBe(true);
+
+    // Someone with the signing key rewrites the log: the proposal now "fits".
+    const forged = structuredClone(proof);
+    const fit = forged.log.find((e) => e.type === "verified" && e.step === "fit") as unknown as { value: { ok: boolean } };
+    fit.value.ok = true;
+    const resigned = signProof(seal(forged.case, forged.flow, forged.log), key);
+    // Caught where it was changed, and again where the dissent check read it.
+    expect(verifyProof(resigned, fp).filter((f) => !f.ok).map((f) => f.what)).toEqual([
+      "fit: the commitments check, run again on them, gives the result recorded (it does not pass; the log says it passes)",
+      "dissent: the dissent check's arguments are what the flow makes from the log",
+    ]);
+
+    // Or swaps the policy it read for a laxer one, and re-signs.
+    const lax = structuredClone(proof);
+    const policy = lax.log.find((e) => e.type === "verified" && e.step === "policy") as unknown as { replay: { docs: Record<string, string> } };
+    policy.replay.docs.policy = policy.replay.docs.policy.replace("| max discount | 15% |", "| max discount | 50% |");
+    const relaxed = signProof(seal(lax.case, lax.flow, lax.log), key);
+    expect(verifyProof(relaxed, fp).filter((f) => !f.ok).map((f) => f.what)).toContain("policy: the documents it read (policy) hash to what the log recorded");
   });
 });

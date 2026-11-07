@@ -20,8 +20,8 @@ Both leave a **signed proof** that anyone can check with no model, no Switch and
 A company is a set of commitments made under uncertainty: capacity reserved for a customer, engineers promised to a release, an uptime guarantee, a budget. A decision made yesterday constrains the one being made today. Switchyard keeps those promises in a Switch room document and checks every new proposal against them before anyone is asked:
 
 - **Four views, not a vote.** Two agents on two vendors take four jobs: the finance desk, the engineering desk, the operations desk and a red team. Each gives a position and objections, and every objection must quote the proposal. Code keeps an objection only if its quote is there, records where, and never averages the views into a score. The finance desk also proposes a counteroffer.
-- **The company constitution, by code.** The `policy` document holds the rules and who set each one: maximum discount, minimum gross margin, maximum uptime promised, no new fixed costs this quarter (the board's), and the cost rates. Code computes the margin and the fixed cost itself; nothing an agent estimated is used.
-- **The Commitment Graph, by code.** The `commitments` document holds every promise: to whom, which resource, how much, until when, and who decided it. With the `capacity` document, code finds what is free in the proposal's window and names each promise in the way: "C-101 holds 600 for Northwind Paper until 2027-03-31 (decided by @cto)".
+- **The company constitution, by code.** The `policy` document holds the rules and who set each one: maximum discount, minimum year-1 margin, maximum uptime promised, no new fixed costs this quarter (the board's), and the cost rates. Code computes the margin and the fixed cost itself; nothing an agent estimated is used. The margin is for the first contract year: a year of revenue after the discount, against a year of the GPU-hours and the one-off rollout team.
+- **The Commitment Graph, by code.** The `commitments` document holds every promise: to whom, which resource, how much, until when, and who decided it. With the `capacity` document, code finds what is free in the proposal's window and names each promise in the way: "C-101 holds 600 for Northwind Paper until 2027-03-31 (decided by @cto)". It fails closed: any shortfall is a "no", whether or not a promise explains it, and a missing request, an unreadable or missing capacity row, a capacity report more than a month old, or a promise with no readable amount or date stops the check instead of being skipped.
 - **Only an alternative that passes is offered.** A proposal that breaks a rule or a promise is never put on a card. The CFO is offered the counteroffer, which code checked the same way, or a decline. Choosing it with objections still open is recorded as answering for them.
 - **Four eyes, then commitments.** A different person, the CTO, co-signs the exact actions. Switchyard then writes the new commitments into the room (capacity, the delivery team, the uptime promise) and sends the counteroffer. The next proposal sees them.
 - **Assumption Watch.** A decision rests on facts that can change after it is carried out. Each tick, code checks a carried-out decision's assumptions again on the room as it is now. When operations reports lost capacity, the decision is marked, its thread says why, and a new case decides again on the current facts; the original and what it did stay as they were. Before it is carried out, the same change voids the approval instead.
@@ -78,7 +78,7 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 8. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to act, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it marks PO-1043 as invoiced in the room, pays the new account through the bank and reads the payment back. All three hashes match: the approved one, the one sent and the bank's copy.
 9. **Someone edits the vendor master in the room directly**, swapping Northwind's account and leaving the old date and the word "callback". The next Northwind invoice would have been paid by the rule. Instead it is held: the row is not the one Switchyard first saw, and no pay card is offered.
 10. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the invoice is held, with no pay button.
-11. **The proofs.** The run writes the paid invoice's signed proof and checks it: 32 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself. The decision's proof, with its dissent ledger and the assumption that broke, holds all 34 of its checks.
+11. **The proofs.** The run writes the paid invoice's signed proof and checks it: 32 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself. The decision's proof, with its dissent ledger and the assumption that broke, holds all 49 of its checks, including each decision check run again on the documents it read.
 
 The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep the console of the run's cases open at `http://localhost:4101`. The same run can be hosted read-only (`demo offline --serve --public`, on `$PORT`); `deploy/hf-space/` is the Hugging Face Space that does that, live at https://huggingface.co/spaces/atharvgaur18/switchyard.
 
@@ -176,8 +176,8 @@ sequenceDiagram
 
 
 - **Four views, not a vote.** Two agents on two vendors take four jobs: the finance desk (which also proposes a counteroffer), the engineering desk, the operations desk and a red team. Each objection must quote the proposal.
-- **The company constitution, by code.** The `policy` document holds the rules and who set each: maximum discount 15% (CFO), minimum gross margin 30% (CFO), maximum uptime 99.9% (CTO), no new fixed costs this quarter (board). Code computes the margin itself (28.5% here) from the policy's own cost rates.
-- **The commitments, by code.** 400 of 1,000 GPU-hours are free, because C-101 holds 600 for Northwind Paper until March 2027, decided by the CTO; the engineers are promised to Contoso and to a platform migration.
+- **The company constitution, by code.** The `policy` document holds the rules and who set each: maximum discount 15% (CFO), minimum year-1 margin 30% (CFO), maximum uptime 99.9% (CTO), no new fixed costs this quarter (board). Code computes the margin itself from the policy's own cost rates (28.5% here), over the first contract year: a year of revenue after the discount, against a year of GPU-hours and the one-off rollout team.
+- **The commitments, by code.** 400 of 1,000 GPU-hours are free, because C-101 holds 600 for Northwind Paper until March 2027, decided by the CTO; the engineers are promised to Contoso and to a platform migration. The check fails closed: any shortfall is a "no" whether or not a promise explains it, and a missing request, a capacity row it cannot read, a capacity report more than a month old, or a promise with no readable amount or date stops it rather than being skipped.
 - **Only an alternative that passes reaches a card.** The counteroffer (10%, 99.9%, 400 GPU-hours, starting after the Contoso release) passes both checks, so the CFO is offered it or a decline; accepting the proposal as it stands is not an option. Choosing it with objections still open records the CFO as answering for them.
 - **Four eyes.** The CTO co-signs the exact actions; the CFO cannot. Then Switchyard writes three commitments into the room and emails the counteroffer.
 
@@ -330,7 +330,7 @@ flowchart LR
 
 One file per case answers "why did we do this?". It holds the case's event log, the evidence drawn from it in sections, the flow it ran under, a digest of each part, a root over the digests and an Ed25519 signature made with a key kept outside the log.
 
-`npm run switchyard verify-proof <file>` checks it with no model, no Switch and no bank: 32 checks for the demo payment, 34 for the demo decision. It evaluates the payment rule again on the log rather than trusting it. An edited log, a moved quote, or a rewritten amount signed again with another key each fails. What a signature cannot prove: that the record is true.
+`npm run switchyard verify-proof <file>` checks it with no model, no Switch and no bank: 32 checks for the demo payment, 49 for the demo decision. It evaluates the payment rule again on the log rather than trusting it, and runs each decision check (commitments, policy, dissent) again on the documents it read, which the log keeps, with the arguments the flow makes from the log. An edited log, a moved quote, or a rewritten amount signed again with another key each fails. What a signature cannot prove: that the record is true.
 
 ```mermaid
 flowchart TB
@@ -363,6 +363,7 @@ With people doing their job, every attack is stopped with or without links betwe
 - **Real:** Switch (rooms, threads, cards, documents) on Slack; the agents (Claude Haiku and Gemini through their CLIs, with tools switched off); the emails through Mailpit; the engine, its event log and its checks; two people deciding.
 - **Sandbox:** the bank and its answers about who holds an account; the suppliers and their `.test` domains; Tailspin, the commitments, the capacity and the policy. No CRM, HR or ERP is connected.
 - **This page**, when hosted publicly, shows the offline run: fixture agents and cards clicked by a script.
+
 <!-- how-it-works:end -->
 
 ## What it looked like live, on Slack
@@ -645,6 +646,8 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
 
 - **Decisions: the counteroffer comes from an agent.** Code checks it, and nothing it does not pass is offered, but code does not search for the best alternative. If the finance desk proposes none that passes, the CFO is offered decline or hold.
 - **Decisions: a card carries options, not reasons.** Choosing the counteroffer with objections open is recorded as answering for them, by name and time; Switch cards have no free-text field for why.
+- **Decisions: grounded is not right.** Code checks that an objection's quote is in the proposal and where; it does not check that the objection is correct. The Decision Room says so above the ledger.
+- **Decisions: the margin is a year-1 figure.** A year of revenue after the discount against a year of GPU-hours and the one-off rollout team. It is not an accounting gross margin, and it does not model later years or other costs.
 - **Decisions: promises have an end date and no start date.** The commitments check counts every promise not yet ended as holding its resource, which is cautious: a promise that starts later still counts now.
 - **Assumption Watch runs on the engine's tick** and re-checks only the assumptions a flow declares (here, the capacity a decision reserved). It opens a new case; it never undoes what the first decision did.
 
@@ -687,7 +690,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 310 tests
+npm test             # 317 tests
 npm run lab          # the attack lab, links off and on
 npm run lab -- --heldout   # the 20 held-out scenarios
 npm run typecheck

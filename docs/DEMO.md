@@ -48,7 +48,7 @@ npm run switchyard demo send contract-proposal
 ```
 
 - **Slack, case thread:** four jobs on two agents (finance desk, engineering desk, operations desk, red team), each with a position and objections that quote the proposal.
-- **Code, in the thread:** "✗ commitments: needs 500 GPU-hours a month … 400 of 1,000 are free: C-101 holds 600 for Northwind Paper until 2027-03-31 (decided by @cto) …" and "✗ constitution: max discount 15% (set by @cfo): 25% … min gross margin 30%: 28.5% (code: …) … new fixed costs this quarter 0 INR (set by board): 1,080,000 a year, to buy the GPU-hours that are already promised to others". Then the counteroffer, both ✓.
+- **Code, in the thread:** "✗ commitments: needs 500 GPU-hours a month … 400 of 1,000 are free: C-101 holds 600 for Northwind Paper until 2027-03-31 (decided by @cto) …" and "✗ constitution: max discount 15% (set by @cfo): 25% … min year-1 margin 30%: 28.5% (code, first contract year: …) … new fixed costs this quarter 0 INR (set by board): 1,080,000 a year, to buy the GPU-hours that are already promised to others". Then the counteroffer, both ✓.
 - **The card for B (CFO):** "counter Tailspin Analytics's proposal? … breaks 4 company rules … promises already made stand in its way (C-101, C-102, C-103). The counteroffer passes both. 8 objections stay open; choosing counter makes you answerable for them." There is no accept button.
 
 > "A normal assistant would say yes to twelve million. Code knows that yesterday's promises to Northwind and Contoso are using the capacity, and that the board said no new fixed costs this quarter."

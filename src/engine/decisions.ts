@@ -24,16 +24,28 @@ export interface Commitment {
 }
 
 const num = (v: unknown) => Number(String(v ?? "").replace(/[,%\s]|INR/g, ""));
+// A number that must be there: an empty cell is not a zero.
+const strict = (v: unknown) => (v === undefined || v === null || String(v).replace(/[,%\s]|INR/g, "") === "" ? Number.NaN : num(v));
 const fmt = (n: number, digits = 1) => n.toLocaleString("en", { maximumFractionDigits: digits });
 const money = (n: number) => fmt(Math.round(n), 0);
 const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
 
 export function commitmentsOf(content: string): Commitment[] {
-  return tableRows(content).map(([id = "", kind = "", to = "", resource = "", amount = "", until = "", decided_by = "", basis = ""]) => ({ id, kind, to, resource, amount: num(amount), until, decided_by, basis }));
+  return tableRows(content).map(([id = "", kind = "", to = "", resource = "", amount = "", until = "", decided_by = "", basis = ""]) => ({ id, kind, to, resource, amount: strict(amount), until, decided_by, basis }));
 }
 
-export function capacityOf(content: string): { resource: string; available: number; unit: string; as_of: string }[] {
-  return tableRows(content).map(([resource = "", available = "", unit = "", as_of = ""]) => ({ resource, available: num(available), unit, as_of }));
+// What makes a promise unreadable: then what it holds cannot be counted.
+function commitmentProblems(r: Commitment): string[] {
+  return [
+    ...(r.id ? [] : ["it has no id"]),
+    ...(r.resource ? [] : ["it does not say which resource it holds"]),
+    ...(r.amount >= 0 ? [] : [`its amount is not a number of ${r.resource || "anything"}`]),
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(r.until) && !Number.isNaN(Date.parse(r.until)) ? [] : [`"${r.until}" is not a date (YYYY-MM-DD) it holds until`]),
+  ];
+}
+
+export function capacityOf(content: string): { resource: string; available: number; raw: string; unit: string; as_of: string }[] {
+  return tableRows(content).map(([resource = "", available = "", unit = "", as_of = ""]) => ({ resource, available: strict(available), raw: available, unit, as_of }));
 }
 
 function policyOf(content: string): Map<string, { limit: number; text: string; set_by: string }> {
@@ -46,48 +58,77 @@ const ASKS = [
   { resource: "engineers", arg: "engineers", unit: "engineers" },
 ];
 
-export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Record<string, unknown>, docs: RoomDocument[]) => VerifyResult }> = {
+export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Record<string, unknown>, docs: RoomDocument[], now?: number) => VerifyResult }> = {
   // args: doc (commitments), capacity (document name), start (date), weeks,
-  // gpu_hours, engineers, exclude (case ids whose own rows do not count:
+  // gpu_hours, engineers, max_age_days (how old the capacity report may be), exclude (case ids whose own rows do not count:
   // the decision being checked again, and the one it reconsiders).
   // Fits when every resource asked for is free for the whole window, after
   // the promises already made. Names every promise in the way, and who made it.
   commitments: {
     needsDoc: true,
-    run(args, docs) {
+    run(args, docs, now = Date.now()) {
       const doc = docs.find((d) => d.name === args.doc);
       const cap = docs.find((d) => d.name === (args.capacity ?? "capacity"));
       if (!doc || !cap) return { ok: false, detail: `this room has no ${!doc ? String(args.doc) : String(args.capacity ?? "capacity")} document` };
       const start = Date.parse(String(args.start ?? ""));
-      const weeks = num(args.weeks);
+      const weeks = strict(args.weeks);
       if (Number.isNaN(start) || !(weeks > 0)) return { ok: false, detail: "there is no start date and length to check against what is committed" };
       const end = start + weeks * 7 * DAY;
       const exclude = String(args.exclude ?? "").split(/[\s,]+/).filter(Boolean);
-      const rows = commitmentsOf(doc.content).filter((r) => !exclude.some((id) => r.basis.includes(`case ${id}`)));
+      const all = commitmentsOf(doc.content);
+      const rows = all.filter((r) => !exclude.some((id) => r.basis.includes(`case ${id}`)));
       const capacity = capacityOf(cap.content);
+      // Fail closed: anything this check cannot read is a reason to stop,
+      // never a row or a resource to skip. A promise that cannot be read
+      // could be the one that holds the capacity.
+      const unreadable = [
+        ...all.flatMap((r) => commitmentProblems(r).map((p) => `${r.id || "a row with no id"} in ${doc.name}: ${p}`)),
+        ...ASKS.flatMap((ask) => {
+          const raw = args[ask.arg];
+          const need = strict(raw);
+          if (raw === undefined || raw === null || String(raw).trim() === "") return [`the request does not say how many ${ask.unit} it needs`];
+          if (!(need >= 0)) return [`the request asks for "${String(raw)}" ${ask.unit}, which is not a number of them`];
+          if (need === 0) return [];
+          const found = capacity.filter((c) => c.resource === ask.resource);
+          if (found.length === 0) return [`${cap.name} has no row for ${ask.resource}, so what is free cannot be known`];
+          if (found.length > 1) return [`${cap.name} has ${found.length} rows for ${ask.resource}; a person must keep one`];
+          const [c] = found;
+          if (!(c.available >= 0)) return [`${cap.name} gives "${c.raw}" ${ask.resource} available, which is not a number of them`];
+          const asOf = Date.parse(c.as_of);
+          const maxAge = strict(args.max_age_days);
+          if (Number.isNaN(asOf)) return [`${cap.name} does not say when ${ask.resource} was last reported`];
+          if (asOf > now + DAY) return [`${cap.name} reports ${ask.resource} as of ${c.as_of}, a date still to come`];
+          if (maxAge > 0 && now - asOf > maxAge * DAY) return [`${cap.name} reports ${ask.resource} as of ${c.as_of}, more than ${fmt(maxAge, 0)} days ago: operations must report it again`];
+          return [];
+        }),
+      ];
+      if (unreadable.length) return { ok: false, detail: `cannot check against what is committed: ${unreadable.join("; ")}`, unreadable, needs: {}, free: {}, shortfall: {}, shortfall_gpu_hours: 0, conflicts: [], conflict_ids: "none", commitments: rows, capacity, watch: { [cap.name]: { hash: docHash(cap.content) } } };
       const lines: string[] = [];
       const conflicts: (Commitment & { resource_short: number })[] = [];
       const needs: Record<string, number> = {};
       const free: Record<string, number> = {};
       const shortfall: Record<string, number> = {};
       for (const ask of ASKS) {
-        const need = num(args[ask.arg]);
-        if (!(need > 0)) continue;
-        const total = capacity.find((c) => c.resource === ask.resource)?.available ?? 0;
+        const need = strict(args[ask.arg]);
+        needs[ask.arg] = need;
+        if (need === 0) continue;
+        const total = capacity.find((c) => c.resource === ask.resource)!.available;
         // A promise holds its resource until its date; one that ends before
         // the window starts holds nothing in it.
-        const held = rows.filter((r) => r.resource === ask.resource && !Number.isNaN(Date.parse(r.until)) && Date.parse(r.until) >= start);
+        const held = rows.filter((r) => r.resource === ask.resource && Date.parse(r.until) >= start);
         const left = total - held.reduce((n, r) => n + r.amount, 0);
-        needs[ask.arg] = need;
         free[ask.arg] = left;
         if (need <= left) continue;
+        // Any shortfall fails, whether or not a promise explains it: capacity
+        // that is simply not there is the same "no" as capacity promised away.
         shortfall[ask.arg] = need - left;
         for (const r of held) conflicts.push({ ...r, resource_short: need - left });
-        lines.push(`needs ${fmt(need)} ${ask.unit} from ${iso(start)} to ${iso(end)}, and ${fmt(Math.max(0, left))} of ${fmt(total)} are free: ${held.map((r) => `${r.id} holds ${fmt(r.amount)} for ${r.to} until ${r.until} (decided by ${r.decided_by})`).join(", ")}`);
+        lines.push(`needs ${fmt(need)} ${ask.unit} from ${iso(start)} to ${iso(end)}, and ${fmt(Math.max(0, left))} of ${fmt(total)} are free${held.length ? `: ${held.map((r) => `${r.id} holds ${fmt(r.amount)} for ${r.to} until ${r.until} (decided by ${r.decided_by})`).join(", ")}` : ", with nothing promised from them: there is not enough"}`);
       }
+      const short = Object.keys(shortfall).length > 0;
       return {
-        ok: conflicts.length === 0,
-        detail: conflicts.length ? lines.join("; ") : `fits what is left after ${rows.length} commitments, from ${iso(start)} to ${iso(end)}`,
+        ok: !short,
+        detail: short ? lines.join("; ") : `fits what is left after ${rows.length} commitments, from ${iso(start)} to ${iso(end)}`,
         needs,
         free,
         shortfall,
@@ -97,7 +138,7 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
         start: iso(start),
         end: iso(end),
         // A service promise runs for the contract's term, a year by default.
-        term_end: iso(start + (num(args.term_months) || 12) * MONTH_DAYS * DAY),
+        term_end: iso(start + (strict(args.term_months) || 12) * MONTH_DAYS * DAY),
         commitments: rows,
         capacity,
         // The decision rests on the capacity as it is now: a change to it
@@ -118,22 +159,31 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
       if (!doc) return { ok: false, detail: `this room has no ${String(args.doc)} document` };
       const rules = policyOf(doc.content);
       const rule = (name: string) => rules.get(name);
-      const value = num(args.value);
-      const discount = num(args.discount_pct);
-      const uptime = num(args.uptime);
-      const gpu = num(args.gpu_hours) || 0;
-      const engineers = num(args.engineers) || 0;
-      const months = (num(args.weeks) * 7) / MONTH_DAYS;
-      if (!(value > 0) || Number.isNaN(discount) || Number.isNaN(uptime) || !(months > 0)) return { ok: false, detail: "the terms are incomplete: value, discount, uptime and length are all needed" };
+      const value = strict(args.value);
+      const discount = strict(args.discount_pct);
+      const uptime = strict(args.uptime);
+      const gpu = strict(args.gpu_hours);
+      const engineers = strict(args.engineers);
+      const months = (strict(args.weeks) * 7) / MONTH_DAYS;
+      // Fail closed: a missing figure is not a zero, or the cost would be
+      // understated and the margin overstated.
+      if (!(value > 0) || !(discount >= 0 && discount <= 100) || !(uptime > 0 && uptime <= 100) || !(months > 0) || !(gpu >= 0) || !(engineers >= 0)) return { ok: false, detail: "the terms are incomplete or not numbers: value, discount, uptime, length, GPU-hours and engineers are all needed" };
       const gpuCost = rule("gpu-hour cost")?.limit ?? Number.NaN;
       const engCost = rule("engineer-month cost")?.limit ?? Number.NaN;
+      // The first year of the contract, all on one basis: a year of revenue
+      // after the discount, against a year of the GPU-hours it uses and the
+      // rollout team for the weeks it takes to deliver (a one-off cost that
+      // falls in that year). Not an accounting gross margin.
       const net = value * (1 - discount / 100);
-      const cost = gpu * 12 * gpuCost + engineers * months * engCost;
+      const gpuYear = gpu * 12 * gpuCost;
+      const rollout = engineers * months * engCost;
+      const cost = gpuYear + rollout;
       const margin = ((net - cost) / net) * 100;
-      const fixed = num(args.shortfall_gpu_hours) > 0 ? num(args.shortfall_gpu_hours) * 12 * gpuCost : 0;
+      const short = strict(args.shortfall_gpu_hours);
+      const fixed = short > 0 ? short * 12 * gpuCost : 0;
       const checks = [
         { rule: "max discount", value: discount, shown: `${fmt(discount)}%`, ok: (r: number) => discount <= r },
-        { rule: "min gross margin", value: margin, shown: `${fmt(margin)}% (code: ${money(net)} after discount, ${money(cost)} cost = ${fmt(gpu)} GPU-hours × 12 × ${money(gpuCost)} + ${fmt(engineers)} engineers × ${fmt(months)} months × ${money(engCost)})`, ok: (r: number) => margin >= r },
+        { rule: "min year-1 margin", value: margin, shown: `${fmt(margin)}% (code, first contract year: ${money(net)} revenue after discount, ${money(cost)} cost = ${fmt(gpu)} GPU-hours × 12 months × ${money(gpuCost)} + rollout ${fmt(engineers)} engineers × ${fmt(months)} months × ${money(engCost)})`, ok: (r: number) => margin >= r },
         { rule: "max uptime promised", value: uptime, shown: `${fmt(uptime, 3)}%`, ok: (r: number) => uptime <= r },
         { rule: "new fixed costs this quarter", value: fixed, shown: fixed ? `${money(fixed)} a year, to buy the GPU-hours that are already promised to others` : "none", ok: (r: number) => fixed <= r },
       ].map((c) => {
@@ -150,6 +200,7 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
         broken: broken.length,
         broken_rules: broken.map((c) => c.rule).join(", ") || "none",
         margin: Math.round(margin * 10) / 10,
+        margin_basis: "first contract year: a year of revenue after discount, minus a year of GPU-hours and the one-off rollout team",
         net,
         cost: Math.round(cost),
         fixed_cost: Math.round(fixed),

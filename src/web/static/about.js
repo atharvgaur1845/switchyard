@@ -175,8 +175,8 @@ export const SECTIONS = [
     open: ["decisions", "Open the Decision Room"],
     body: `<p><b>The example:</b> Tailspin Analytics proposes 12,000,000 INR a year at a 25% discount, 99.99% uptime, delivered in six weeks.</p>
       <ul><li><b>Four views, not a vote.</b> Two agents on two vendors take four jobs: the finance desk (which also proposes a counteroffer), the engineering desk, the operations desk and a red team. Each objection must quote the proposal.</li>
-      <li><b>The company constitution, by code.</b> The <code>policy</code> document holds the rules and who set each: maximum discount 15% (CFO), minimum gross margin 30% (CFO), maximum uptime 99.9% (CTO), no new fixed costs this quarter (board). Code computes the margin itself (28.5% here) from the policy's own cost rates.</li>
-      <li><b>The commitments, by code.</b> 400 of 1,000 GPU-hours are free, because C-101 holds 600 for Northwind Paper until March 2027, decided by the CTO; the engineers are promised to Contoso and to a platform migration.</li>
+      <li><b>The company constitution, by code.</b> The <code>policy</code> document holds the rules and who set each: maximum discount 15% (CFO), minimum year-1 margin 30% (CFO), maximum uptime 99.9% (CTO), no new fixed costs this quarter (board). Code computes the margin itself from the policy's own cost rates (28.5% here), over the first contract year: a year of revenue after the discount, against a year of GPU-hours and the one-off rollout team.</li>
+      <li><b>The commitments, by code.</b> 400 of 1,000 GPU-hours are free, because C-101 holds 600 for Northwind Paper until March 2027, decided by the CTO; the engineers are promised to Contoso and to a platform migration. The check fails closed: any shortfall is a "no" whether or not a promise explains it, and a missing request, a capacity row it cannot read, a capacity report more than a month old, or a promise with no readable amount or date stops it rather than being skipped.</li>
       <li><b>Only an alternative that passes reaches a card.</b> The counteroffer (10%, 99.9%, 400 GPU-hours, starting after the Contoso release) passes both checks, so the CFO is offered it or a decline; accepting the proposal as it stands is not an option. Choosing it with objections still open records the CFO as answering for them.</li>
       <li><b>Four eyes.</b> The CTO co-signs the exact actions; the CFO cannot. Then Switchyard writes three commitments into the room and emails the counteroffer.</li></ul>`,
   },
@@ -233,7 +233,7 @@ export const SECTIONS = [
     diagram: "proof",
     open: ["proofs", "Open the Proof Explorer"],
     body: `<p>One file per case answers "why did we do this?". It holds the case's event log, the evidence drawn from it in sections, the flow it ran under, a digest of each part, a root over the digests and an Ed25519 signature made with a key kept outside the log.</p>
-      <p><code>npm run switchyard verify-proof &lt;file&gt;</code> checks it with no model, no Switch and no bank: 32 checks for the demo payment, 34 for the demo decision. It evaluates the payment rule again on the log rather than trusting it. An edited log, a moved quote, or a rewritten amount signed again with another key each fails. What a signature cannot prove: that the record is true.</p>`,
+      <p><code>npm run switchyard verify-proof &lt;file&gt;</code> checks it with no model, no Switch and no bank: 32 checks for the demo payment, 49 for the demo decision. It evaluates the payment rule again on the log rather than trusting it, and runs each decision check (commitments, policy, dissent) again on the documents it read, which the log keeps, with the arguments the flow makes from the log. An edited log, a moved quote, or a rewritten amount signed again with another key each fails. What a signature cannot prove: that the record is true.</p>`,
   },
   {
     id: "lab",

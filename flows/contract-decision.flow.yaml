@@ -59,14 +59,14 @@ steps:
   # Code, not the agents. Does the proposal fit what is left after what the
   # company has already promised, and does it keep the company's rules?
   - id: fit
-    verify: { check: commitments, doc: commitments, capacity: capacity, start: "{case.start}", weeks: "{case.weeks}", gpu_hours: "{case.gpu_hours}", engineers: "{case.engineers}", exclude: "{this.id} {case.reconsider}" }
+    verify: { check: commitments, doc: commitments, capacity: capacity, max_age_days: 31, start: "{case.start}", weeks: "{case.weeks}", gpu_hours: "{case.gpu_hours}", engineers: "{case.engineers}", exclude: "{this.id} {case.reconsider}" }
   - id: policy
     verify: { check: constitution, doc: policy, value: "{case.value}", discount_pct: "{case.discount_pct}", uptime: "{case.uptime}", weeks: "{case.weeks}", gpu_hours: "{case.gpu_hours}", engineers: "{case.engineers}", shortfall_gpu_hours: "{fit.shortfall_gpu_hours}" }
 
   # The same two checks on the finance desk's counteroffer: an alternative is
   # only offered if code passes it.
   - id: counter_fit
-    verify: { check: commitments, doc: commitments, capacity: capacity, start: "{assess.checker.counteroffer.start}", weeks: "{assess.checker.counteroffer.weeks}", gpu_hours: "{assess.checker.counteroffer.gpu_hours}", engineers: "{assess.checker.counteroffer.engineers}", exclude: "{this.id} {case.reconsider}" }
+    verify: { check: commitments, doc: commitments, capacity: capacity, max_age_days: 31, start: "{assess.checker.counteroffer.start}", weeks: "{assess.checker.counteroffer.weeks}", gpu_hours: "{assess.checker.counteroffer.gpu_hours}", engineers: "{assess.checker.counteroffer.engineers}", exclude: "{this.id} {case.reconsider}" }
   - id: counter_policy
     verify: { check: constitution, doc: policy, value: "{case.value}", discount_pct: "{assess.checker.counteroffer.discount_pct}", uptime: "{assess.checker.counteroffer.uptime}", weeks: "{assess.checker.counteroffer.weeks}", gpu_hours: "{assess.checker.counteroffer.gpu_hours}", engineers: "{assess.checker.counteroffer.engineers}", shortfall_gpu_hours: "{counter_fit.shortfall_gpu_hours}" }
 
