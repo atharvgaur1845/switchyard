@@ -36,6 +36,7 @@ const STATIC: Record<string, string> = {
   "decisions.js": "text/javascript",
   "commitments.js": "text/javascript",
   "about.js": "text/javascript",
+  "company.js": "text/javascript",
   "logo.svg": "image/svg+xml",
 };
 
@@ -227,6 +228,13 @@ export function startServer(opts: {
       const proof = opts.proofKey ? signProof(unsigned, opts.proofKey) : unsigned;
       res.setHeader("Content-Disposition", `attachment; filename="${id}.proof.json"`);
       return send(res, 200, "application/json", JSON.stringify(proof, null, 2));
+    }
+
+    if (kind === "api" && name === "company" && req.method === "GET") {
+      const { companyView } = await import("./web/company.ts");
+      const room = opts.flows.find((f) => f.flow === "contract-decision")?.room ?? "finance";
+      const docs = await opts.runner.roomDocuments(room).catch(() => []);
+      return send(res, 200, "application/json", JSON.stringify(companyView(opts.store, opts.flows, docs)));
     }
 
     if (kind === "api" && name === "investigations" && req.method === "GET") {

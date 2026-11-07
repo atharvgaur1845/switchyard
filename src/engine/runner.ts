@@ -899,6 +899,11 @@ export class Runner {
     return true;
   }
 
+  // A room's documents as Switch holds them now, for the console's company view.
+  async roomDocuments(room: string): Promise<RoomDocument[]> {
+    return this.chat.documents ? this.chat.documents(room) : [];
+  }
+
   async cancel(caseId: string, by: string): Promise<boolean> {
     const state = this.store.load(caseId);
     if (state.status !== "open") return false;

@@ -4,6 +4,7 @@
 // touches the page.
 
 import { drawDiagrams, renderAbout } from "./about.js";
+import { loadCompany, renderCompany } from "./company.js";
 import { renderAgents } from "./agents.js";
 import { renderCommand } from "./command.js";
 import { commitmentClick, renderCommitments } from "./commitments.js";
@@ -17,7 +18,7 @@ import { renderReplay, replayChange, replayClick } from "./replay.js";
 import { api, receiptsOf as receipts, setHash, token } from "./views.js";
 
 // Every view, by the hash that opens it. A bare case id opens that case.
-const VIEWS = ["command", "decisions", "commitments", "cases", "investigations", "agents", "proofs", "lab", "flows", "replay", "about"];
+const VIEWS = ["command", "company", "decisions", "commitments", "cases", "investigations", "agents", "proofs", "lab", "flows", "replay", "about"];
 const routeOf = (hash) => {
   const [view, arg] = hash.replace(/^#/, "").split("?")[0].split("/");
   return VIEWS.includes(view) ? { view, arg } : view ? { view: "cases", arg: view } : { view: "command" };
@@ -533,6 +534,10 @@ function render() {
       view("about").dataset.ready = "1";
     }
     drawDiagrams(view("about"));
+  } else if (state.view === "company") {
+    state.ui.company ??= {};
+    if (!state.ui.company.data && !state.ui.company.loading) loadCompany(state.ui.company, render);
+    view("company").innerHTML = renderCompany(state.ui.company);
   } else if (state.view === "decisions") {
     view("decisions").innerHTML = renderDecisions(state, state.ui.decisions);
   } else if (state.view === "commitments") {
