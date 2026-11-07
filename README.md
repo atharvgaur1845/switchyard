@@ -4,6 +4,8 @@
 
 > Nothing leaves the company unless a named person approved that exact action on a Switch card, or a rule written in the flow file allows it once the code checks pass. Nothing is carried out on facts that changed after the checks ran. And a decision that was carried out is checked again when what it rested on changes.
 
+**Contents:** [See it in one minute](#see-it-in-one-minute-with-no-accounts) · [The console](#the-console) · [How it works, in diagrams](#how-it-works-in-diagrams) · [How Switch is used](#how-switch-is-used-and-what-breaks-without-it) · [What makes it hard to fool](#what-makes-it-hard-to-fool) · [Proofs](#every-decisions-and-payments-proof) · [Attacks](#attacks-and-what-stops-each) · [Run it live](#run-it-live-on-switch-and-slack) · [Real and simulated](#what-is-real-and-what-is-simulated) · [Known limits](#known-limits)
+
 Two applications run on the same engine:
 
 1. **Company decisions** (`flows/contract-decision.flow.yaml`). A sales proposal (a large contract at a deep discount, four-nines uptime, six weeks to deliver) is argued by four views, checked by code against the company's **policy** and its **commitments**, decided by two people, and written back as new commitments. When capacity it reserved is lost, **Assumption Watch** opens the decision again.
@@ -21,10 +23,6 @@ A company is a set of commitments made under uncertainty: capacity reserved for 
 - **Only an alternative that passes is offered.** A proposal that breaks a rule or a promise is never put on a card. The CFO is offered the counteroffer, which code checked the same way, or a decline. Choosing it with objections still open is recorded as answering for them.
 - **Four eyes, then commitments.** A different person, the CTO, co-signs the exact actions. Switchyard then writes the new commitments into the room (capacity, the delivery team, the uptime promise) and sends the counteroffer. The next proposal sees them.
 - **Assumption Watch.** A decision rests on facts that can change after it is carried out. Each tick, code checks a carried-out decision's assumptions again on the room as it is now. When operations reports lost capacity, the decision is marked, its thread says why, and a new case decides again on the current facts; the original and what it did stay as they were. Before it is carried out, the same change voids the approval instead.
-
-![The Decision Room: the proposal and the counteroffer as code checked them, the promises in the way and who made them, four views, and the dissent ledger with each quote marked in the proposal](docs/img/console-decision.png)
-
-![The Commitment Graph after capacity was lost: the decision's new commitments, the promises that stood in its way, and GPU-hours over-committed, 1,000 held of 700](docs/img/console-commitments.png)
 
 ### A supplier payment
 
@@ -94,15 +92,276 @@ The same run also shows an expense refused when the wrong person clicks, and a p
 - **Agents.** Every request to each agent, by its job: when it was asked, how long it took, its structured answer as recorded, retries and hand-offs to a backup. Then every code check with the document versions it read, the payment policy (what may release each action, a person or a rule), how each action was actually released, and what @yard did. Agents run with their tools switched off and no reasoning is recorded, so there are no tool calls or chains of thought to show.
 - **Proofs.** A case's signed proof, section by section: the source digest, the agents' answers, the quotes marked at their offsets in the invoice text, the checks, the bank's answer, the decisions, and each action with its hash, the bank's read-back and, for a rule, the values the rule read. Beside it, the digests, the root, the Ed25519 signature and the pinned key, and the verdict of `verifyProof` on that exact file. Two buttons send an edited copy (the amount changed, a quote moved) to the same verifier, and a proof file can be dropped in to check it.
 - **Attack lab.** The 20 held-out scenarios, run on the real engine on demand, under two configurations side by side (links between cases on or off, callbacks real or all fooled, the bank's payee answers absent or from the scenario). It counts what each run did: scenarios meeting their expectations, attacks with nothing paid, euros to the attacker, benign scenarios not completed (false positives), cards shown, approvals voided, answers refused and run time. Each run's trace lists every event of every case it opened.
+- **About.** How everything works, section by section, with the diagrams below.
 - **Walkthrough.** One real case, stage by stage: arrival, the agents, the grounded quotes, the code checks, the bank's answer, other cases, the people, the payment. The first eight stages replay its recorded events, with the times they happened. The last two run when they are reached: the server builds the proof and checks it.
 
 ![The Command view: what is protected now, the payment chain counted from the log, and the event stream](docs/img/console-command.png)
 
-![The Proofs view: a paid invoice's proof, its quotes marked in the invoice text, the rule and the values it read, and a copy with the amount changed failing three checks](docs/img/console-proof.png)
+![The About page: how everything works, section by section, with diagrams drawn from the same source as this README](docs/img/console-about.png)
+
+What it does not show, because the log does not hold it: how long a code check took (checks record their result, not a start time), purchase orders and emails as nodes of their own (each email or invoice is its case's node, and a PO is in its case's checks), and tool calls (there are none). The Commitment Graph shows the room's documents as code last read them, not a live copy. The walkthrough replays a case that exists; it does not start one, since cases come in only through the inlets. The lab runs the held-out set; the nine built-in scenarios still run with `npm run lab`. Tests: "names the key it trusts, and passes the proof it handed out", "fails an edited copy, and says what is wrong", "runs one under the controls asked for, with its trace".
+
+<!-- how-it-works:start (generated from src/web/static/about.js) -->
+## How it works, in diagrams
+
+The console's About page has the same sections and diagrams (`src/web/static/about.js` is their single source; a test keeps this README identical to it).
+
+### 1. What Switchyard is
+
+**A control plane for consequential company decisions and the actions that carry them out.** Agents investigate and argue, each with its own job. Code checks every claim against the company's rules, what it has already promised, and the bank. Named people decide on Switch cards. The engine carries out exactly what they signed, checks again when the facts a decision rested on change, and signs the whole record.
+
+Two applications run on the same engine. **Company decisions**: a sales proposal is argued, checked against the company's policy and its commitments, decided by two people, and written back as new commitments. **Supplier payments**: a payment leaves only with evidence that it is the right one, and a "we changed banks" email cannot redirect it.
+
+The principle behind both: agents should not run a company. They investigate, argue and plan inside a system that knows what the company has promised, and named people decide.
+
+### 2. The pieces, and how they connect
+
+Work arrives through **inlets**: an email, a signed webhook, a form. The **engine** (`@yard`, itself a Switch agent) runs the flow file's steps one at a time and records each one in an append-only **event log**; the state of a case is never stored, only folded from its events.
+
+**Switch** is where the work happens: **agents** are asked in the case's thread, **room documents** are the company's system of record that code checks read and approved cases write, and **approval cards** carry each decision with the name of the person who made it. **Outlets** act outside Switch only after approval: the sandbox bank, a room row, an email.
+
+```mermaid
+flowchart TB
+  IN["Inlets<br/>email, signed webhooks, forms, schedules"] --> R
+  subgraph ENG["Switchyard engine (@yard)"]
+    R["Runner<br/>runs each flow's steps, one at a time"] --> C["Code checks<br/>policy, commitments, PO, vendor master,<br/>payee, quotes, links"]
+    R --> L[("Event log<br/>append-only, SQLite")]
+    L --> P["Signed proofs<br/>Ed25519"]
+  end
+  R <--> A["Switch agents<br/>Claude Haiku, Gemini, tools switched off"]
+  C <--> D["Switch room documents<br/>commitments, capacity, policy,<br/>vendor-master, purchase-orders"]
+  R <--> K["Switch approval cards<br/>named people in Slack, one thread per case"]
+  R --> O["Outlets, only after approval<br/>sandbox bank, room rows, email"]
+  L --> UI["Console"]
+```
+
+### 3. The control loop every case goes through
+
+Every flow, decision or payment, follows the same loop. Agents never decide: their answers are checked by code. Nothing is carried out without a person's answer on a card, or a rule written in the flow file that holds once every check passes.
+
+The card shows the exact action and its SHA-256 hash, so the approval is bound to that action and no other. Just before acting, the engine reads the room documents again: if a row the checks relied on changed, nothing is sent, the checks run again, and the earlier approval stops counting.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant In as Inlet
+  participant Y as @yard engine
+  participant Ag as Agents
+  participant Code as Code checks
+  participant Doc as Room documents
+  participant P as Person on a Switch card
+  participant Out as Outlet
+  In->>Y: a case opens, recorded in the event log
+  Y->>Ag: one fenced request per agent, each with its own job
+  Ag-->>Y: a JSON answer, with quotes
+  Y->>Code: check every claim
+  Code->>Doc: read the rows it needs, record their hashes
+  Code-->>Y: pass or fail, and what it read
+  Y->>P: a card showing the exact action and its hash
+  P-->>Y: an answer, with who gave it
+  Y->>Doc: read again: did anything change since the checks?
+  alt a document changed
+    Y->>Code: check again, and the earlier approval no longer counts
+  else nothing changed
+    Y->>Out: carry out exactly the approved action
+    Out-->>Y: receipt, read back: its hash equals the approval
+  end
+```
+
+### 4. A company decision, step by step
+
+**The example:** Tailspin Analytics proposes 12,000,000 INR a year at a 25% discount, 99.99% uptime, delivered in six weeks.
+
+
+- **Four views, not a vote.** Two agents on two vendors take four jobs: the finance desk (which also proposes a counteroffer), the engineering desk, the operations desk and a red team. Each objection must quote the proposal.
+- **The company constitution, by code.** The `policy` document holds the rules and who set each: maximum discount 15% (CFO), minimum gross margin 30% (CFO), maximum uptime 99.9% (CTO), no new fixed costs this quarter (board). Code computes the margin itself (28.5% here) from the policy's own cost rates.
+- **The commitments, by code.** 400 of 1,000 GPU-hours are free, because C-101 holds 600 for Northwind Paper until March 2027, decided by the CTO; the engineers are promised to Contoso and to a platform migration.
+- **Only an alternative that passes reaches a card.** The counteroffer (10%, 99.9%, 400 GPU-hours, starting after the Contoso release) passes both checks, so the CFO is offered it or a decline; accepting the proposal as it stands is not an option. Choosing it with objections still open records the CFO as answering for them.
+- **Four eyes.** The CTO co-signs the exact actions; the CFO cannot. Then Switchyard writes three commitments into the room and emails the counteroffer.
+
+```mermaid
+flowchart TD
+  P["Proposal arrives<br/>signed webhook"] --> A1["assess: two agents<br/>finance desk, engineering desk"]
+  A1 --> A2["challenge: two agents<br/>operations desk, red team"]
+  A2 --> F["fit: code checks commitments and capacity"]
+  F --> PO["policy: code checks the company's rules"]
+  PO --> CF["counter_fit and counter_policy:<br/>the same checks on the counteroffer"]
+  CF --> DS["dissent: every objection,<br/>with its quote and where it is"]
+  DS --> Q{"Does the counteroffer<br/>pass both checks?"}
+  Q -- yes --> DEC["decide: the CFO's card<br/>counter or decline"]
+  Q -- no --> NA["no_alternative: the CFO's card<br/>decline or hold"]
+  DEC -- counter --> CO["cosign: the CTO's card<br/>approve or reject<br/>never the person who chose"]
+  CO -- approve --> WR["write commitments into the room<br/>email the counteroffer"]
+  WR --> AW(["Assumption Watch, every tick"])
+  AW -- "the capacity is gone" --> RE["a new case decides again<br/>on the facts as they are now"]
+```
+
+![The Decision Room: the proposal and the counteroffer as code checked them, the promises in the way and who made them, four views, and the dissent ledger with each quote marked in the proposal](docs/img/console-decision.png)
+
+### 5. The Commitment Graph: what the company has promised
+
+A company is a set of promises made under uncertainty: capacity reserved for a customer, engineers promised to a release, an uptime guarantee, a budget. A decision made yesterday constrains the one being made today.
+
+The `commitments` room document holds one row per promise: its id, kind, who it is to, the resource it holds, how much, until when, who decided it and on what basis. The `capacity` document says what there is to promise from. Every proposal is checked against both before anyone is asked, and each promise in its way is named with the person who made it. A signed decision adds its own rows, so the next proposal sees them.
+
+```mermaid
+erDiagram
+  PROPOSAL }o--o{ COMMITMENT : "runs into, found by code"
+  PROPOSAL }o--o{ RULE : "is checked against"
+  DECISION ||--o{ COMMITMENT : "writes, once two people sign"
+  COMMITMENT }o--|| RESOURCE : "holds an amount until a date"
+  DECISION ||--o{ ASSUMPTION : "rests on"
+  ASSUMPTION }o--|| RESOURCE : "is checked again against"
+  POLICY ||--o{ RULE : "holds, each with who set it"
+```
+
+![The Commitment Graph after capacity was lost: the decision's new commitments, the promises that stood in its way, and GPU-hours over-committed, 1,000 held of 700](docs/img/console-commitments.png)
+
+### 6. Assumption Watch: decisions that can expire
+
+A decision rests on facts that can change after it is made. Before it is carried out, a change to the capacity voids the approval: the checks run again on the new figure. After it is carried out, every tick of the engine checks each declared assumption again, by code, on the room's documents as they are now.
+
+When operations reports GPU capacity down from 1,000 to 700, the counteroffer's 400 GPU-hours no longer fit next to Northwind's 600. The decision is marked at risk, its thread says why, and a new case decides again on the current facts; there, the finance desk offers a smaller tier and code passes it. The first decision and what it did stay exactly as they were.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Checked: code reads commitments, capacity and policy
+  Checked --> Approved: the CFO chooses, the CTO co-signs
+  Approved --> Checked: capacity changed before acting, approval voided
+  Approved --> CarriedOut: commitments written, counteroffer sent
+  CarriedOut --> CarriedOut: still holds
+  CarriedOut --> AtRisk: each tick, the capacity is no longer there
+  AtRisk --> [*]: a new case decides again
+```
+
+![The walkthrough of the decision, at the stage where its assumption broke and a new case decides again](docs/img/console-walkthrough.png)
+
+### 7. A supplier's bank-detail change
+
+A classic fraud is an email saying "we changed banks". The agent reads the request, but code decides the facts: the sender's domain against the one on file (a look-alike such as `fabrikarn.test` for `fabrikam.test` is caught by edit distance), the IBAN's check digits, a Reply-To elsewhere, and the mail gateway's DMARC result when there is a trusted gateway.
+
+The bank says who holds the new account (Verification of Payee, in the sandbox). A request that passes still needs a callback to the number on file and a second person's approval; the clerk who called cannot approve. Only then is the vendor-master row written.
+
+```mermaid
+flowchart TD
+  E["Email: we changed banks"] --> R["request: an agent reads it<br/>vendor, new IBAN, red flags"]
+  R --> C["checks: code<br/>sender's domain against the one on file,<br/>look-alikes, IBAN check digits,<br/>Reply-To, mail gateway results"]
+  C --> PY["payee: the bank says who holds the IBAN"]
+  PY --> L["links: did people already refuse this account?"]
+  L --> Q{"What did code find?"}
+  Q -- "a check failed, or the bank says no match" --> S["suspect: the controller<br/>block or investigate"]
+  S -- block --> WV["warn the real supplier<br/>at the address on file"]
+  S -- block --> FL[("the account is recorded as refused,<br/>evidence for every other case")]
+  Q -- "the account was refused before" --> LK["linked: the controller<br/>hold or call anyway"]
+  Q -- "everything passes" --> CB["callback: the AP clerk calls<br/>the number on file"]
+  LK -- "call anyway" --> CB
+  CB -- confirmed --> AP["approve: the controller,<br/>a different person"]
+  CB -- "not confirmed" --> FL
+  AP -- approve --> UM["update the vendor-master row"]
+```
+
+### 8. An invoice payment
+
+Two agents with different jobs read the invoice: one reports what it says, the other looks for signs of an attack. Code keeps a quote only if it is really in the invoice, and records where. The money goes only to the account in the vendor master, never to one printed on the invoice.
+
+Three kinds of case get a card with no pay button at all: a vendor row edited in the room outside any case, a PO already invoiced, and an account the bank says the vendor does not hold (or a factoring mandate typed into the room by hand). A payment by the rule needs every check to pass and at most 10,000; anything else goes to the controller.
+
+```mermaid
+flowchart TD
+  I["Invoice: signed webhook"] --> RV["review: two agents<br/>invoice reader, fraud investigator"]
+  RV --> EV["evidence: code keeps a quote<br/>only if it is in the invoice, at its offsets"]
+  EV --> PO["po_check: the PO matches to the cent<br/>and is not already invoiced"]
+  PO --> BC["bank_check: the account on file,<br/>never the one printed on the invoice"]
+  BC --> PY["payee: the bank says who holds it"]
+  PY --> LN["links: refused or shared accounts"]
+  LN --> Q{"Does the payment rule hold?<br/>every check passes, amount at most 10,000"}
+  Q -- yes --> RP["mark the PO invoiced, then pay by the rule"]
+  Q -- no --> G{"Why not?"}
+  G -- "the vendor row was edited outside a case" --> H["held: no pay button"]
+  G -- "the PO is already invoiced" --> DU["duplicate: no pay button"]
+  G -- "the bank says no match" --> MM["mismatch: no pay button"]
+  G -- "anything else" --> FN["finance: the controller<br/>pay or dispute"]
+  FN -- pay --> RP
+  RP --> BK["sandbox bank: pays once per key,<br/>read back: its hash equals the approval"]
+```
+
+### 9. What one case teaches the others
+
+A supplier's mailbox can be taken over: the email then comes from the real domain and passes every check. What gives it away is history. When a person blocks a request from a look-alike domain, or the supplier says on the phone that an account is not theirs, that account is recorded as refused. Every open case on it is checked again at once, and any card it had stops counting.
+
+Investigations draws these connections as a graph in which every line is a recorded fact: who decided, in which case, when. A block is labelled a person's suspicion, never proof of fraud, and nothing is scored.
+
+```mermaid
+flowchart LR
+  A["Case 1: a look-alike domain<br/>asks for account DE88"] -- "the controller blocks" --> F[("DE88 recorded:<br/>refused by a person")]
+  F -- "open cases are checked again at once" --> B["Case 2: the real domain asks for DE88<br/>its callback card stops counting"]
+  F -- "checked by the links step" --> C["Case 3: an invoice printing DE88<br/>goes to a person"]
+  B -- "the controller holds" --> X["nobody calls, nothing changes"]
+```
+
+![Investigations: one blocked account connecting three cases, with the evidence behind each line](docs/img/investigations.png)
+
+### 10. Why the approval is the action
+
+Three hashes, from three places, must agree: the one on the card the person answered, the one of the action the engine sent, and the one of what the bank now holds, read back after paying. Underneath, the engine keeps the hash of every document row the checks read; if one changes before the engine acts, the approval no longer counts.
+
+Switch has no per-document permissions, so Switchyard also keeps the hash of every row as it first saw it or last wrote it through a case. A row edited by hand outside a case passes no check.
+
+```mermaid
+flowchart LR
+  subgraph Card["On the Switch card"]
+    H1["approved hash<br/>SHA-256 of the exact action"]
+  end
+  subgraph Engine["When the engine acts"]
+    BH["basis hashes<br/>every document row the checks read"]
+    H2["sent hash<br/>the action rendered again"]
+  end
+  subgraph Bank["Sandbox bank"]
+    H3["read-back hash<br/>what the bank now holds"]
+  end
+  H1 -- "must equal" --> H2
+  H2 -- "must equal" --> H3
+  BH -- "a row changed: the approval stops counting" --> H1
+```
+
+### 11. Every decision and payment leaves a proof
+
+One file per case answers "why did we do this?". It holds the case's event log, the evidence drawn from it in sections, the flow it ran under, a digest of each part, a root over the digests and an Ed25519 signature made with a key kept outside the log.
+
+`npm run switchyard verify-proof <file>` checks it with no model, no Switch and no bank: 32 checks for the demo payment, 34 for the demo decision. It evaluates the payment rule again on the log rather than trusting it. An edited log, a moved quote, or a rewritten amount signed again with another key each fails. What a signature cannot prove: that the record is true.
+
+```mermaid
+flowchart TB
+  LOG[("The case's event log")] --> S["Sections drawn from it: source, agents,<br/>evidence, checks, beneficiary, links,<br/>dissent, decisions, executions, assumptions"]
+  S --> D["SHA-256 digest of each section,<br/>of the flow file and of the log"]
+  FLOW["The flow file"] --> D
+  D --> R["Root: a digest of the digests"]
+  R --> SIG["Ed25519 signature<br/>key kept outside the log"]
+  SIG --> V{"verify-proof:<br/>no model, no Switch, no bank"}
+  V --> V1["the signature, and the pinned key"]
+  V --> V2["every digest and the root"]
+  V --> V3["the sections, derived again from the log"]
+  V --> V4["each action rendered again from the log,<br/>its condition and rule evaluated again"]
+  V --> V5["approved = sent = the bank's copy"]
+  V --> V6["each quote at its offsets"]
+```
+
+![The Proof Explorer: a paid invoice's proof, its quotes marked in the invoice text, the rule and the values it read, and a copy with the amount changed failing three checks](docs/img/console-proof.png)
+
+### 12. Measured, not claimed
+
+The Attack lab runs 20 scenarios written blind by a separate author from a one-page brief and frozen before their first run, on the real engine, under two configurations side by side. Their first run found two real bugs, both fixed, so the numbers now are regression results, not a detection rate.
+
+With people doing their job, every attack is stopped with or without links between cases, and links cost one false positive (a factoring company that two suppliers really share). With every callback fooled, money gets through; a bank that knows who holds each account would stop it, which the lab reports as an upper bound because the registry is ours.
 
 ![The Attack lab: all 20 held-out scenarios under links off and on, and H05, the factoring company, held with links on](docs/img/console-lab.png)
 
-What it does not show, because the log does not hold it: how long a code check took (checks record their result, not a start time), purchase orders and emails as nodes of their own (each email or invoice is its case's node, and a PO is in its case's checks), and tool calls (there are none). The Commitment Graph shows the room's documents as code last read them, not a live copy. The walkthrough replays a case that exists; it does not start one, since cases come in only through the inlets. The lab runs the held-out set; the nine built-in scenarios still run with `npm run lab`. Tests: "names the key it trusts, and passes the proof it handed out", "fails an edited copy, and says what is wrong", "runs one under the controls asked for, with its trace".
+### 13. What is real and what is simulated
+
+- **Real:** Switch (rooms, threads, cards, documents) on Slack; the agents (Claude Haiku and Gemini through their CLIs, with tools switched off); the emails through Mailpit; the engine, its event log and its checks; two people deciding.
+- **Sandbox:** the bank and its answers about who holds an account; the suppliers and their `.test` domains; Tailspin, the commitments, the capacity and the policy. No CRM, HR or ERP is connected.
+- **This page**, when hosted publicly, shows the offline run: fixture agents and cards clicked by a script.
+<!-- how-it-works:end -->
 
 ## What it looked like live, on Slack
 
@@ -426,7 +685,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 307 tests
+npm test             # 310 tests
 npm run lab          # the attack lab, links off and on
 npm run lab -- --heldout   # the 20 held-out scenarios
 npm run typecheck

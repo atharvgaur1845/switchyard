@@ -3,6 +3,7 @@
 // comes from outside the company, so every value is escaped before it
 // touches the page.
 
+import { drawDiagrams, renderAbout } from "./about.js";
 import { renderAgents } from "./agents.js";
 import { renderCommand } from "./command.js";
 import { commitmentClick, renderCommitments } from "./commitments.js";
@@ -16,7 +17,7 @@ import { renderReplay, replayChange, replayClick } from "./replay.js";
 import { api, receiptsOf as receipts, setHash, token } from "./views.js";
 
 // Every view, by the hash that opens it. A bare case id opens that case.
-const VIEWS = ["command", "decisions", "commitments", "cases", "investigations", "agents", "proofs", "lab", "flows", "replay"];
+const VIEWS = ["command", "decisions", "commitments", "cases", "investigations", "agents", "proofs", "lab", "flows", "replay", "about"];
 const routeOf = (hash) => {
   const [view, arg] = hash.replace(/^#/, "").split("?")[0].split("/");
   return VIEWS.includes(view) ? { view, arg } : view ? { view: "cases", arg: view } : { view: "command" };
@@ -525,6 +526,13 @@ function render() {
   } else if (state.view === "command") {
     state.ui.command.hero = hero(state.cases);
     view("command").innerHTML = renderCommand(state, state.ui.command);
+  } else if (state.view === "about") {
+    // Written once: it does not depend on the cases, and its diagrams are drawn in place.
+    if (!view("about").dataset.ready) {
+      view("about").innerHTML = renderAbout();
+      view("about").dataset.ready = "1";
+    }
+    drawDiagrams(view("about"));
   } else if (state.view === "decisions") {
     view("decisions").innerHTML = renderDecisions(state, state.ui.decisions);
   } else if (state.view === "commitments") {
@@ -665,6 +673,12 @@ document.getElementById("view-command").addEventListener("click", (e) => {
   if (!chip) return;
   state.ui.command.stream = chip.dataset.stream;
   render();
+});
+document.getElementById("view-about").addEventListener("click", (e) => {
+  const jump = e.target.closest("[data-jump]");
+  if (!jump) return;
+  e.preventDefault();
+  document.getElementById(`ab-${jump.dataset.jump}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 document.getElementById("view-decisions").addEventListener("click", (e) => decisionClick(e, state.ui.decisions, render));
 document.getElementById("view-commitments").addEventListener("click", (e) => commitmentClick(e, state.ui.commitments, render));

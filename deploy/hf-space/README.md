@@ -28,5 +28,6 @@ The console is read-only: nothing here opens a case. You can:
 - **Proofs:** each case's signed proof, checked by the verifier. Try the edited copies; they fail.
 - **Attack lab:** run the 20 held-out scenarios yourself, under two configurations side by side.
 - **Walk through a decision or a payment**, stage by stage, from its recorded events.
+- **About:** how everything works, with diagrams.
 
 The run starts fresh each time the Space starts. Proofs here are signed with a key made at that start, so they verify against this Space's key only.
