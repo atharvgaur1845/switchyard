@@ -5,6 +5,7 @@ import { fixtureReply } from "../src/agents/fixture-agent.ts";
 import { readReply, stepRequest, stepToken } from "../src/engine/contracts.ts";
 import { type FieldType, isAgent, isParallel, loadFlow, roleOf } from "../src/engine/flow-schema.ts";
 import { screen } from "../src/inlets/screen.ts";
+import { TAILSPIN } from "../src/demo.ts";
 
 const replies = parse(readFileSync("fixtures/replies.yaml", "utf8"));
 const flows = readdirSync("flows").map((f) => loadFlow(readFileSync(`flows/${f}`, "utf8")));
@@ -18,6 +19,7 @@ const demoData: Record<string, Record<string, unknown>> = {
   "front-desk": { question: "How long does a website take?", ...screen("How long does a website take?") },
   "weekly-report": { period: "last week" },
   "bank-change": { from: "accounts@fabrikarn.test", subject: "URGENT: updated bank details", body: "..." },
+  "contract-decision": TAILSPIN,
 };
 
 const ask = (stepId: string, expect: Parameters<typeof stepRequest>[0]["expect"], data: Record<string, unknown>, agent = "") =>

@@ -114,11 +114,7 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
       const ground = (quote: unknown): Grounding | undefined => {
         const q = String(quote ?? "").trim();
         if (squash(q).length < 3) return undefined;
-        if (text) {
-          const pattern = new RegExp(q.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "i");
-          const at = pattern.exec(text);
-          return at ? { quote: q, in: "text", start: at.index, end: at.index + at[0].length } : undefined;
-        }
+        if (text) return locate(text, q);
         const field = Object.entries(fields).find(([, v]) => squash(v) === squash(q) || squash(v).includes(squash(q)));
         return field ? { quote: q, in: `field:${field[0]}` } : undefined;
       };
@@ -537,4 +533,13 @@ async function payeeAnswer(iban: string, vendor: string, args: Record<string, un
   if (first.result === "close_match") return { ok: false, result: "close_match", holder: first.holder, detail: `the bank holds ${maskIban(iban)} under a similar but different name: ${first.holder ?? "not given"}, not ${vendor}` };
   if (first.result === "no_match") return { ok: false, result: "no_match", detail: `the bank says ${maskIban(iban)} is not held by ${vendor}${mandates.length ? " or anyone it is paid through" : ""}` };
   return { ok: false, result: "unavailable", detail: `the bank could not say who holds ${maskIban(iban)}${first.reason ? ` (${first.reason})` : ""}` };
+}
+
+// Where a quote is in a text, ignoring case and how it was spaced, with the
+// offsets of what it matched; undefined when it is not there.
+export function locate(text: string, quote: string): Grounding | undefined {
+  const q = quote.trim();
+  const pattern = new RegExp(q.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "i");
+  const at = pattern.exec(text);
+  return at ? { quote: q, in: "text", start: at.index, end: at.index + at[0].length } : undefined;
 }

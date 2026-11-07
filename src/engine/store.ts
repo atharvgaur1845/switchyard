@@ -50,6 +50,9 @@ export type CaseEvent =
   // after. One without the other means the process stopped in between, and
   // nobody knows whether the action happened: the case is "in doubt".
   | { type: "executing"; step: string; hash: string; payload: unknown }
+  // Assumption Watch: an assumption a carried-out decision rested on no
+  // longer holds; `reopened` is the case that decides again.
+  | { type: "assumption_broken"; assumption: string; title: string; detail: string; value: unknown; reopened: string; at: number }
   | {
       type: "executed";
       step: string;

@@ -1,12 +1,12 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { compile, ExprError } from "./expr.ts";
-import { CHECKS } from "./verifiers.ts";
+import { CHECKS } from "./checks.ts";
 
 // Field types an agent step can demand in its JSON reply. An array of strings
 // is an enum; a trailing "?" makes the field optional.
 const FieldType = z.union([
-  z.enum(["str", "str?", "number", "number?", "bool", "bool?", "list", "list?"]),
+  z.enum(["str", "str?", "number", "number?", "bool", "bool?", "list", "list?", "object", "object?"]),
   z.array(z.string()).min(1),
 ]);
 export type FieldType = z.infer<typeof FieldType>;
@@ -120,6 +120,13 @@ export const Flow = z.object({
   // it arrives.
   once_per: z.array(z.string().regex(/^case\.[a-z0-9_]+$/, "a case field like case.number")).optional(),
   steps: z.array(Step).min(1),
+  // Assumption Watch: what a decision rests on after it is carried out. On
+  // each tick, a closed case that carried out an action has each `recheck`
+  // step run again on the room's documents as they are now; when `holds` is
+  // false, the case is marked and a new case decides again.
+  assumptions: z
+    .array(z.object({ id: z.string(), title: z.string(), recheck: z.string(), holds: z.string().optional() }))
+    .default([]),
 });
 export type Flow = z.infer<typeof Flow>;
 
@@ -234,6 +241,17 @@ export function lint(flow: Flow): string[] {
     }
 
     seen.set(step.id, step);
+  }
+  for (const a of flow.assumptions) {
+    const step = seen.get(a.recheck);
+    if (!step || !isVerify(step)) problems.push(`assumption "${a.id}" re-checks "${a.recheck}", which is not a verify step of this flow`);
+    if (a.holds) {
+      try {
+        compile(a.holds);
+      } catch (error) {
+        problems.push(`assumption "${a.id}": ${(error as Error).message}`);
+      }
+    }
   }
   return problems;
 }

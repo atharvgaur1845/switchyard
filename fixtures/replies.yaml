@@ -149,3 +149,41 @@ request:
       new_iban: DE63 1203 0000 1064 5328 71
       reason: "The bank changes from 1 December."
       red_flags: []
+
+# The contract decision: four views on Tailspin's proposal. Every quote is
+# copied from the proposal text that `demo send contract-proposal` sends.
+assess.checker:
+  # Asked again after the reserved capacity was lost: a smaller counteroffer.
+  - when: { reconsider_reason: capacity }
+    reply:
+      position: counter
+      objections:
+        - { claim: "The capacity this deal was counted on is gone; a smaller tier is all we can promise now.", quote: "500 GPU-hours a month", materiality: high }
+      counteroffer: { discount_pct: 10, uptime: 99.9, start: "2026-12-16", weeks: 6, gpu_hours: 100, engineers: 3 }
+  - default:
+      position: counter
+      objections:
+        - { claim: "The discount is far beyond what we give any customer.", quote: "a 25% discount", materiality: high }
+        - { claim: "Being paid three months after invoicing strains cash this quarter.", quote: "90 days from invoice", materiality: medium }
+      counteroffer: { discount_pct: 10, uptime: 99.9, start: "2026-12-16", weeks: 6, gpu_hours: 400, engineers: 3 }
+
+assess.checker-backup:
+  - default:
+      position: decline
+      objections:
+        - { claim: "Four nines is beyond the uptime we promise anyone, and would need new redundancy.", quote: "99.99% uptime", materiality: high }
+        - { claim: "That much compute is more than is free once existing customers are served.", quote: "500 GPU-hours a month", materiality: high }
+
+challenge.checker:
+  - default:
+      position: counter
+      objections:
+        - { claim: "A dedicated rollout team would come off work we have already promised.", quote: "a dedicated team of 3 engineers", materiality: high }
+        - { claim: "Six weeks from 9 November lands on the Contoso release.", quote: "within 6 weeks of 9 November 2026", materiality: medium }
+
+challenge.checker-backup:
+  - default:
+      position: decline
+      objections:
+        - { claim: "The value of the deal leans on a second year that nobody has committed to.", quote: "Renewal for a second year is likely", materiality: high }
+        - { claim: "The renewal depends on a budget their own board has not approved.", quote: "once our board approves the expansion budget", materiality: medium }

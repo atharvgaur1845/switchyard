@@ -77,6 +77,10 @@ export function sections(log: Event[], flow: Flow | undefined): Record<string, u
     beneficiary: last("payee"),
     links: last("links"),
     stale_approvals: log.filter((e) => e.type === "rewound").map((e) => ({ step: e.step, changed: e.docs, at: e.at_iso })),
+    // A company decision: every objection kept, and any assumption it rested
+    // on that stopped holding after it was carried out.
+    dissent: last("dissent"),
+    assumptions: log.filter((e) => e.type === "assumption_broken").map((e) => ({ assumption: e.assumption, title: e.title, detail: e.detail, reopened: e.reopened, at: e.at_iso })),
     decisions,
     executions: log.filter((e) => e.type === "executed").map((e) => {
       const s = step(String(e.step));

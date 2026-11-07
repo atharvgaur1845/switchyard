@@ -114,6 +114,7 @@ function checkField(value: unknown, type: FieldType): string | undefined {
     number: typeof value === "number" && Number.isFinite(value),
     bool: typeof value === "boolean",
     list: Array.isArray(value),
+    object: typeof value === "object" && !Array.isArray(value),
   }[expected];
   return ok ? undefined : `must be a ${expected}`;
 }

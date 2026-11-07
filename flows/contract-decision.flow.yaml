@@ -1,0 +1,133 @@
+flow: contract-decision
+room: finance
+description: Company decision on a contract
+inlet:
+  webhook:
+    secret_env: INVOICE_HOOK_SECRET
+    map: { customer: proposal.customer, contact: proposal.contact, proposed_by: proposal.proposed_by, value: proposal.annual_value, discount_pct: proposal.discount_pct, uptime: proposal.uptime, start: proposal.start, weeks: proposal.delivery_weeks, gpu_hours: proposal.gpu_hours, engineers: proposal.engineers, text: proposal.text }
+steps:
+  # Four views, from two agents on two vendors, each with its own job. They
+  # argue; none of them decides. Every objection must quote the proposal,
+  # and code keeps it only if the quote is there.
+  - id: assess
+    parallel: ["@checker", "@checker-backup"]
+    ask: >-
+      A consequential company decision: whether to accept this contract
+      proposal. Give your position (accept, counter or decline) and your
+      objections. Each objection has a claim, a quote copied word for word
+      from the proposal that it rests on, and a materiality (high, medium or
+      low). Code checks every quote, and computes margins, capacity and policy
+      itself: do not invent figures, and say when something is your estimate.
+    expect: {}
+    roles:
+      "@checker":
+        title: finance desk
+        ask: >-
+          Look at price, discount, margin, payment terms and cash. Then propose
+          the best counteroffer the company could make: discount_pct, uptime,
+          start (a date), weeks (to deliver), gpu_hours (a month) and engineers.
+        expect: { position: [accept, counter, decline], objections: list, counteroffer: object }
+      "@checker-backup":
+        title: engineering desk
+        ask: >-
+          Look at capacity, infrastructure and whether the uptime and the
+          delivery date can be met.
+        expect: { position: [accept, counter, decline], objections: list }
+    sla: 10m
+
+  - id: challenge
+    parallel: ["@checker", "@checker-backup"]
+    ask: >-
+      The same contract proposal. Give your position (accept, counter or
+      decline) and your objections, each with a claim, a word-for-word quote
+      from the proposal and a materiality (high, medium or low).
+    expect: {}
+    roles:
+      "@checker":
+        title: operations desk
+        ask: Look at staffing, dependencies and the delivery commitments the team already has.
+        expect: { position: [accept, counter, decline], objections: list }
+      "@checker-backup":
+        title: red team
+        ask: >-
+          Make the strongest honest case against accepting: assumptions the
+          revenue rests on, terms that shift risk to us, anything promised
+          that nobody has checked.
+        expect: { position: [accept, counter, decline], objections: list }
+    sla: 10m
+
+  # Code, not the agents. Does the proposal fit what is left after what the
+  # company has already promised, and does it keep the company's rules?
+  - id: fit
+    verify: { check: commitments, doc: commitments, capacity: capacity, start: "{case.start}", weeks: "{case.weeks}", gpu_hours: "{case.gpu_hours}", engineers: "{case.engineers}", exclude: "{this.id} {case.reconsider}" }
+  - id: policy
+    verify: { check: constitution, doc: policy, value: "{case.value}", discount_pct: "{case.discount_pct}", uptime: "{case.uptime}", weeks: "{case.weeks}", gpu_hours: "{case.gpu_hours}", engineers: "{case.engineers}", shortfall_gpu_hours: "{fit.shortfall_gpu_hours}" }
+
+  # The same two checks on the finance desk's counteroffer: an alternative is
+  # only offered if code passes it.
+  - id: counter_fit
+    verify: { check: commitments, doc: commitments, capacity: capacity, start: "{assess.checker.counteroffer.start}", weeks: "{assess.checker.counteroffer.weeks}", gpu_hours: "{assess.checker.counteroffer.gpu_hours}", engineers: "{assess.checker.counteroffer.engineers}", exclude: "{this.id} {case.reconsider}" }
+  - id: counter_policy
+    verify: { check: constitution, doc: policy, value: "{case.value}", discount_pct: "{assess.checker.counteroffer.discount_pct}", uptime: "{assess.checker.counteroffer.uptime}", weeks: "{assess.checker.counteroffer.weeks}", gpu_hours: "{assess.checker.counteroffer.gpu_hours}", engineers: "{assess.checker.counteroffer.engineers}", shortfall_gpu_hours: "{counter_fit.shortfall_gpu_hours}" }
+
+  # Every objection kept, with its quote, never averaged into a vote.
+  - id: dissent
+    verify: { check: dissent, text: "{case.text}", by_finance: "{assess.checker}", by_engineering: "{assess.checker-backup}", by_operations: "{challenge.checker}", by_red_team: "{challenge.checker-backup}", proposal_fit: "{fit}", proposal_policy: "{policy}", counter_fit: "{counter_fit}", counter_policy: "{counter_policy}" }
+
+  # The proposal as it stands can never be accepted on a card when code says
+  # it breaks a rule or a promise: only an alternative that passes is offered.
+  - id: decide
+    when: counter_fit.ok == true and counter_policy.ok == true
+    gate:
+      approver: "@cfo"
+      title: "counter {case.customer}'s proposal? As proposed it breaks: {policy.detail}; {fit.detail}. The counteroffer passes: {counter_policy.detail}; {counter_fit.detail}. Open objections: {dissent.open}. Choosing counter makes you answerable for them."
+      options: [counter, decline]
+      deadline: 1d
+      approves: [reserve_capacity, commit_team, commit_sla, send_counteroffer]
+
+  - id: no_alternative
+    when: not (counter_fit.ok == true and counter_policy.ok == true)
+    gate:
+      approver: "@cfo"
+      title: "decline {case.customer}'s proposal? It breaks: {policy.detail}; {fit.detail}. No counteroffer passes the checks either: {counter_policy.detail}; {counter_fit.detail}."
+      options: [decline, hold]
+      deadline: 1d
+
+  # Four eyes: a different person co-signs the exact actions.
+  - id: cosign
+    when: decide == "counter"
+    gate:
+      approver: "@cto"
+      title: "co-sign the counteroffer to {case.customer} that {by.decide} chose? It reserves {counter_fit.needs.gpu_hours} GPU-hours a month until {counter_fit.term_end}, {counter_fit.needs.engineers} engineers until {counter_fit.end}, and promises {assess.checker.counteroffer.uptime}% uptime."
+      options: [approve, reject]
+      not_same_as: [decide]
+      deadline: 1d
+      approves: [reserve_capacity, commit_team, commit_sla, send_counteroffer]
+
+  # The decision becomes commitments in the room, so the next decision sees them.
+  - id: reserve_capacity
+    when: decide == "counter" and cosign == "approve"
+    outlet:
+      document: { room: finance, name: commitments, row: ["D-{this.id}-gpu", capacity, "{case.customer}", gpu-hours, "{counter_fit.needs.gpu_hours}", "{counter_fit.term_end}", "{by.decide}, co-signed", "case {this.id}: counteroffer to {case.customer}"] }
+  - id: commit_team
+    when: decide == "counter" and cosign == "approve"
+    outlet:
+      document: { room: finance, name: commitments, row: ["D-{this.id}-eng", delivery, "{case.customer}", engineers, "{counter_fit.needs.engineers}", "{counter_fit.end}", "{by.decide}, co-signed", "case {this.id}: counteroffer to {case.customer}"] }
+  - id: commit_sla
+    when: decide == "counter" and cosign == "approve"
+    outlet:
+      document: { room: finance, name: commitments, row: ["D-{this.id}-sla", uptime, "{case.customer}", uptime, "{assess.checker.counteroffer.uptime}", "{counter_fit.term_end}", "{by.decide}, co-signed", "case {this.id}: counteroffer to {case.customer}"] }
+  - id: send_counteroffer
+    when: decide == "counter" and cosign == "approve"
+    outlet:
+      email:
+        to: "{case.contact}"
+        subject: "Our counteroffer for {case.customer}"
+        body: "Thank you for your proposal. We can offer: a {assess.checker.counteroffer.discount_pct}% discount on {case.value} a year, {assess.checker.counteroffer.uptime}% uptime, {assess.checker.counteroffer.gpu_hours} GPU-hours a month, and delivery in {assess.checker.counteroffer.weeks} weeks from {assess.checker.counteroffer.start}. The capacity is reserved for you."
+
+# Assumption Watch: the counteroffer was carried out on the capacity being
+# there. If it is lost later, the decision is marked and made again.
+assumptions:
+  - id: capacity
+    title: the capacity the counteroffer reserved is still there
+    recheck: counter_fit

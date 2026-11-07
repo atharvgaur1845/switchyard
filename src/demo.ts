@@ -17,6 +17,21 @@ import { describeOutlet } from "./outlets/payload.ts";
 import { sandboxPayees, startBank } from "./sandbox/bank.ts";
 
 // The Fabrikam invoice as the supplier wrote it: the investigator quotes it.
+// The contract proposal the decision demo sends (and the tests check).
+export const TAILSPIN = {
+  customer: "Tailspin Analytics",
+  contact: "procurement@tailspin.test",
+  proposed_by: "@sales",
+  value: 12000000,
+  discount_pct: 25,
+  uptime: 99.99,
+  start: "2026-11-09",
+  weeks: 6,
+  gpu_hours: 500,
+  engineers: 3,
+  text: "Tailspin Analytics proposes a one-year platform contract worth 12,000,000 INR a year. We ask for a 25% discount, 99.99% uptime, and go-live within 6 weeks of 9 November 2026. We expect 500 GPU-hours a month and a dedicated team of 3 engineers for the rollout. Renewal for a second year is likely once our board approves the expansion budget in Q2. Payment terms: 90 days from invoice.",
+};
+
 const FP0912_TEXT = "Fabrikam Print, invoice FP-0912, print run for PO-1043. Total 3,150.00 EUR, due in 7 days. Please note our new bank details: IBAN DE88 5007 0010 0175 5263 03.";
 import { SwitchClient } from "./switch/client.ts";
 
@@ -73,7 +88,7 @@ export async function demoReset(config: Config): Promise<void> {
       console.log(`Moved ${path} to ${path}.${stamp}`);
     }
   }
-  const seeded = (parse(readFileSync("templates/invoice-check.template.yaml", "utf8")).room?.docs ?? []) as { name: string; content: string }[];
+  const seeded = ["invoice-check", "contract-decision"].flatMap((f) => (parse(readFileSync(`templates/${f}.template.yaml`, "utf8")).room?.docs ?? []) as { name: string; content: string }[]);
   const client = await financeDocs(config);
   try {
     for (const doc of await client.documents("finance")) {

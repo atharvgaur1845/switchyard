@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, inputsOf, lookup, render, type Scope } from "./expr.ts";
-import { basisHash, CHECKS, docHash, LEGACY, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
+import { CHECKS } from "./checks.ts";
+import { basisHash, docHash, LEGACY, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
 import { type Blocked, blockedAccount, findLinks, linkDigest } from "./links.ts";
 import {
   type AgentStep,
@@ -1010,6 +1011,43 @@ export class Runner {
         } else {
           await this.say(state, `${mention(this.people, gate.approver)}: "${render(gate.title, scopeOf(state))}" is overdue (${gate.deadline}).`);
         }
+      }
+    }
+    await this.watchAssumptions();
+  }
+
+  // Assumption Watch. A decision that was carried out rested on facts that
+  // can stop being true after it (capacity it reserved is lost). Each tick,
+  // every closed case that carried out an action has its flow's assumptions
+  // checked again, by code, on the room's documents as they are now. One
+  // that no longer holds is recorded on the case, said in its thread, and a
+  // new case decides again on the current facts. The original decision and
+  // what it did stay as they were: nothing is undone without a person.
+  private async watchAssumptions(): Promise<void> {
+    for (const id of this.store.caseIds()) {
+      const state = this.store.load(id);
+      const flow = this.flows.get(state.flow);
+      if (!flow?.assumptions.length || state.status !== "done") continue;
+      const events = this.store.events(id);
+      if (!events.some((e) => e.type === "executed")) continue;
+      for (const a of flow.assumptions) {
+        if (events.some((e) => e.type === "assumption_broken" && e.assumption === a.id)) continue;
+        const step = flow.steps.find((s) => s.id === a.recheck);
+        if (!step || !isVerify(step)) continue;
+        const { check, ...raw } = step.verify;
+        const spec = CHECKS[check];
+        let docs: RoomDocument[] = [];
+        try {
+          if (spec.needsDoc && this.chat.documents) docs = await this.chat.documents(state.room);
+        } catch {
+          continue; // Unreadable now: checked again on the next tick.
+        }
+        const args = renderArgs(raw, scopeOf(state));
+        const value = spec.runAsync ? await spec.runAsync(args, docs, {}) : spec.run(args, docs, this.now());
+        if (compile(a.holds ?? `${step.id}.ok == true`)({ ...scopeOf(state), [step.id]: value })) continue;
+        const reopened = await this.open(state.flow, { ...state.data, reconsider: id, reconsider_reason: `${a.title}: ${value.detail}` }, `assumption watch on case ${id}`);
+        this.store.append(id, { type: "assumption_broken", assumption: a.id, title: a.title, detail: value.detail, value, reopened, at: this.now() });
+        await this.say(state, `✗ Assumption broken: ${a.title}. Checked again by code: ${value.detail}. This decision was carried out on it; case ${reopened} decides again on the facts as they are now.`);
       }
     }
   }
