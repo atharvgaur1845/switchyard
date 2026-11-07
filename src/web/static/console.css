@@ -1,7 +1,8 @@
-/* The console: the dashboard's dark, dense views (Command, Agents, Proofs,
-   Attack lab, walkthrough), and the dark versions of the shared pieces.
-   Colour carries meaning only: cyan selects, amber is uncertain or a
-   person's turn, red is a violation, green is verified. */
+/* The console: the dashboard's dense views (Command, Decisions,
+   Commitments, Agents, Proofs, Attack lab, walkthrough). A ledger on paper:
+   hairline rules, square corners, serif headings, figures in mono. Colour
+   carries meaning only: Prussian blue selects, ochre is uncertain or a
+   person's turn, madder is a violation, verdigris is verified. */
 
 :root[data-theme="dark"] .logo { filter: invert(1); }
 :root[data-theme="dark"] .vendor.v-anthropic { background: #3a2417; color: #f2b48d; }
@@ -9,8 +10,9 @@
 :root[data-theme="dark"] .dg .vt.v-anthropic { fill: #f2b48d; }
 :root[data-theme="dark"] .dg .vt.v-google { fill: #9cc1ff; }
 
-body { font-feature-settings: "cv11", "ss01"; background:
-  radial-gradient(1200px 500px at 70% -200px, color-mix(in srgb, var(--accent) 6%, transparent), transparent 70%), var(--bg); background-attachment: fixed; }
+body { font-feature-settings: "cv11", "ss01"; background: var(--bg); }
+h1, h2, .brand, .cc-hero h1, .pf-top h2, .dr-top h2, .lab-head h1, .rp-head h1, .rp-stage-head h2, .lab-scenario h2, .ig-main h2, .d-head h1 {
+  font-family: var(--serif); font-weight: 600; letter-spacing: -.005em; }
 .mono, code { font-variant-numeric: tabular-nums; }
 a { color: inherit; }
 .caselink { color: var(--accent); text-decoration: none; }
@@ -28,8 +30,8 @@ a { color: inherit; }
 /* Buttons and small shared pieces */
 .btn.small { height: 30px; padding: 0 12px; font-size: 12.5px; gap: 6px; background: var(--surface-3); color: var(--ink); border: 1px solid var(--line-strong); text-decoration: none; }
 .btn.small:hover { border-color: var(--accent); opacity: 1; }
-.btn.accent { background: var(--accent); color: #031820; border: 1px solid var(--accent); text-decoration: none; }
-.btn.small.accent { background: var(--accent); color: #031820; }
+.btn.accent { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); text-decoration: none; }
+.btn.small.accent { background: var(--accent); color: var(--on-accent); }
 .btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
 .btn .ico { width: 14px; height: 14px; }
 .tag { font: 600 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; padding: 3px 5px; border-radius: 4px; }
@@ -66,7 +68,7 @@ h3 .ico, h4 .ico { width: 14px; height: 14px; vertical-align: -2px; }
 .cc-view, .ag-view, .pf-view, .lab-view, .rp-view { max-width: 1480px; margin: 0 auto; padding: 18px 24px 40px; display: grid; gap: 16px; align-content: start; }
 .cc-loading { display: grid; gap: 16px; }
 .cc-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: end; padding: 6px 0 2px; }
-.cc-hero h1 { font-size: 28px; letter-spacing: -.025em; margin: 0 0 8px; line-height: 1.15; }
+.cc-hero h1 { font-size: 34px; margin: 0 0 10px; line-height: 1.12; max-width: 900px; }
 .cc-hero p { margin: 0 0 6px; color: var(--ink-2); max-width: 820px; }
 .cc-hero-side { display: grid; gap: 10px; justify-items: end; }
 .cc-key { display: grid; gap: 2px; justify-items: end; font-size: 12px; color: var(--ink-2); }
@@ -77,9 +79,9 @@ h3 .ico, h4 .ico { width: 14px; height: 14px; vertical-align: -2px; }
 @media (max-width: 1200px) { .cc-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .cc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .cc-tile { position: relative; display: grid; gap: 2px; padding: 14px 14px 12px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); text-decoration: none; overflow: hidden; transition: border-color .15s, transform .15s; }
-.cc-tile::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--t); }
-.cc-tile:hover { border-color: color-mix(in srgb, var(--t) 50%, var(--line)); transform: translateY(-1px); }
-.cc-v { font: 650 30px/1.05 var(--mono); letter-spacing: -.03em; color: var(--t); }
+.cc-tile::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 2px; background: var(--t); }
+.cc-tile:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.cc-v { font: 600 32px/1.05 var(--serif); letter-spacing: -.01em; color: var(--t); font-variant-numeric: lining-nums tabular-nums; }
 .cc-v small { font-size: 16px; color: var(--muted); }
 .cc-l { font-weight: 600; font-size: 13px; }
 .cc-s { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -322,7 +324,7 @@ h3 .ico, h4 .ico { width: 14px; height: 14px; vertical-align: -2px; }
 .rp-at { font: 10.5px var(--mono); color: var(--muted); }
 .rp-stage.done .rp-num { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .rp-stage.current button { background: var(--surface-2); border-color: var(--accent); color: var(--ink); }
-.rp-stage.current .rp-num { background: var(--accent); border-color: var(--accent); color: #031820; box-shadow: 0 0 0 4px var(--accent-soft); }
+.rp-stage.current .rp-num { background: var(--accent); border-color: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .rp-stage.empty button { opacity: .5; }
 .rp-main { padding: 20px 22px; min-height: 520px; display: grid; grid-template-rows: auto 1fr auto; gap: 14px; }
 .rp-stage-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
@@ -446,3 +448,55 @@ h3 .ico, h4 .ico { width: 14px; height: 14px; vertical-align: -2px; }
 a.btn { text-decoration: none; }
 .demo-mode { margin-left: auto; font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--person); background: var(--person-soft); border: 1px solid color-mix(in srgb, var(--person) 40%, transparent); padding: 6px 9px; border-radius: 6px; white-space: nowrap; }
 .demo-mode:not([hidden]) + .live { margin-left: 12px; }
+
+/* ---------- Ledger finish (light) ---------- */
+.card, .cc-tile, .pf-block, .lab-result, .dr-view, .ag-job, .ag-yard-list li, .rp-agents > li, .pf-seal-step, .dr-watch li, .pf-exec, .ig-facts li { border-radius: var(--radius); box-shadow: none; }
+.card { background: var(--surface); border-color: var(--line); }
+.topbar { background: var(--bg); border-bottom: 1px solid var(--line-strong); backdrop-filter: none; }
+.brand { font-size: 18px; }
+.brand-sub { font-family: var(--font); font-size: 11px; letter-spacing: .04em; text-transform: none; color: var(--muted); }
+.tabs { background: transparent; border: 0; padding: 0; gap: 0; border-radius: 0; }
+.tabs button { border-radius: 0; padding: 8px 12px; color: var(--ink-2); }
+.tabs button[aria-selected="true"] { background: transparent; color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); font-weight: 650; }
+.tabs .n { background: var(--stop); color: var(--on-act); }
+.seg-tabs { background: transparent; border: 0; border-bottom: 1px solid var(--line-strong); border-radius: 0; padding: 0; }
+.seg-tabs button { border-radius: 0; }
+.seg-tabs button[aria-selected="true"] { background: transparent; box-shadow: inset 0 -2px 0 var(--accent); }
+.card h3, .dr-sec h3, .cg-main h3, .lab-scenario h4, .lab-result h5, .pf-table th { font-family: var(--font); font-size: 10.5px; letter-spacing: .12em; color: var(--muted); }
+.pill { border-radius: 3px; font-weight: 600; }
+.chip { border-radius: 3px; background: transparent; }
+.chip[aria-checked="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn.small, .btn:not(.accent):not(.small) { background: var(--surface); border-color: var(--line-strong); }
+.btn.small:hover, .btn:not(.accent):not(.small):hover { border-color: var(--accent); }
+.btn { border-radius: var(--radius-sm); }
+.cc-chain-card { background: var(--surface); }
+.cc-stage .ico { color: var(--accent); }
+.cc-n { font-family: var(--serif); font-weight: 600; font-size: 24px; }
+.cc-arrow { background: var(--line-strong); opacity: 1; }
+.cc-arrow::after { border-left-color: var(--line-strong); }
+.cc-events li { border-bottom-color: var(--line); }
+.pf-text { background: var(--surface-2); border-left-color: var(--accent); font-family: var(--serif); font-size: 14.5px; line-height: 1.7; color: var(--ink); }
+.pf-text mark { background: color-mix(in srgb, var(--person) 18%, transparent); border-bottom: 1.5px solid var(--person); color: var(--ink); }
+.pf-ico { background: var(--surface-2); color: var(--accent); border: 1px solid var(--line); border-radius: 4px; }
+.pf-chain::before { background: var(--line-strong); opacity: 1; }
+.pf-block::before { border-color: var(--accent); background: var(--surface); }
+.pf-block.open { border-color: var(--line-strong); }
+.pf-verdict { border-radius: var(--radius); }
+.dr-alts thead th { background: var(--surface-2); font-family: var(--font); }
+.dr-promise { background: var(--stop-soft); border-left-color: var(--stop); }
+.ig-graph-wrap { background: var(--surface-2); background-image: none; border-radius: var(--radius); }
+.ig-node rect { fill: var(--surface); }
+.ig-node.ig-vnd rect { fill: var(--surface); }
+.ig-node.ig-acct.flagged rect { fill: var(--stop-soft); }
+.ig-edge text { stroke: var(--surface-2); }
+.cg-track { fill: var(--surface-3); }
+.cg-fill { fill: var(--accent); }
+.lab-badge { border-radius: 3px; }
+.lab-legend .sw.a, .lab-bars .bar.a i { background: var(--line-strong); }
+.lab-bars .bar.b i { background: var(--accent); }
+.rp-big { font-family: var(--serif); font-weight: 600; color: var(--accent); }
+.rp-stage.done .rp-num { background: var(--accent-soft); }
+.rp-stage.current button, .pf-pick[aria-current="true"], .lab-pick[aria-current="true"], .ig-pick[aria-current="true"] { background: var(--surface-2); border-color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
+.ag-job.sel { box-shadow: inset 2px 0 0 var(--accent); }
+.demo-mode { border-radius: 3px; text-transform: none; letter-spacing: 0; font-family: var(--font); font-size: 11.5px; }
+.skeleton { background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; }

@@ -1,35 +1,41 @@
 /* Switchyard theme: shared by the dashboard, the forms and the chat widget. */
 :root {
-  --bg: #f4f3ef;
-  --surface: #ffffff;
-  --surface-2: #faf9f6;
-  --ink: #17171a;
-  --ink-2: #4a4a52;
-  --muted: #6b6b74;
-  --line: #e6e4de;
-  --line-strong: #d4d1c8;
-  --focus: #3b5bdb;
+  /* A ledger on paper: warm stock, iron-gall ink, hairline rules, and
+     pigments for meaning. Prussian blue selects; madder is a violation;
+     verdigris is verified; ochre is uncertainty or a person's turn;
+     aubergine is an agent. */
+  --bg: #f3efe6;
+  --surface: #fbf9f4;
+  --surface-2: #f2ede3;
+  --surface-3: #e9e2d5;
+  --ink: #1d1a16;
+  --ink-2: #4a443b;
+  --muted: #776f63;
+  --line: #e1d9ca;
+  --line-strong: #cbbfab;
+  --focus: #1f3f66;
+  --accent: #1f3f66;       /* Prussian blue */
+  --accent-soft: #e2e8ef;
+  --on-accent: #fbf9f4;
 
-  --agent: #6d4fe0;      /* agents do the work */
-  --agent-soft: #efeafe;
-  --person: #9a5f00;     /* people decide (AA on its soft tint) */
-  --person-soft: #fdf3e1;
-  --act: #1a8a4e;        /* Switchyard acts */
-  --act-soft: #e3f5ea;
-  --stop: #c93c20;       /* stopped, refused, flagged */
-  --stop-soft: #fbe9e4;
-  --yard: #3d4a5c;       /* @yard itself */
-  --yard-soft: #e9edf2;
-  --on-act: #ffffff;     /* ink on a green fill */
-  --surface-3: #f1efe9;
-  --accent: #0b7fa3;     /* selection, links, focus */
-  --accent-soft: #e2f3f8;
+  --agent: #6a3d74;        /* aubergine */
+  --agent-soft: #efe6ef;
+  --person: #96600f;       /* ochre, AA on paper */
+  --person-soft: #f5ead2;
+  --act: #2d6a55;          /* verdigris */
+  --act-soft: #e0ede6;
+  --stop: #a8321e;         /* madder */
+  --stop-soft: #f5e0d8;
+  --yard: #4a5560;
+  --yard-soft: #e6e6e1;
+  --on-act: #fbf9f4;
 
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 1px 2px rgba(20, 20, 30, .04), 0 4px 16px rgba(20, 20, 30, .04);
-  --font: "Inter", "SF Pro Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --shadow: none;
+  --font: "Inter", "Source Sans 3", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --serif: "Charter", "Bitstream Charter", "Iowan Old Style", "Palatino Linotype", Palatino, "Source Serif 4", "Noto Serif", Georgia, serif;
+  --mono: "IBM Plex Mono", "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
   color-scheme: light;
 }
 /* Dark: graphite and deep navy. Cyan is the accent (focus, selection,
@@ -41,7 +47,7 @@
     --bg: #0a0e16; --surface: #0f1520; --surface-2: #141b28; --surface-3: #1a2333; --ink: #e4e9f2; --ink-2: #a9b4c6;
     --muted: #76839a; --line: #1f2939; --line-strong: #2c384c; --focus: #38d0f0; --accent: #38d0f0; --accent-soft: #0c2a35;
     --agent: #a594ff; --agent-soft: #1c1838; --person: #f2b544; --person-soft: #2e2410;
-    --act: #3ccf8e; --act-soft: #0c2a1d; --on-act: #062014; --stop: #ff6b5b; --stop-soft: #34130f; --yard: #9fb0c8; --yard-soft: #18202d;
+    --act: #3ccf8e; --act-soft: #0c2a1d; --on-act: #062014; --on-accent: #031820; --stop: #ff6b5b; --stop-soft: #34130f; --yard: #9fb0c8; --yard-soft: #18202d;
     --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 8px 24px rgba(0, 0, 0, .35);
     color-scheme: dark;
   }
@@ -50,7 +56,7 @@
   --bg: #0a0e16; --surface: #0f1520; --surface-2: #141b28; --surface-3: #1a2333; --ink: #e4e9f2; --ink-2: #a9b4c6;
   --muted: #76839a; --line: #1f2939; --line-strong: #2c384c; --focus: #38d0f0; --accent: #38d0f0; --accent-soft: #0c2a35;
   --agent: #a594ff; --agent-soft: #1c1838; --person: #f2b544; --person-soft: #2e2410;
-  --act: #3ccf8e; --act-soft: #0c2a1d; --on-act: #062014; --stop: #ff6b5b; --stop-soft: #34130f; --yard: #9fb0c8; --yard-soft: #18202d;
+  --act: #3ccf8e; --act-soft: #0c2a1d; --on-act: #062014; --on-accent: #031820; --stop: #ff6b5b; --stop-soft: #34130f; --yard: #9fb0c8; --yard-soft: #18202d;
   --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 8px 24px rgba(0, 0, 0, .35);
   color-scheme: dark;
 }
