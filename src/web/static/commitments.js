@@ -32,6 +32,11 @@ export function commitmentFacts(state) {
       rows.set(r.id, { ...r, source: `written by case ${c.id}`, caseId: c.id });
     }
   }
+  // A hold another open decision had when the check ran is not a row in the
+  // document: say where it came from.
+  for (const [id, r] of rows) {
+    if (r.kind === "reservation") rows.set(id, { ...r, source: `held by open case ${id.slice(2)} (reservation ledger, not the document)`, caseId: id.slice(2) });
+  }
   const capacity = latest.v.capacity ?? [];
   const today = new Date().toISOString().slice(0, 10);
   const resources = [...new Set([...capacity.map((c) => c.resource), ...[...rows.values()].map((r) => r.resource)])].map((resource) => {
@@ -119,6 +124,83 @@ function inspector(f, ui) {
   return `<h4>${icon("hand")} ${esc(d.data.customer ?? d.title)}</h4><p><span class="pill ${esc(d.outcome.tone)}">${esc(d.outcome.label)}</span></p><p class="ig-actions"><a class="btn small" href="#decisions/${esc(d.id)}">Decision Room</a> <a class="btn small" href="#proofs/${esc(d.id)}">Proof</a></p>`;
 }
 
+// The timeline: every hold, refusal, voided approval, assumption reading,
+// action in doubt and commitment written, across all decisions, in the
+// order the engine recorded them, with what open decisions held after each.
+export function timelineOf(state) {
+  const decisions = state.cases.filter(isDecision);
+  const name = (c) => c.data.customer ?? c.title;
+  const all = decisions
+    .flatMap((c) => c.events.map((e) => ({ c, e })))
+    .sort((a, b) => (a.e.seq ?? 0) - (b.e.seq ?? 0));
+  const held = new Map();
+  const out = [];
+  const total = () => [...held.values()].reduce((n, h) => n + (h["gpu-hours"] ?? 0), 0);
+  const ended = new Set(["done", "failed", "cancelled"]);
+  for (const { c, e } of all) {
+    let row;
+    switch (e.type) {
+      case "opened":
+        row = { tone: "neutral", icon: "doc", what: `Proposal from ${name(c)} opened${c.data.reconsider ? `, deciding again after case ${c.data.reconsider}` : ""}` };
+        break;
+      case "reserved":
+        held.set(c.id, Object.fromEntries(e.holds.map((h) => [h.resource, h.amount])));
+        row = { tone: "agent", icon: "lock", what: `Held for ${name(c)}: ${e.holds.map((h) => `${h.amount} ${h.resource} until ${h.until}`).join(", ")}` };
+        break;
+      case "reservation_refused":
+        row = { tone: "stop", icon: "x", what: `Hold refused for ${name(c)}: needs ${e.need} ${e.resource}, ${e.left} left; ${e.held_by.map((h) => `case ${h.case} (${h.to}) holds ${h.amount}`).join(", ")}. Checked again with it counted.` };
+        break;
+      case "rewound":
+        if (e.docs?.reservations) continue;
+        held.delete(c.id);
+        row = { tone: "person", icon: "reroute", what: `Approval voided for ${name(c)}: ${Object.keys(e.docs ?? {}).join(", ")} changed after the checks ran. Its hold is released; the checks run again.` };
+        break;
+      case "gate_answered":
+        if (!["decide", "cosign", "no_alternative"].includes(e.step)) continue;
+        row = { tone: e.approved ? "act" : "neutral", icon: "hand", what: `${e.answeredBy} answered "${e.answer}" on ${e.step.replace(/_/g, " ")} for ${name(c)}` };
+        break;
+      case "executed":
+        if (e.payload?.document?.name !== "commitments") continue;
+        row = { tone: "act", icon: "check", what: `Commitment written for ${name(c)}: ${e.payload.document.row[0]}, ${e.payload.document.row[4]} ${e.payload.document.row[3]} until ${e.payload.document.row[5]}` };
+        break;
+      case "in_doubt":
+        row = { tone: "stop", icon: "alert", what: `${e.step.replace(/_/g, " ")} for ${name(c)} is in doubt: its outcome is unknown, so a person decides; it is not sent again` };
+        break;
+      case "assumption_suspect":
+        row = { tone: "person", icon: "alert", what: `Assumption suspect on ${name(c)}: ${e.detail}` };
+        break;
+      case "assumption_ok":
+        row = { tone: "neutral", icon: "check", what: `Assumption re-check passed on ${name(c)} (still suspect until it passes enough times in a row)` };
+        break;
+      case "assumption_cleared":
+        row = { tone: "act", icon: "check", what: `Assumption holds again on ${name(c)}` };
+        break;
+      case "assumption_broken":
+        row = { tone: "stop", icon: "alert", what: `Assumption broken on ${name(c)}: ${e.title}. Case ${e.reopened} decides again.` };
+        break;
+      default:
+        if (ended.has(e.type)) {
+          const wasHeld = held.delete(c.id);
+          if (!wasHeld && e.type !== "done") continue;
+          row = { tone: "neutral", icon: "check", what: `${name(c)} ${e.type === "done" ? "ended" : e.type}${wasHeld ? "; its hold ends (what it wrote now counts from the document)" : ""}` };
+        } else continue;
+    }
+    out.push({ ...row, caseId: c.id, at: e.at_iso, gpu: total() });
+  }
+  return out;
+}
+
+function timeline(state) {
+  const rows = timelineOf(state);
+  if (!rows.length) return "";
+  const max = Math.max(1, ...rows.map((r) => r.gpu));
+  return `<section class="card cg-timeline"><h3>${icon("reroute")} Timeline: holds, refusals and failures</h3>
+    <p class="fine">Every hold taken or refused, approval voided, assumption reading, action in doubt and commitment written, across all decisions, in the order the engine recorded them. The bar is the GPU-hours open decisions held right after each event.</p>
+    <ol class="tl">${rows
+      .map((r) => `<li class="tl-row ${esc(r.tone)}"><span class="tl-time mono">${esc(stamp(r.at))}</span><span class="tl-dot">${icon(r.icon)}</span><span class="tl-what">${esc(r.what)} <a class="caselink" href="#decisions/${esc(r.caseId)}">case ${esc(r.caseId)}</a></span><span class="tl-held" title="GPU-hours held by open decisions"><i style="width:${(r.gpu / max) * 100}%"></i><b>${r.gpu}</b></span></li>`)
+      .join("")}</ol></section>`;
+}
+
 export function renderCommitments(state, ui) {
   if (!state.loaded) return `<div class="skeleton" style="height:420px"></div>`;
   const f = commitmentFacts(state);
@@ -139,7 +221,8 @@ export function renderCommitments(state, ui) {
       <div class="ig-scroll"><table class="pf-table"><thead><tr><th>id</th><th>kind</th><th>to</th><th>holds</th><th>until</th><th>decided by</th><th>basis</th><th>where it came from</th></tr></thead><tbody>${f.rows
         .map((r) => `<tr><td class="mono"><b>${esc(r.id)}</b></td><td>${esc(r.kind)}</td><td>${esc(r.to)}</td><td>${r.amount} ${esc(r.resource)}</td><td class="mono">${esc(r.until)}</td><td>${esc(r.decided_by)}</td><td>${esc(r.basis)}</td><td>${r.caseId ? `<a class="caselink" href="#decisions/${esc(r.caseId)}">${esc(r.source)}</a>` : esc(r.source)}</td></tr>`)
         .join("")}</tbody></table></div>
-    </section>`;
+    </section>
+    ${timeline(state)}`;
 }
 
 export function commitmentClick(e, ui, rerender) {
