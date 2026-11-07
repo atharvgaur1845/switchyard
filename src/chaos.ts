@@ -308,18 +308,47 @@ export const SCENARIOS: Scenario[] = [
       return { w, observed: `honest proof: ${honest} failing checks; forged proof: ${failed.length} failing (${failed[0] ?? "none"})`, ok: honest === 0 && failed.some((f) => f.startsWith("fit: the commitments check, run again")) };
     },
   },
+  {
+    id: "C9",
+    title: "A late co-sign after the hold lapsed",
+    injected: "The CFO chooses decision A's counteroffer and its capacity is held. The CTO does not answer; three days pass and the two-day hold lapses. Decision B arrives, is chosen, and takes the freed capacity. Then the CTO answers A's old co-sign card.",
+    expected: "A does not proceed on the lapsed hold: it tries to take the capacity again, finds B holding it, voids its approvals and checks again. Nothing is written for A.",
+    async run() {
+      const w = world();
+      const a = await w.propose(TAILSPIN);
+      await w.answer(a, "counter", "@cfo");
+      w.clock.now += 3 * 86_400_000;
+      const b = await w.propose(FOURTH_COFFEE);
+      await w.answer(b, "counter", "@cfo");
+      await w.answer(a, "approve", "@cto");
+      const written = w.docs.find((d) => d.name === "commitments")!.content.includes(`D-${a}`);
+      const refused = w.store.events(a).some((e) => e.type === "reservation_refused");
+      const pending = w.store.load(a).pending;
+      const bHolds = w.store.holds(new Date(w.clock.now)).some((h) => h.case === b);
+      return { w, observed: `B ${bHolds ? "holds the capacity" : "holds nothing"}; A's late co-sign ${refused ? "found the hold gone and was refused it" : "went ahead"}; ${written ? "commitments written for A" : "nothing written for A"}; A now waits on ${pending?.kind === "gate" ? pending.step : pending?.kind ?? "nothing"}`, ok: bHolds && refused && !written && pending?.kind === "gate" && pending.step === "no_alternative" };
+    },
+  },
 ];
 
 export async function runChaos(seed = 1, only?: string): Promise<ChaosResult[]> {
   const out: ChaosResult[] = [];
-  for (const s of SCENARIOS.filter((x) => !only || x.id === only)) {
+  // The engine's outlet timeout does not keep a process alive (a server has
+  // other reasons to stay up); a lone run with a hung outlet needs this.
+  const alive = setInterval(() => {}, 1000);
+  try {
+    for (const s of SCENARIOS.filter((x) => !only || x.id === only)) await runOne(s);
+  } finally {
+    clearInterval(alive);
+  }
+  return out;
+
+  async function runOne(s: Scenario) {
     const started = performance.now();
     const random = rng(seed * 1000 + Number(s.id.slice(1)));
     const { w, observed, ok } = await s.run(random);
     const held = invariants(w.store, w.flows, w.docs, new Date(w.clock.now));
     out.push({ id: s.id, title: s.title, injected: s.injected, expected: s.expected, observed, ok: ok && held.every((i) => i.ok), invariants: held, ms: Math.round(performance.now() - started) });
   }
-  return out;
 }
 
 // A carried-out decision, for the benchmarks: its store and flows.

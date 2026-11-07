@@ -26,7 +26,12 @@ export interface Commitment {
 
 const num = (v: unknown) => Number(String(v ?? "").replace(/[,%\s]|INR/g, ""));
 // A number that must be there: an empty cell is not a zero.
-const strict = (v: unknown) => (v === undefined || v === null || String(v).replace(/[,%\s]|INR/g, "") === "" ? Number.NaN : num(v));
+// Finite only: "Infinity" is not unlimited capacity, it is unreadable.
+const strict = (v: unknown) => {
+  if (v === undefined || v === null || String(v).replace(/[,%\s]|INR/g, "") === "") return Number.NaN;
+  const n = num(v);
+  return Number.isFinite(n) ? n : Number.NaN;
+};
 const fmt = (n: number, digits = 1) => n.toLocaleString("en", { maximumFractionDigits: digits });
 const money = (n: number) => fmt(Math.round(n), 0);
 const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
@@ -50,7 +55,7 @@ export function capacityOf(content: string): { resource: string; available: numb
 }
 
 function policyOf(content: string): Map<string, { limit: number; text: string; set_by: string }> {
-  return new Map(tableRows(content).map(([rule = "", limit = "", set_by = ""]) => [rule.toLowerCase(), { limit: num(limit), text: limit, set_by }]));
+  return new Map(tableRows(content).map(([rule = "", limit = "", set_by = ""]) => [rule.toLowerCase(), { limit: strict(limit), text: limit, set_by }]));
 }
 
 // Resources a promise holds, and the arguments that ask for them.
@@ -98,7 +103,9 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
       const all = commitmentsOf(doc.content);
       // Other open decisions' holds count like promises (the engine passes
       // them in, and records them with the result).
-      const held = (Array.isArray(args.held) ? (args.held as Hold[]) : []).filter((h) => !exclude.includes(h.case));
+      // A hold counts only if its window overlaps this one: one that starts
+      // after this window ends takes nothing from it.
+      const held = (Array.isArray(args.held) ? (args.held as Hold[]) : []).filter((h) => !exclude.includes(h.case) && !(Date.parse(h.start) > end));
       const rows = [
         ...all.filter((r) => !exclude.some((id) => r.basis.includes(`case ${id}`))),
         ...held.map((h) => ({ id: `R-${h.case}`, kind: "reservation", to: h.to, resource: h.resource, amount: h.amount, until: h.until, decided_by: "chosen, awaiting co-sign", basis: `held by open case ${h.case}` })),
@@ -214,7 +221,7 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
         { rule: "new fixed costs this quarter", value: fixed, shown: fixed ? `${money(fixed)} a year, to buy the GPU-hours that are already promised to others` : "none", ok: (r: number) => fixed <= r },
       ].map((c) => {
         const r = rule(c.rule);
-        if (!r || Number.isNaN(r.limit)) return { rule: c.rule, limit: "missing", set_by: "", value: c.value, ok: false, detail: `the policy has no "${c.rule}" rule, so this cannot pass` };
+        if (!r || Number.isNaN(r.limit)) return { rule: c.rule, limit: "missing", set_by: "", value: c.value, ok: false, detail: `the policy has no readable "${c.rule}" rule (a finite number), so this cannot pass` };
         const ok = !Number.isNaN(c.value) && c.ok(r.limit);
         return { rule: c.rule, limit: r.text, set_by: r.set_by, value: Math.round(c.value * 100) / 100, ok, detail: `${c.rule} ${r.text} (set by ${r.set_by}): ${c.shown}${ok ? "" : ", which breaks it"}` };
       });

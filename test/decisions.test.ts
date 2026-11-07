@@ -324,3 +324,56 @@ describe("two decisions competing for the same capacity", () => {
     b.close();
   });
 });
+
+describe("hardening after review", () => {
+  const NOW = Date.parse("2026-11-07T09:00:00Z");
+  const HEAD = "| id | kind | to | resource | amount | until | decided by | basis |\n|---|---|---|---|---|---|---|---|\n";
+  const CAP = "| resource | available | unit | as of |\n|---|---|---|---|\n";
+  const ask = { doc: "commitments", capacity: "capacity", max_age_days: 31, start: "2026-12-01", weeks: 6, gpu_hours: 400, engineers: 2 };
+  const room = (cap: string, rows = "") => [{ id: "c", name: "commitments", content: HEAD + rows }, { id: "k", name: "capacity", content: CAP + cap }];
+
+  it("treats Infinity, -Infinity and NaN as unreadable, never as unlimited", () => {
+    for (const bad of ["Infinity", "-Infinity", "NaN"]) {
+      expect(DECISION_CHECKS.commitments.run(ask, room(`| gpu-hours | ${bad} | a month | 2026-11-01 |\n| engineers | 8 | people | 2026-11-01 |\n`), NOW).ok).toBe(false);
+      expect(DECISION_CHECKS.commitments.run({ ...ask, gpu_hours: bad }, room("| gpu-hours | 1000 | a month | 2026-11-01 |\n| engineers | 8 | people | 2026-11-01 |\n"), NOW).ok).toBe(false);
+      expect(DECISION_CHECKS.commitments.run(ask, room("| gpu-hours | 1000 | a month | 2026-11-01 |\n| engineers | 8 | people | 2026-11-01 |\n", `| C-1 | capacity | X | gpu-hours | ${bad} | 2027-01-01 | @cto | x |\n`), NOW).ok).toBe(false);
+    }
+  });
+
+  it("refuses a policy whose limit is empty or not finite", () => {
+    const terms = { doc: "policy", value: 12_000_000, discount_pct: 10, uptime: 99.9, weeks: 6, gpu_hours: 400, engineers: 3 };
+    for (const bad of ["", "Infinity", "NaN"]) {
+      const policy = [{ id: "p", name: "policy", content: doc("policy").replace("| max discount | 15% |", `| max discount | ${bad} |`) }];
+      const r = DECISION_CHECKS.constitution.run(terms, policy) as { ok: boolean; detail: string };
+      expect(r.ok).toBe(false);
+      expect(r.detail).toMatch(/no readable "max discount" rule/);
+    }
+    const cost = [{ id: "p", name: "policy", content: doc("policy").replace("| gpu-hour cost | 900 INR |", "| gpu-hour cost | Infinity |") }];
+    expect(DECISION_CHECKS.constitution.run(terms, cost).ok).toBe(false);
+  });
+
+  it("does not count a hold whose window starts after this one ends", () => {
+    const cap = "| gpu-hours | 1000 | a month | 2026-11-01 |\n| engineers | 8 | people | 2026-11-01 |\n";
+    const later = [{ case: "z", resource: "gpu-hours", amount: 900, start: "2027-06-01", until: "2028-06-01", to: "Later Co" }];
+    expect(DECISION_CHECKS.commitments.run({ ...ask, held: later }, room(cap), NOW).ok).toBe(true);
+    const overlapping = [{ ...later[0], start: "2026-12-10" }];
+    expect(DECISION_CHECKS.commitments.run({ ...ask, held: overlapping }, room(cap), NOW).ok).toBe(false);
+  });
+
+  it("finds over-commitment in the capacity invariant even with no holds open", async () => {
+    const { invariants } = await import("../src/engine/invariants.ts");
+    const store = new Store();
+    const over = room("| gpu-hours | 1000 | a month | 2026-11-01 |\n", "| C-1 | capacity | A | gpu-hours | 700 | 2027-06-01 | @cto | x |\n| C-2 | capacity | B | gpu-hours | 500 | 2027-06-01 | @cto | y |\n");
+    const safety = invariants(store, [flow], over, new Date(NOW)).find((i) => i.name === "capacity safety")!;
+    expect(safety).toMatchObject({ ok: false, detail: expect.stringMatching(/gpu-hours at 2026-11-07: 1200 committed \+ 0 held > 1000/) });
+    expect(invariants(store, [flow], [over[0]], new Date(NOW)).find((i) => i.name === "capacity safety")).toMatchObject({ ok: false, detail: expect.stringMatching(/cannot be checked/) });
+    const infinite = room("| gpu-hours | Infinity | a month | 2026-11-01 |\n");
+    expect(invariants(store, [flow], infinite, new Date(NOW)).find((i) => i.name === "capacity safety")).toMatchObject({ ok: false, detail: expect.stringMatching(/not a finite number/) });
+  });
+
+  it("does not let a late co-sign proceed on a hold that lapsed and was taken by another decision", async () => {
+    const { runChaos } = await import("../src/chaos.ts");
+    const [c9] = await runChaos(1, "C9");
+    expect(c9).toMatchObject({ ok: true, observed: expect.stringMatching(/found the hold gone and was refused it; nothing written for A/) });
+  });
+});

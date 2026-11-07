@@ -481,7 +481,8 @@ export class Store {
       const others = this.holds(now, [caseId]);
       for (const ask of asks) {
         const { capacity, committed } = standing(ask.resource, ask.start);
-        const held = others.filter((h) => h.resource === ask.resource && Date.parse(h.until) >= Date.parse(ask.start));
+        // Holds whose windows overlap this one.
+        const held = others.filter((h) => h.resource === ask.resource && Date.parse(h.until) >= Date.parse(ask.start) && Date.parse(h.start) <= Date.parse(ask.until));
         const left = capacity - committed - held.reduce((n, h) => n + h.amount, 0);
         if (!(ask.amount <= left)) {
           this.db.exec("ROLLBACK");

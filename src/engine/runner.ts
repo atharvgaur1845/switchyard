@@ -187,6 +187,7 @@ export class Runner {
       return true;
     }
     if (isOutlet(step)) {
+      if (!state.executing[step.id] && !(await this.ensureHold(state, false))) return false;
       const payload = renderOutlet(step.outlet, scopeOf(state));
       const hash = hashOutlet(payload);
       const rule = step.auto_approve;
@@ -806,6 +807,7 @@ export class Runner {
     }
 
     if (step.gate.reserve && isApproval(step.gate, outcome.answer) && !(await this.reserve(state, step, step.gate.reserve))) return;
+    if (!step.gate.reserve && isApproval(step.gate, outcome.answer) && !(await this.ensureHold(state, true))) return;
 
     this.store.append(state.id, {
       type: "gate_answered",
@@ -829,7 +831,7 @@ export class Runner {
   // decision's hold. If it no longer fits, the answer does not count: the
   // checks run again, now seeing the hold that is in the way, and the card
   // that follows offers only what passes.
-  private async reserve(state: CaseState, step: GateStep, checkStep: string): Promise<boolean> {
+  private async reserve(state: CaseState, step: GateStep, checkStep: string, advance = true): Promise<boolean> {
     const fit = state.results[checkStep] as Record<string, unknown> | undefined;
     const spec = this.stepOf(state, checkStep);
     if (!fit || !spec || !isVerify(spec)) return true;
@@ -873,8 +875,28 @@ export class Runner {
     const first = order.findIndex((id) => { const s = this.stepOf(state, id); return s !== undefined && isVerify(s) && s.verify.check === "commitments"; });
     const steps = order.slice(first).filter((id) => state.finished.has(id));
     this.store.append(state.id, { type: "rewound", step: step.id, steps, docs: { reservations: [`${result.need} ${result.resource} needed`, `${result.left} left`] } });
-    await this.advance(state.id);
+    if (advance) await this.advance(state.id);
     return false;
+  }
+
+  // A hold is a lease, and the approvals that follow rest on it. Before a
+  // later approval counts, and before anything is carried out, the decision
+  // must still hold its capacity. A lapsed hold is taken again in one
+  // transaction if the capacity is still free; if another decision took it
+  // meanwhile, every approval since is void and the checks run again.
+  private async ensureHold(state: CaseState, advance: boolean): Promise<boolean> {
+    const flow = this.flowOf(state);
+    const events = this.store.events(state.id);
+    const lastRewind = events.findLastIndex((e) => e.type === "rewound");
+    for (const step of flow.steps) {
+      if (!isGate(step) || !step.gate.reserve) continue;
+      const chosen = events.findLastIndex((e) => e.type === "gate_answered" && e.step === step.id && e.approved);
+      if (chosen < 0 || chosen < lastRewind) continue;
+      if (this.store.holds(new Date(this.now())).some((h) => h.case === state.id)) continue;
+      await this.say(state, `The capacity held for "${step.id}" lapsed before this decision was carried out. Taking it again before anything else counts.`);
+      if (!(await this.reserve(this.store.load(state.id), step, step.gate.reserve, advance))) return false;
+    }
+    return true;
   }
 
   async cancel(caseId: string, by: string): Promise<boolean> {

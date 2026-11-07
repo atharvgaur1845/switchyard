@@ -9,7 +9,7 @@ describe("the chaos lab", () => {
   for (const seed of [1, 2, 7]) {
     it(`holds every scenario and invariant for seed ${seed}`, async () => {
       const results = await runChaos(seed);
-      expect(results).toHaveLength(8);
+      expect(results).toHaveLength(9);
       for (const r of results) expect({ id: r.id, ok: r.ok, observed: r.observed, failed: r.invariants.filter((i) => !i.ok) }).toMatchObject({ ok: true, failed: [] });
     });
   }

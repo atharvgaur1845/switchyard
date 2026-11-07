@@ -1,4 +1,4 @@
-import { standingOf } from "./decisions.ts";
+import { capacityOf, commitmentsOf } from "./decisions.ts";
 import { type Flow, isGate, isOutlet } from "./flow-schema.ts";
 import type { RoomDocument } from "./ports.ts";
 import type { Store } from "./store.ts";
@@ -26,18 +26,56 @@ export function invariants(store: Store, flows: Flow[], docs: RoomDocument[], no
   const out: Invariant[] = [];
   const ids = store.caseIds();
 
-  // Capacity safety.
+  // Capacity safety: every resource in the capacity document, at today and
+  // at the start of every open hold, with or without holds. Over-commitment
+  // is a breach unless the engine already caught it: capacity was lost after
+  // decisions were carried out, and Assumption Watch has those decisions
+  // marked (broken, or suspect while a noisy reading is confirmed).
   const commitments = docs.find((d) => d.name === "commitments")?.content;
   const capacity = docs.find((d) => d.name === "capacity")?.content;
-  if (commitments !== undefined && capacity !== undefined) {
+  if (commitments === undefined || capacity === undefined) {
+    out.push({ name: "capacity safety", ok: false, detail: `cannot be checked: no ${commitments === undefined ? "commitments" : "capacity"} document` });
+  } else {
     const holds = store.holds(now);
-    const standing = standingOf(commitments, capacity, holds.map((h) => h.case));
-    const over = holds.flatMap((h) => {
-      const { capacity: total, committed } = standing(h.resource, h.start);
-      const held = holds.filter((o) => o.resource === h.resource && Date.parse(o.until) >= Date.parse(h.start)).reduce((n, o) => n + o.amount, 0);
-      return committed + held > total ? [`${h.resource} from ${h.start}: ${committed} committed + ${held} held > ${total}`] : [];
+    const rows = capacityOf(capacity);
+    const unreadable = rows.filter((r) => !Number.isFinite(r.available) || r.available < 0).map((r) => r.resource || "(no name)");
+    const promises = commitmentsOf(commitments);
+    const badRows = promises.filter((r) => !Number.isFinite(r.amount) || Number.isNaN(Date.parse(r.until))).map((r) => r.id || "(no id)");
+    const watched = ids.some((id) => store.events(id).some((e) => e.type === "assumption_broken" || e.type === "assumption_suspect"));
+    // When each promise starts: a row a decision wrote starts where that
+    // decision's hold started (recorded when it was taken); a row with no
+    // start on record is counted from today, on the cautious side.
+    const startOf = new Map<string, string>();
+    for (const id of ids) {
+      for (const e of store.events(id)) if (e.type === "reserved") for (const h of e.holds) startOf.set(`${id}|${h.resource}`, h.start);
+    }
+    const today = now.toISOString().slice(0, 10);
+    const open = new Set(holds.map((h) => h.case));
+    const running = promises
+      .filter((p) => Number.isFinite(p.amount) && !open.has(/case ([0-9a-f]+)/.exec(p.basis)?.[1] ?? ""))
+      .map((p) => ({ ...p, from: startOf.get(`${/case ([0-9a-f]+)/.exec(p.basis)?.[1] ?? ""}|${p.resource}`) ?? today }));
+    const over: string[] = [];
+    for (const r of rows.filter((x) => Number.isFinite(x.available))) {
+      // The total can only rise on a day something starts.
+      const dates = new Set([today, ...holds.filter((h) => h.resource === r.resource).map((h) => h.start), ...running.filter((p) => p.resource === r.resource).map((p) => p.from)]);
+      for (const date of dates) {
+        const at = Date.parse(date);
+        const committed = running.filter((p) => p.resource === r.resource && Date.parse(p.from) <= at && Date.parse(p.until) >= at).reduce((n, p) => n + p.amount, 0);
+        const held = holds.filter((h) => h.resource === r.resource && Date.parse(h.start) <= at && Date.parse(h.until) >= at).reduce((n, h) => n + h.amount, 0);
+        if (committed + held > r.available) over.push(`${r.resource} at ${date}: ${committed} committed + ${held} held > ${r.available}`);
+      }
+    }
+    const problems = [...unreadable.map((x) => `capacity for ${x} is not a finite number`), ...badRows.map((x) => `commitment ${x} cannot be read`)];
+    const ok = problems.length === 0 && (over.length === 0 || watched);
+    out.push({
+      name: "capacity safety",
+      ok,
+      detail: problems.length
+        ? `cannot be checked: ${problems.join("; ")}`
+        : over.length
+          ? `${over.join("; ")}${watched ? " (capacity was lost after decisions were carried out; Assumption Watch has them marked to decide again)" : ""}`
+          : `${rows.length} resource${rows.length === 1 ? "" : "s"} and ${holds.length} open hold${holds.length === 1 ? "" : "s"}, all within capacity`,
     });
-    out.push({ name: "capacity safety", ok: over.length === 0, detail: over.length ? over.join("; ") : `${holds.length} open hold${holds.length === 1 ? "" : "s"}, all within capacity` });
   }
 
   const approvalProblems: string[] = [];

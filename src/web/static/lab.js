@@ -123,7 +123,7 @@ function result(r, label) {
     <h5>Trace: every case this run opened</h5>${trace(r)}</div>`;
 }
 
-// The Chaos Lab: the company-decision flow under eight injected failures
+// The Chaos Lab: the company-decision flow under nine injected failures
 // (src/chaos.ts), run on demand for a seed, each ending with the engine's
 // invariants asserted on what it left behind.
 function chaos(ui) {
@@ -134,8 +134,8 @@ function chaos(ui) {
   const passed = (c.results ?? []).filter((r) => r.ok).length;
   return `<section class="card chaos">
     <div class="chaos-head"><div><h2>${icon("fork")} Chaos lab · company decisions under injected failure</h2>
-      <p class="fine">Eight failures injected into the contract-decision flow, in memory, deterministic for a seed: competing decisions, a capacity change between signatures, an agent outage, a duplicated card answer, a hung outlet, a crash mid-send, a noisy capacity reading, a rewritten record. After each, five invariants are checked on what the engine left behind: capacity safety, approval integrity, authority separation, idempotent execution, recoverability.</p></div>
-      <div class="chaos-run"><label class="fine">seed <input type="number" min="1" value="${esc(c.seed ?? 1)}" data-chaos-seed></label><button class="btn accent" data-chaos-run ${c.running ? "disabled" : ""}>${icon("send")} ${c.running ? "Running…" : "Run all 8"}</button>${c.results ? `<span class="pill ${passed === c.results.length ? "act" : "stop"}">${passed}/${c.results.length} hold</span>` : ""}</div></div>
+      <p class="fine">Nine failures injected into the contract-decision flow, in memory, deterministic for a seed: competing decisions, a capacity change between signatures, an agent outage, a duplicated card answer, a hung outlet, a crash mid-send, a noisy capacity reading, a rewritten record, a late co-sign after the hold lapsed. After each, five invariants are checked on what the engine left behind: capacity safety, approval integrity, authority separation, idempotent execution, recoverability.</p></div>
+      <div class="chaos-run"><label class="fine">seed <input type="number" min="1" value="${esc(c.seed ?? 1)}" data-chaos-seed></label><button class="btn accent" data-chaos-run ${c.running ? "disabled" : ""}>${icon("send")} ${c.running ? "Running…" : "Run all 9"}</button>${c.results ? `<span class="pill ${passed === c.results.length ? "act" : "stop"}">${passed}/${c.results.length} hold</span>` : ""}</div></div>
     ${c.error ? `<div class="notice error">${esc(c.error)}</div>` : ""}
     ${rows ? `<table class="pf-table chaos-table"><thead><tr><th></th><th>injected</th><th>expected</th><th>observed, and the invariants after</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : ""}
   </section>`;
