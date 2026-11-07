@@ -2,7 +2,7 @@
 
 **Opening line:** "Every payment Switchyard makes carries its proof: what arrived, what the agents read and quoted, what code checked, who the bank says holds the account, who approved, and what the bank now holds. People decide in Switch; the engine does exactly what they approved."
 
-Screen: Slack (`#finance`) on the left, the dashboard (`localhost:4100`) on the right. Keep Mailpit (`localhost:8025`) and the sandbox bank (`localhost:4300`) in tabs, and a terminal for the `demo send` commands.
+Screen: Slack (`#finance`) on the left, the console (`localhost:4100`) on the right, open on **Command**. Keep Mailpit (`localhost:8025`) and the sandbox bank (`localhost:4300`) in tabs, and a terminal for the `demo send` commands.
 
 Disclose on screen from the first frame:
 
@@ -38,6 +38,8 @@ Disclose on screen from the first frame:
 ---
 
 ## 0:00 – The problem (15 s)
+
+On the console's **Command** view: the payment chain, nine links, each counted from the log.
 
 > "A supplier's mailbox gets taken over. The email comes from their real domain and passes every check. How would anyone know? Because someone already tried that account from a look-alike domain, and a person blocked it."
 
@@ -82,9 +84,9 @@ npm run switchyard demo send fabrikam-invoice
 
 ## 2:25 – Investigations (30 s)
 
-**Dashboard → Investigations.**
+**Console → Investigations.**
 - The group: "DE88…6303: blocked by a person, named again in 2 other cases".
-- **Click the red line** "blocked by @B": the evidence names the case, the sender (fabrikarn.test), who decided and when, and the status "suspected, not confirmed fraud".
+- **Click the account DE88…6303**: the inspector lists every fact about it. The red line "blocked by @B" names the case, the sender (fabrikarn.test), who decided and when, and the status "suspected, not confirmed fraud". The amber line is the bank: "similar name", held by Fabrikam Print Services s.r.o., marked unverified.
 - Impact: 3,150 invoiced, 3,150 paid to the account on file, one approval that stopped counting, and what was held.
 
 > "Every line here is a fact someone can check, from the event log. Nothing is scored."
@@ -99,24 +101,21 @@ npm run switchyard demo send bank-change-real
 - **A** tries to approve the change too: "@A answered "callback", so a different person must decide "approve"". The card re-opens.
 - **B** clicks **approve**. Switchyard writes the new account into `vendor-master` in the room; the thread shows the row.
 
-## 3:25 – Offline, labelled "offline: the same engine with scripted clicks" (15 s)
+## 3:25 – Attack lab, labelled "offline: the same engine with scripted clicks" (15 s)
 
-```bash
-npm run lab
-npm run lab -- --heldout
-```
+**Console → Attack lab → Run all 20.** A is links off, B links on; each run takes a fraction of a second.
 
-- **The held-out set:** 20 scenarios from a separate author who never saw the code. The first run found two real bugs, both now fixed. Say the honest part: on those 20, people doing their job stop every attack with or without links, and with every callback fooled three single-case attacks get through. What links add is the compromised mailbox after a refusal, the story just shown.
+- **The held-out set:** 20 scenarios from a separate author who never saw the code. The first run found two real bugs, both now fixed. Say the honest part, which the bars show: on those 20, people doing their job stop every attack with or without links, and links on cost one false positive (click **H05**, the factoring company). Set B's callbacks to "every one fooled" and run again to show what gets through when people are fooled. What links add is the compromised mailbox after a refusal, the story just shown.
 
 ## 3:35 – The proof (15 s)
 
-On the paid invoice's case: **Download signed proof**. In the terminal:
+**Console → Proofs**, the paid invoice: "All 31 checks hold", from the signature to each quote's place in the invoice text (marked in the text), and the payment rule evaluated again on the log with the values it read. Click **Check a copy with the amount changed**: three checks fail.
+
+To show it with no console at all, **Download proof**, then:
 
 ```bash
 npm run switchyard verify-proof ~/Downloads/<case>.proof.json -- --fingerprint <printed by up or proof>
 ```
-
-31 checks hold, from the signature to each quote's place in the invoice text, including the payment rule evaluated again on the log. Then change one character of the amount in the file and run it again: it fails.
 
 ## 3:50 – Close (10 s)
 
@@ -125,6 +124,8 @@ npm run switchyard verify-proof ~/Downloads/<case>.proof.json -- --fingerprint <
 ---
 
 ## Also live, if time allows
+
+- **The walkthrough.** Command → **Walk through a payment**, then **Play**: the paid invoice's ten stages from its recorded events, ending with the proof built and checked on the spot.
 
 - **The insider.** `demo send insider-edit`, then `demo send northwind-invoice`: "hold Northwind Paper invoice NW-118: their row in the vendor master was edited in the room, outside any case". There is no pay button. Afterwards: `demo send insider-restore`.
 - **The same PO again.** `demo send fabrikam-invoice-2`: "hold Fabrikam Print invoice FP-0913: PO-1043 is already invoiced FP-0912 …, and each PO is paid once". There is no pay button.

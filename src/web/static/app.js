@@ -20,6 +20,12 @@ const routeOf = (hash) => {
   return VIEWS.includes(view) ? { view, arg } : view ? { view: "cases", arg: view } : { view: "command" };
 };
 
+// How to read a flow's diagram, under each one.
+const LEGEND = `<ul class="legend" aria-label="Legend">
+  <li><i class="sw agent"></i>agent</li><li><i class="sw person"></i>a person decides</li><li><i class="sw act"></i>executed</li>
+  <li><i class="sw stop"></i>stopped or refused</li><li><i class="sw code"></i>checked by code</li><li><i class="sw cond"></i>condition</li>
+  <li><i class="sw arc"></i>approval bound to an exact action</li></ul>`;
+
 // ---------- state ----------
 
 const FILTERS = [
@@ -198,6 +204,7 @@ function renderDetail() {
     ${banners(c)}
     ${linkedHtml(c)}
     <div class="diagram" id="diagram">${flow ? diagram(flow, c, state.vendors) : ""}</div>
+    ${LEGEND}
     ${receiptsHtml(c)}
     <div class="dtabs" role="tablist" aria-label="Case views">
       <button role="tab" data-tab="story" aria-selected="${state.tab === "story"}">Story</button>
@@ -497,6 +504,7 @@ function renderFlows() {
         ${f.running ? `<div class="links"><a href="#" data-flow-filter="${esc(f.flow)}">${counts.open} open · ${counts.done} done · ${counts.stopped} stopped</a>${links}</div>` : off}
         </div>
         <div class="diagram">${diagram(f, null, state.vendors)}</div>
+        ${LEGEND}
       </article>`;
     })
     .join("");

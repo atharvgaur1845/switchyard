@@ -75,10 +75,11 @@ function graph(cluster, ui, q) {
     const label = labelOf(e);
     // Labels sit a third of the way along a case's line, and past the middle
     // of an account's line to a vendor, so lines that meet keep them apart.
-    const t = e.from.kind === "account" ? 0.6 : 0.32;
+    const t = e.from.kind === "account" ? 0.7 : 0.32;
     const bez = (p0, p1, p2, p3) => (1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * p1 + 3 * (1 - t) * t ** 2 * p2 + t ** 3 * p3;
     const lx = bez(x1, mx, mx, x2);
-    const ly = bez(a.y, a.y + bend, b.y + bend, b.y) - 5;
+    // A second fact on the same two nodes gets its label on the other side.
+    const ly = bez(a.y, a.y + bend, b.y + bend, b.y) + (k % 2 ? 14 : -5);
     const dim = (lit && !lit.has(e.id)) || (q && !matches(q, e.from.label, e.to.label, e.from.id, e.to.id, e.source, e.by));
     return `<g class="ig-edge t-${r.tone}${e.id === ui.edge ? " sel" : ""}${dim ? " dim" : ""}" data-ev="${esc(e.id)}" tabindex="0" role="button" aria-label="${esc(`${e.from.label} ${label} ${e.to.label}`)}">
       <path class="hit" d="${d}"/><path class="line" d="${d}" ${r.dash ? `stroke-dasharray="${r.dash}"` : ""}/>

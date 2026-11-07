@@ -53,7 +53,27 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 7. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the invoice is held, with no pay button.
 8. **The payment's proof.** The run writes the paid invoice's signed proof and checks it: 31 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself.
 
-The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep a dashboard of the run's cases open at `http://localhost:4101`. Its Investigations tab shows the blocked account and the three cases it connects.
+The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep the console of the run's cases open at `http://localhost:4101`.
+
+## The console
+
+`npm run switchyard up` (or `demo:offline -- --serve`) serves a console on localhost. Every number and line in it is read from the event log, the flow files or a run made on the spot; nothing is stored for show.
+
+- **Command.** What is being protected right now: linked investigations, cards waiting on a person, accounts the bank did not confirm, payments stopped before money moved, payments whose bank copy hashes to the approved action, and signed proofs. Below that, the nine links of the payment chain, each with its count from the log, the event stream, case outcomes, recent decisions and the engine's health.
+- **Cases.** Each case's track, its receipts (approved = sent = read back), its story and its raw log.
+- **Investigations.** The cases one account connects, as a graph you can search, zoom, pan and click. A line is a recorded fact, and the kinds are kept apart: a person's block (suspicion), a failed callback, an account on file, what the bank said about the holder (confirmed, under a mandate, a similar name, no match, no answer). Selecting a node lists every fact about it; the timeline filters by kind and by case.
+- **Agents.** Every request to each agent, by its job: when it was asked, how long it took, its structured answer as recorded, retries and hand-offs to a backup. Then every code check with the document versions it read, the payment policy (what may release each action, a person or a rule), how each action was actually released, and what @yard did. Agents run with their tools switched off and no reasoning is recorded, so there are no tool calls or chains of thought to show.
+- **Proofs.** A case's signed proof, section by section: the source digest, the agents' answers, the quotes marked at their offsets in the invoice text, the checks, the bank's answer, the decisions, and each action with its hash, the bank's read-back and, for a rule, the values the rule read. Beside it, the digests, the root, the Ed25519 signature and the pinned key, and the verdict of `verifyProof` on that exact file. Two buttons send an edited copy (the amount changed, a quote moved) to the same verifier, and a proof file can be dropped in to check it.
+- **Attack lab.** The 20 held-out scenarios, run on the real engine on demand, under two configurations side by side (links between cases on or off, callbacks real or all fooled, the bank's payee answers absent or from the scenario). It counts what each run did: scenarios meeting their expectations, attacks with nothing paid, euros to the attacker, benign scenarios not completed (false positives), cards shown, approvals voided, answers refused and run time. Each run's trace lists every event of every case it opened.
+- **Walkthrough.** One real case, stage by stage: arrival, the agents, the grounded quotes, the code checks, the bank's answer, other cases, the people, the payment. The first eight stages replay its recorded events, with the times they happened. The last two run when they are reached: the server builds the proof and checks it.
+
+![The Command view: what is protected now, the payment chain counted from the log, and the event stream](docs/img/console-command.png)
+
+![The Proofs view: a paid invoice's proof, its quotes marked in the invoice text, the rule and the values it read, and a copy with the amount changed failing three checks](docs/img/console-proof.png)
+
+![The Attack lab: all 20 held-out scenarios under links off and on, and H05, the factoring company, held with links on](docs/img/console-lab.png)
+
+What it does not show, because the log does not hold it: how long a code check took (checks record their result, not a start time), purchase orders and emails as nodes of their own (each email or invoice is its case's node, and a PO is in its case's checks), and tool calls (there are none). The walkthrough replays a case that exists; it does not start one, since cases come in only through the inlets. The lab runs the held-out set; the nine built-in scenarios still run with `npm run lab`. Tests: "names the key it trusts, and passes the proof it handed out", "fails an edited copy, and says what is wrong", "runs one under the controls asked for, with its trace".
 
 ## What it looked like live, on Slack
 
@@ -140,7 +160,7 @@ The signing key lives in its own file (`proof.key`, by default `keys/proof-ed255
 - that the bank's copy hashes the same;
 - that each quote is at its offsets in the invoice text.
 
-Editing the log, moving a quote, or rewriting the amount and signing again with another key each fails a check. So does a log signed by the right key on which the payment rule did not hold (the bank's answer rewritten to a close match). The dashboard has a "Download signed proof" link on every case, and `demo:offline` ends by writing and checking one.
+Editing the log, moving a quote, or rewriting the amount and signing again with another key each fails a check. So does a log signed by the right key on which the payment rule did not hold (the bank's answer rewritten to a close match). The console's Proofs view shows each case's proof and its verdict, with a download link; every case also has a "Download signed proof" link, and `demo:offline` ends by writing and checking one.
 
 What a proof does not show: that the record is true. It shows that this is what Switchyard recorded and signed, and that it holds together. A holder of the signing key could sign a false log whose facts hold together, and a proof is made when it is exported, not as each event happens. Tests: "holds every check for a payment made by the rule, and carries its evidence", "fails when its log is edited after signing", "fails when someone rewrites the payment and signs it again with another key", "fails when a quote's offsets do not point at it", "fails when the key holder signs a log on which the rule did not hold".
 
@@ -161,7 +181,7 @@ A link never blocks and never changes a payment. It sends the case to a person, 
 
 The dashboard's Investigations tab groups cases by the accounts that connect them. Only an account with a recorded fact against it joins cases: one people refused, or one on file for two vendors. An ordinary account on file never does, or every invoice from one supplier would look like one incident. For each group it shows:
 
-- **a graph** of cases, accounts and vendors. Each line is a fact you can click: requested, printed on an invoice, paid, refused by a person, cleared, on file for;
+- **a graph** of cases, accounts and vendors. Each line is a fact you can click: requested, printed on an invoice, paid, refused by a person, cleared, on file for, and what the bank said about who holds the account. The same answer asked in several cases is one line naming each case. Search, zoom and pan; selecting a node lists every fact about it;
 - **the evidence** behind each line: its source, the case, who decided, when, and a status that keeps suspicion apart from fact ("blocked by a person: suspected, not confirmed fraud");
 - **the impact**: what was invoiced and paid, and to which account, what is still open and waiting on whom, how many approvals stopped counting, and what was held;
 - **a timeline** across the cases, in the event log's order.
@@ -313,7 +333,7 @@ npm run switchyard demo send insider-restore      # puts Northwind's row back
 
 `insider-edit` uses @yard's own key over a second, short-lived connection to write the document directly, the way anyone with write access to it could. That connection never polls for card answers. For a clean recording, stop Switchyard and run `npm run switchyard demo reset`. It moves the event log and the bank ledger aside (it never deletes them) and puts the two finance documents back to the template.
 
-Answer the cards in Slack: click the button, or reply `A1 block` in the case thread (Switch's own typed-answer form). The dashboard at `http://localhost:4100` (localhost only) draws each case from its event log. Its Investigations tab groups the cases an account connects. It shows the agents on their two vendors, the code checks with the document versions they read, the approval arcs with their hashes, and the receipts. The sandbox bank's ledger is at `http://localhost:4300`.
+Answer the cards in Slack: click the button, or reply `A1 block` in the case thread (Switch's own typed-answer form). The console at `http://localhost:4100` (localhost only) draws each case from its event log. Its Investigations view groups the cases an account connects, and its Proofs view checks each case's signed proof. It shows the agents on their two vendors, the code checks with the document versions they read, the approval arcs with their hashes, and the receipts. The sandbox bank's ledger is at `http://localhost:4300`.
 
 In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel`, `reassign`, `resume`, and `edit <document> "old" "new"`. `edit` is for people who hold a role, and the room is told the old and new versions. It is refused for any document a code check reads, such as `vendor-master` and `purchase-orders`: those decide payments by themselves, so they change only through a flow with its own checks and four eyes.
 
@@ -370,7 +390,7 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 286 tests
+npm test             # 293 tests
 npm run lab          # the attack lab, links off and on
 npm run lab -- --heldout   # the 20 held-out scenarios
 npm run typecheck
@@ -389,7 +409,7 @@ src/agents/    locked-down CLI agents, and the fixture agent for offline runs
 src/inlets/    form, webhook, email (Mailpit), schedule, front-desk screen
 src/outlets/   bank payment, room document, csv, email, webhook, room post, visitor reply; payload hashing
 src/sandbox/   the sandbox bank
-src/web/       the dashboard (cases, investigations, flows) and the chat widget
+src/web/       the console (command, cases, investigations, agents, proofs, attack lab, walkthrough, flows) and the chat widget
 src/proof.ts   signed proofs of a case, and their verifier
 lab/           the held-out scenarios, the brief they were written from, and their first run
 flows/         the flows; templates/ has a Switch template for each
