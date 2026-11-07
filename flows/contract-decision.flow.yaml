@@ -84,6 +84,9 @@ steps:
       options: [counter, decline]
       deadline: 1d
       approves: [reserve_capacity, commit_team, commit_sla, send_counteroffer]
+      # Choosing counter holds the counteroffer's capacity atomically, so a
+      # second decision checked against the same room cannot take it too.
+      reserve: counter_fit
 
   - id: no_alternative
     when: not (counter_fit.ok == true and counter_policy.ok == true)

@@ -32,6 +32,16 @@ export const TAILSPIN = {
   text: "Tailspin Analytics proposes a one-year platform contract worth 12,000,000 INR a year. We ask for a 25% discount, 99.99% uptime, and go-live within 6 weeks of 9 November 2026. We expect 500 GPU-hours a month and a dedicated team of 3 engineers for the rollout. Renewal for a second year is likely once our board approves the expansion budget in Q2. Payment terms: 90 days from invoice.",
 };
 
+// A second customer asks for the same terms while Tailspin's proposal is
+// still open: each counteroffer fits what is free on its own, not both.
+export const FOURTH_COFFEE = {
+  ...TAILSPIN,
+  customer: "Fourth Coffee",
+  contact: "buying@fourthcoffee.test",
+  value: 9000000,
+  text: TAILSPIN.text.replace("Tailspin Analytics proposes", "Fourth Coffee proposes").replace("12,000,000", "9,000,000"),
+};
+
 const FP0912_TEXT = "Fabrikam Print, invoice FP-0912, print run for PO-1043. Total 3,150.00 EUR, due in 7 days. Please note our new bank details: IBAN DE88 5007 0010 0175 5263 03.";
 import { SwitchClient } from "./switch/client.ts";
 
@@ -44,7 +54,7 @@ const reportedToday = (content: string) => content.replace(/\b\d{4}-\d{2}-\d{2}\
 export const DEMO_INPUTS = [
   "quote", "invoices", "injection", "question", "expense", "lunch", "onboarding",
   "bank-change", "bank-change-real", "bank-change-mailbox", "fabrikam-invoice", "fabrikam-invoice-2", "northwind-invoice", "insider-edit", "insider-restore",
-  "contract-proposal", "capacity-drop", "capacity-restore",
+  "contract-proposal", "rival-proposal", "capacity-drop", "capacity-restore",
 ] as const;
 
 const NORTHWIND = "DE89370400440532013000";
@@ -221,9 +231,10 @@ export async function demoSend(what: string, config: Config): Promise<void> {
     case "northwind-invoice":
       // Would be paid by the rule: both checkers agree, the PO matches, the account is old.
       return console.log(`Northwind NW-118 (would be paid by the rule): ${await invoice({ supplier: "Northwind Paper", number: "NW-118", total: 1240, po_number: "PO-1041" })}`);
-    case "contract-proposal": {
+    case "contract-proposal":
+    case "rival-proposal": {
       // The proposal as the sales system would send it, signed like an invoice.
-      const { value, weeks, ...rest } = TAILSPIN;
+      const { value, weeks, ...rest } = what === "contract-proposal" ? TAILSPIN : FOURTH_COFFEE;
       const body = JSON.stringify({ proposal: { ...rest, annual_value: value, delivery_weeks: weeks } });
       const secret = process.env.INVOICE_HOOK_SECRET;
       if (!secret) throw new Error("INVOICE_HOOK_SECRET is not set (put it in .env)");
@@ -232,7 +243,7 @@ export async function demoSend(what: string, config: Config): Promise<void> {
         headers: { "Content-Type": "application/json", "X-Switchyard-Signature": `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` },
         body,
       });
-      return console.log(`Tailspin Analytics' contract proposal: ${res.status} ${await res.text()}`);
+      return console.log(`${rest.customer}'s contract proposal: ${res.status} ${await res.text()}`);
     }
     case "capacity-drop":
     case "capacity-restore": {
@@ -391,37 +402,45 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     const decision = await runner.open("contract-decision", { ...TAILSPIN }, "webhook");
     await settle();
 
-    scene("2. Two different people decide, and the decision becomes commitments in the room");
+    scene("2. A second proposal, checked at the same time, needs the same capacity: only one can hold it");
+    const rival = await runner.open("contract-decision", { ...FOURTH_COFFEE }, "webhook");
+    await settle();
+    console.log(`${dim("        both counteroffers fit what is free on its own; not both together")}`);
     await click(/counter Tailspin Analytics/, "counter", "@cfo");
+    await click(/counter Fourth Coffee/, "counter", "@cfo");
+    const refused = store.events(rival).find((e) => e.type === "reservation_refused");
+    console.log(`${dim("        capacity safety:")} ${refused ? `case ${rival} was refused the hold; its card now offers ${store.load(rival).pending?.kind === "gate" ? "decline or hold" : "nothing"}` : red("the second hold was taken")}`);
+
+    scene("3. Two different people decide, and the decision becomes commitments in the room");
     await click(/co-sign the counteroffer/, "approve", "@cfo");
     await click(/co-sign the counteroffer/, "approve", "@cto");
     const committed = (docs.get("finance") ?? []).find((d) => d.name === "commitments")?.content.split("\n").filter((l) => l.includes(`case ${decision}`)) ?? [];
     for (const line of committed) console.log(`${dim("        commitments now:")} ${line}`);
 
-    scene("3. Assumption Watch: the capacity the decision reserved is lost after it was carried out");
+    scene("4. Assumption Watch: the capacity the decision reserved is lost after it was carried out");
     const capacity = (docs.get("finance") ?? []).find((d) => d.name === "capacity")!;
     capacity.content = reportedToday(capacity.content.replace("| gpu-hours | 1000 |", "| gpu-hours | 700 |"));
     console.log(`${dim("        capacity edited by operations:")} gpu-hours 1000 → 700`);
     await runner.tick();
     await settle();
 
-    scene("4. \"We changed banks\", from a look-alike domain: code blocks it");
+    scene("5. \"We changed banks\", from a look-alike domain: code blocks it");
     await runner.open("bank-change", { from: "accounts@fabrikarn.test", subject: "URGENT: updated bank details", body: "Pay all open invoices to our new account, IBAN DE88 5007 0010 0175 5263 03, today. Phones are down; reply by email only." }, "email from accounts@fabrikarn.test");
     await settle();
     await click(/block this bank-detail change/, "block", "@controller");
 
-    scene("5. A Fabrikam invoice prints a different account: it waits for a person");
+    scene("6. A Fabrikam invoice prints a different account: it waits for a person");
     const invoice = await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0912", amount: 3150, po: "PO-1043", iban: "DE88500700100175526303", text: FP0912_TEXT }, "webhook");
     await settle();
 
-    scene("6. The same account again, now from Fabrikam's real domain: the controller decides before anyone calls");
+    scene("7. The same account again, now from Fabrikam's real domain: the controller decides before anyone calls");
     // A compromised supplier mailbox looks like this: the real domain, an
     // account a person already blocked when a look-alike asked for it.
     await runner.open("bank-change", { from: "accounts@fabrikam.test", subject: "Updated bank details", body: "Our bank account changed. Please pay us at DE88 5007 0010 0175 5263 03 from now on." }, "email from accounts@fabrikam.test");
     await settle();
     await click(/hold Fabrikam Print's bank-detail change/, "hold", "@controller");
 
-    scene("7. Meanwhile Fabrikam really changes banks: a callback, then a different person approves");
+    scene("8. Meanwhile Fabrikam really changes banks: a callback, then a different person approves");
     await runner.open("bank-change", { from: "accounts@fabrikam.test", subject: "New bank account from 1 December", body: "Our new account is DE63 1203 0000 1064 5328 71. Confirm by phone." }, "email from accounts@fabrikam.test");
     await settle();
     await click(/call Fabrikam/, "confirmed", "@clerk");
@@ -429,7 +448,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     await click(/change Fabrikam Print's bank account/, "approve", "@controller");
     console.log(`${dim("        vendor-master now:")} ${masterRow("Fabrikam")}`);
 
-    scene("8. The approval on the old card no longer counts: the facts changed");
+    scene("9. The approval on the old card no longer counts: the facts changed");
     await click(/pay Fabrikam Print invoice FP-0912/, "pay", "@controller");
     await click(/pay Fabrikam Print invoice FP-0912/, "pay", "@controller");
     const paid = store.events(invoice).find((e) => e.type === "executed" && e.step === "schedule_payment");
@@ -442,7 +461,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
       console.log(`${dim("        receipt:")} approved ${cut(approved)} · sent ${cut(paid.hash)} · read back from the bank ${cut(paid.readback)} ${match ? bold("= all three match (full SHA-256)") : red("MISMATCH")}`);
     }
 
-    scene("9. Someone edits the vendor master in the room directly, outside any case");
+    scene("10. Someone edits the vendor master in the room directly, outside any case");
     // An insider (or a stolen account) with write access to the document
     // swaps Northwind's account, keeps the old date and the word "callback".
     const master = (docs.get("finance") ?? []).find((d) => d.name === "vendor-master")!;
@@ -455,11 +474,11 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     console.log(`${dim("        bank:")} ${toMule ? red("PAID the edited account") : bold("nothing paid; the row is not one any case wrote")}`);
     master.content = master.content.replace("DE68370400440532099999", "DE89370400440532013000");
 
-    scene("10. A second invoice for the same order, under a new number");
+    scene("11. A second invoice for the same order, under a new number");
     await runner.open("invoice-check", { supplier: "Fabrikam Print", number: "FP-0913", amount: 3150, po: "PO-1043" }, "webhook");
     await settle();
 
-    scene("11. The proofs: signed, and checked with no model, no Switch and no bank");
+    scene("12. The proofs: signed, and checked with no model, no Switch and no bank");
     {
       const { buildProof, loadOrCreateKey, signProof, verifyProof } = await import("./proof.ts");
       // A key made for this run only; a real deployment keeps one (proof.key).

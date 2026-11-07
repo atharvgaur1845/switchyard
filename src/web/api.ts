@@ -120,6 +120,7 @@ function outcomeOf(state: CaseState, events: CaseEvent[], flow: Flow | undefined
   if (state.status === "open") {
     const p = state.pending;
     if (p?.kind === "in_doubt") return { label: "In doubt", tone: "stop" };
+    if (p?.kind === "gate" && events.some((e) => e.type === "reservation_refused") && !events.some((e) => e.type === "reserved")) return { label: "Needs a person · capacity held by another decision", tone: "person" };
     if (p?.kind === "gate") return { label: p.escalated ? "Escalated" : "Needs a person", tone: "person" };
     if (p?.kind === "wait") return { label: "Scheduled", tone: "neutral" };
     return { label: "Agents working", tone: "agent" };

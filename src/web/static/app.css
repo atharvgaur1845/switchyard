@@ -167,6 +167,8 @@
 .banner.person > .ico { color: var(--person); }
 .banner.agent { background: var(--agent-soft); border-color: color-mix(in srgb, var(--agent) 30%, transparent); }
 .banner.agent > .ico { color: var(--agent); }
+.banner.neutral { background: var(--surface-2, #f1f3f4); border-color: var(--line, #dadce0); }
+.banner.neutral > .ico { color: var(--muted, #5f6368); }
 
 /* Who is who */
 .vendor { display: inline-block; font: 600 10.5px/1 var(--mono); padding: 3px 5px; border-radius: 4px; vertical-align: 1px; letter-spacing: .02em;

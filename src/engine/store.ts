@@ -74,6 +74,11 @@ export type CaseEvent =
   | { type: "waiting"; step: string; until: number; at?: number }
   | { type: "waited"; step: string; by?: string }
   | { type: "done" }
+  // A company decision's hold on finite resources, taken atomically when the
+  // decision is chosen (Store.reserve), or refused because another open
+  // decision already holds what it needs.
+  | { type: "reserved"; step: string; holds: Hold[]; expires: string }
+  | { type: "reservation_refused"; step: string; resource: string; need: number; left: number; held_by: Hold[] }
   // Evidence for other cases (links.ts): a person blocked a request for this
   // account, decided when the block was answered. `cleared`: people later
   // called the supplier anyway and approved a change to it.
@@ -273,6 +278,18 @@ export function fold(id: string, events: CaseEvent[]): CaseState {
   return state;
 }
 
+// A hold on a finite resource by an open company decision: counted against
+// capacity by every other decision until the case ends (then the rows it
+// wrote to the commitments document count instead) or the hold expires.
+export interface Hold {
+  case: string;
+  resource: string;
+  amount: number;
+  start: string;
+  until: string;
+  to: string;
+}
+
 export class Store {
   private readonly db: DatabaseSync;
 
@@ -295,6 +312,17 @@ export class Store {
         by   TEXT NOT NULL,
         at   TEXT NOT NULL,
         PRIMARY KEY (room, doc, row)
+      );
+      CREATE TABLE IF NOT EXISTS reservations (
+        case_id  TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        amount   REAL NOT NULL,
+        start    TEXT NOT NULL,
+        until    TEXT NOT NULL,
+        to_whom  TEXT NOT NULL,
+        at       TEXT NOT NULL,
+        expires  TEXT NOT NULL,
+        PRIMARY KEY (case_id, resource)
       );
       CREATE TABLE IF NOT EXISTS visitor_replies (
         key     TEXT PRIMARY KEY,
@@ -402,6 +430,52 @@ export class Store {
       .prepare("SELECT at, body FROM visitor_replies WHERE case_id = ? ORDER BY at")
       .all(caseId)
       .map((row) => ({ at: row.at as string, body: row.body as string }));
+  }
+
+  // Holds that still count: not expired, and their case still open. A case
+  // that ended either wrote its commitments (which count from the document)
+  // or did not, and then holds nothing.
+  holds(now: Date, except: string[] = []): Hold[] {
+    const rows = this.db.prepare("SELECT case_id, resource, amount, start, until, to_whom FROM reservations WHERE expires > ? ORDER BY at").all(now.toISOString());
+    return rows
+      .map((r) => ({ case: r.case_id as string, resource: r.resource as string, amount: r.amount as number, start: r.start as string, until: r.until as string, to: r.to_whom as string }))
+      .filter((h) => !except.includes(h.case) && this.caseIds().includes(h.case) && this.load(h.case).status === "open");
+  }
+
+  // Capacity safety, in one SQLite transaction: for each resource, what is
+  // already promised in the commitments document plus every other open
+  // decision's hold that overlaps the window, plus this request, must fit
+  // the capacity. Either every hold is taken or none is. BEGIN IMMEDIATE
+  // takes the write lock first, so two engines on one file serialize here.
+  reserve(
+    caseId: string,
+    asks: Omit<Hold, "case">[],
+    standing: (resource: string, start: string) => { capacity: number; committed: number },
+    now: Date,
+    expires: Date,
+  ): { ok: true } | { ok: false; resource: string; need: number; left: number; held_by: Hold[] } {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("DELETE FROM reservations WHERE case_id = ?").run(caseId);
+      const others = this.holds(now, [caseId]);
+      for (const ask of asks) {
+        const { capacity, committed } = standing(ask.resource, ask.start);
+        const held = others.filter((h) => h.resource === ask.resource && Date.parse(h.until) >= Date.parse(ask.start));
+        const left = capacity - committed - held.reduce((n, h) => n + h.amount, 0);
+        if (!(ask.amount <= left)) {
+          this.db.exec("ROLLBACK");
+          return { ok: false, resource: ask.resource, need: ask.amount, left: Math.max(0, left), held_by: held };
+        }
+        this.db
+          .prepare("INSERT INTO reservations (case_id, resource, amount, start, until, to_whom, at, expires) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+          .run(caseId, ask.resource, ask.amount, ask.start, ask.until, ask.to, now.toISOString(), expires.toISOString());
+      }
+      this.db.exec("COMMIT");
+      return { ok: true };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   close(): void {

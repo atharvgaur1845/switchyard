@@ -1,5 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -250,5 +251,76 @@ describe("a decision's proof", () => {
     policy.replay.docs.policy = policy.replay.docs.policy.replace("| max discount | 15% |", "| max discount | 50% |");
     const relaxed = signProof(seal(lax.case, lax.flow, lax.log), key);
     expect(verifyProof(relaxed, fp).filter((f) => !f.ok).map((f) => f.what)).toContain("policy: the documents it read (policy) hash to what the log recorded");
+  });
+});
+
+// Capacity safety across decisions: two proposals checked against the same
+// room can each fit alone. Choosing one holds its capacity in one SQLite
+// transaction; the other is checked again with that hold counted.
+describe("two decisions competing for the same capacity", () => {
+  const RIVAL = { ...TAILSPIN, customer: "Fourth Coffee", contact: "buying@fourthcoffee.test" };
+  const both = async () => {
+    const w = world();
+    const first = await w.propose();
+    const second = await w.runner.open("contract-decision", { ...RIVAL }, "webhook");
+    await w.settle();
+    return { ...w, first, second };
+  };
+
+  it("holds the first one chosen, and checks the second again with that hold counted", async () => {
+    const { store, card, answer, first, second } = await both();
+    // Each fits on its own: 400 of 1,000 GPU-hours are free, and each asks for 400.
+    expect((store.load(first).results.counter_fit as { ok: boolean }).ok).toBe(true);
+    expect((store.load(second).results.counter_fit as { ok: boolean }).ok).toBe(true);
+
+    await answer(first, "counter", "@cfo");
+    expect(store.events(first).some((e) => e.type === "reserved")).toBe(true);
+    expect(store.holds(new Date("2026-11-07T09:00:00Z")).map((h) => [h.case, h.resource, h.amount])).toEqual([[first, "gpu-hours", 400], [first, "engineers", 3]]);
+
+    await answer(second, "counter", "@cfo");
+    expect(store.events(second).find((e) => e.type === "reservation_refused")).toMatchObject({ resource: "gpu-hours", need: 400, left: 0 });
+    const fit = store.load(second).results.counter_fit as { ok: boolean; conflict_ids: string };
+    expect(fit).toMatchObject({ ok: false, conflict_ids: `C-101, R-${first}, C-103` });
+    // The CFO is offered only what passes now: decline or hold.
+    expect(store.load(second).pending).toMatchObject({ kind: "gate", step: "no_alternative" });
+    expect(card(second).options).toEqual(["decline", "hold"]);
+    // Capacity safety: what is held never exceeds what is there.
+    expect(store.holds(new Date("2026-11-07T09:00:00Z")).filter((h) => h.resource === "gpu-hours").reduce((n, h) => n + h.amount, 0)).toBeLessThanOrEqual(400);
+  });
+
+  it("lets the hold go when its decision ends without carrying it out", async () => {
+    const { store, answer, first, second } = await both();
+    await answer(first, "counter", "@cfo");
+    await answer(first, "reject", "@cto");
+    expect(store.load(first).status).toBe("done");
+    expect(store.holds(new Date("2026-11-07T09:00:00Z"))).toEqual([]);
+    await answer(second, "counter", "@cfo");
+    expect(store.events(second).some((e) => e.type === "reserved")).toBe(true);
+  });
+
+  it("counts a carried-out decision from the commitments it wrote, not twice", async () => {
+    const { store, answer, content, first } = await both();
+    await answer(first, "counter", "@cfo");
+    await answer(first, "approve", "@cto");
+    expect(content("commitments")).toContain(`D-${first}-gpu`);
+    expect(store.holds(new Date("2026-11-07T09:00:00Z"))).toEqual([]);
+  });
+
+  it("keeps holds across a restart of the engine", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "sy-hold-")), "s.db");
+    const a = new Store(path);
+    a.append("x1", { type: "opened", flow: "contract-decision", room: "finance", data: {}, source: "test" } as never);
+    const standing = () => ({ capacity: 1000, committed: 600 });
+    const ask = { resource: "gpu-hours", amount: 400, start: "2026-12-16", until: "2027-12-16", to: "Tailspin" };
+    const now = new Date("2026-11-07T09:00:00Z");
+    const later = new Date("2026-11-09T09:00:00Z");
+    expect(a.reserve("x1", [ask], standing, now, later).ok).toBe(true);
+    a.close();
+    const b = new Store(path);
+    b.append("x2", { type: "opened", flow: "contract-decision", room: "finance", data: {}, source: "test" } as never);
+    expect(b.reserve("x2", [ask], standing, now, later)).toMatchObject({ ok: false, left: 0, held_by: [expect.objectContaining({ case: "x1" })] });
+    // A hold expires.
+    expect(b.reserve("x2", [ask], standing, new Date("2026-11-10T00:00:00Z"), new Date("2026-11-12T00:00:00Z")).ok).toBe(true);
+    b.close();
   });
 });

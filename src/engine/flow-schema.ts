@@ -41,6 +41,9 @@ const GateStep = z.object({
     // Earlier gates whose answerer may not answer this one: four eyes, e.g.
     // the person who did the callback cannot also approve the change.
     not_same_as: z.array(z.string()).default([]),
+    // A commitments check whose needs this gate's first option holds, in
+    // one transaction, before the answer counts (see Store.reserve).
+    reserve: z.string().optional(),
   }),
 });
 
@@ -185,6 +188,10 @@ export function lint(flow: Flow): string[] {
       for (const other of step.gate.not_same_as) {
         const earlier = seen.get(other);
         if (!earlier || !isGate(earlier)) problems.push(`gate "${step.id}": not_same_as "${other}" is not an earlier gate`);
+      }
+      if (step.gate.reserve !== undefined) {
+        const check = seen.get(step.gate.reserve);
+        if (!check || !isVerify(check) || check.verify.check !== "commitments") problems.push(`gate "${step.id}": reserve "${step.gate.reserve}" is not an earlier commitments check`);
       }
     }
 

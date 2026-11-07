@@ -1,4 +1,5 @@
 import type { RoomDocument } from "./ports.ts";
+import type { Hold } from "./store.ts";
 import { docHash, type Grounding, locate, tableRows, type VerifyResult } from "./verifiers.ts";
 
 // Checks for company decisions, done by code. A decision is checked against
@@ -53,10 +54,29 @@ function policyOf(content: string): Map<string, { limit: number; text: string; s
 }
 
 // Resources a promise holds, and the arguments that ask for them.
+// A service resource is held for the contract's term; a delivery team for
+// the delivery window.
 const ASKS = [
-  { resource: "gpu-hours", arg: "gpu_hours", unit: "GPU-hours a month" },
-  { resource: "engineers", arg: "engineers", unit: "engineers" },
-];
+  { resource: "gpu-hours", arg: "gpu_hours", unit: "GPU-hours a month", for: "term_end" },
+  { resource: "engineers", arg: "engineers", unit: "engineers", for: "end" },
+] as const;
+
+// What a passed commitments check asks to hold, for Store.reserve.
+export function holdsOf(fit: Record<string, unknown>, to: string): Omit<Hold, "case">[] {
+  const needs = (fit.needs ?? {}) as Record<string, number>;
+  return ASKS.filter((a) => needs[a.arg] > 0).map((a) => ({ resource: a.resource, amount: needs[a.arg], start: String(fit.start), until: String(fit[a.for]), to }));
+}
+
+// Capacity and what the commitments document already holds of a resource
+// from a date, as the commitments check counts them.
+export function standingOf(commitments: string, capacity: string, exclude: string[]) {
+  const rows = commitmentsOf(commitments).filter((r) => !exclude.some((id) => r.basis.includes(`case ${id}`)));
+  const cap = capacityOf(capacity);
+  return (resource: string, start: string) => ({
+    capacity: cap.find((c) => c.resource === resource)?.available ?? Number.NaN,
+    committed: rows.filter((r) => r.resource === resource && Date.parse(r.until) >= Date.parse(start)).reduce((n, r) => n + r.amount, 0),
+  });
+}
 
 export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Record<string, unknown>, docs: RoomDocument[], now?: number) => VerifyResult }> = {
   // args: doc (commitments), capacity (document name), start (date), weeks,
@@ -76,7 +96,13 @@ export const DECISION_CHECKS: Record<string, { needsDoc: boolean; run: (args: Re
       const end = start + weeks * 7 * DAY;
       const exclude = String(args.exclude ?? "").split(/[\s,]+/).filter(Boolean);
       const all = commitmentsOf(doc.content);
-      const rows = all.filter((r) => !exclude.some((id) => r.basis.includes(`case ${id}`)));
+      // Other open decisions' holds count like promises (the engine passes
+      // them in, and records them with the result).
+      const held = (Array.isArray(args.held) ? (args.held as Hold[]) : []).filter((h) => !exclude.includes(h.case));
+      const rows = [
+        ...all.filter((r) => !exclude.some((id) => r.basis.includes(`case ${id}`))),
+        ...held.map((h) => ({ id: `R-${h.case}`, kind: "reservation", to: h.to, resource: h.resource, amount: h.amount, until: h.until, decided_by: "chosen, awaiting co-sign", basis: `held by open case ${h.case}` })),
+      ];
       const capacity = capacityOf(cap.content);
       // Fail closed: anything this check cannot read is a reason to stop,
       // never a row or a resource to skip. A promise that cannot be read

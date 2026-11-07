@@ -187,7 +187,10 @@ export function verifyProof(proof: Proof, pinned?: string): Finding[] {
     if (!spec || !isVerify(spec)) return add(false, `${step}: is a check in the flow`);
     const { check: _check, ...raw } = spec.verify;
     const scope = scopeOf(fold(proof.case.id, proof.log.slice(0, i) as unknown as CaseEvent[]));
-    add(sha(replay.args) === sha(renderArgs(raw, scope)), `${step}: the ${String(e.check)} check's arguments are what the flow makes from the log`);
+    // Other decisions' holds come from the engine's reservation ledger, not
+    // the flow; they are recorded with the arguments and run again as given.
+    const { held: _held, ...fromFlow } = replay.args;
+    add(sha(fromFlow) === sha(renderArgs(raw, scope)), `${step}: the ${String(e.check)} check's arguments are what the flow makes from the log`);
     const recorded = (e.docs ?? {}) as Record<string, string>;
     const read = Object.entries(replay.docs);
     add(read.every(([name, content]) => recorded[name] === undefined || sameHash(recorded[name], docHash(content), LEGACY.document)), `${step}: the documents it read (${read.map(([n]) => n).join(", ") || "none"}) hash to what the log recorded`);

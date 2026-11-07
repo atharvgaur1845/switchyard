@@ -57,7 +57,8 @@ npm run switchyard demo send contract-proposal
 
 ## 1:15 – Two people decide (30 s)
 
-- **B** clicks **counter**. B tries to co-sign too: refused, four eyes.
+- **B** clicks **counter**. The thread says what is now held for it: 400 GPU-hours and 3 engineers. B tries to co-sign too: refused, four eyes.
+- Optional, before A co-signs: `npm run switchyard demo send rival-proposal` (Fourth Coffee, the same terms). When B clicks **counter** on it, the thread says the hold is refused because Tailspin's case holds the capacity, the checks run again, and the new card offers only decline or hold.
 - **A (CTO)** clicks **approve** on the co-sign card. Switchyard writes three rows into `commitments` in the room and emails the counteroffer (Mailpit).
 - **Console → Commitments:** the new D-… rows, "created" by this decision, and the GPU bar filling.
 

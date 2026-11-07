@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
 import { compile, inputsOf, lookup, render, type Scope } from "./expr.ts";
 import { CHECKS } from "./checks.ts";
-import { DECISION_CHECKS } from "./decisions.ts";
+import { DECISION_CHECKS, holdsOf, standingOf } from "./decisions.ts";
 import { basisHash, docHash, LEGACY, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
 import { type Blocked, blockedAccount, findLinks, linkDigest } from "./links.ts";
 import {
@@ -337,6 +337,8 @@ export class Runner {
       }
     }
     const args = renderArgs(rawArgs, scopeOf(state));
+    // Holds other open decisions took count against capacity like promises.
+    if (check === "commitments") args.held = this.store.holds(new Date(this.now()), [state.id]);
     const used = typeof args.doc === "string" ? docs.filter((d) => d.name === args.doc) : [];
     const history = spec.history ? { caseId: state.id, blocked: this.blockedAccounts(used[0]?.content ?? "") } : undefined;
     let value =
@@ -799,6 +801,8 @@ export class Runner {
       return;
     }
 
+    if (step.gate.reserve && isApproval(step.gate, outcome.answer) && !(await this.reserve(state, step, step.gate.reserve))) return;
+
     this.store.append(state.id, {
       type: "gate_answered",
       step: step.id,
@@ -812,6 +816,51 @@ export class Runner {
     // other cases on the same account.
     const how = outcome.answer === "block" ? "block" : outcome.answer === "not-confirmed" && step.id === "callback" ? "callback" : undefined;
     if (how && (await this.flagBlocked(this.store.load(state.id), answerer!, how)) && this.crossCase) await this.relinkOpen(state.room, state.id);
+  }
+
+  // Capacity safety for company decisions. Two decisions checked against the
+  // same room can each fit on their own and not together. When one is
+  // chosen, what it needs is held in one SQLite transaction against the
+  // capacity, the commitments already written and every other open
+  // decision's hold. If it no longer fits, the answer does not count: the
+  // checks run again, now seeing the hold that is in the way, and the card
+  // that follows offers only what passes.
+  private async reserve(state: CaseState, step: GateStep, checkStep: string): Promise<boolean> {
+    const fit = state.results[checkStep] as Record<string, unknown> | undefined;
+    const spec = this.stepOf(state, checkStep);
+    if (!fit || !spec || !isVerify(spec)) return true;
+    const args = renderArgs(spec.verify, scopeOf(state));
+    let docs: RoomDocument[];
+    try {
+      docs = this.chat.documents ? await this.chat.documents(state.room) : [];
+    } catch {
+      docs = [];
+    }
+    const commitments = docs.find((d) => d.name === args.doc)?.content;
+    const capacity = docs.find((d) => d.name === (args.capacity ?? "capacity"))?.content;
+    if (commitments === undefined || capacity === undefined) {
+      await this.say(state, `Could not hold the capacity for "${step.id}": the room's documents could not be read. Nothing was decided; answer the card again.`);
+      return false;
+    }
+    const exclude = String(args.exclude ?? "").split(/[\s,]+/).filter(Boolean);
+    const now = new Date(this.now());
+    const expires = new Date(this.now() + 2 * 86_400_000);
+    const holds = holdsOf(fit, String(state.data.customer ?? state.id));
+    const result = this.store.reserve(state.id, holds, standingOf(commitments, capacity, exclude), now, expires);
+    if (result.ok) {
+      this.store.append(state.id, { type: "reserved", step: step.id, holds: holds.map((h) => ({ case: state.id, ...h })), expires: expires.toISOString() });
+      await this.say(state, `Held for this decision until it is carried out or ends: ${holds.map((h) => `${h.amount} ${h.resource} until ${h.until}`).join(", ")}. Other decisions now count it.`);
+      return true;
+    }
+    this.store.append(state.id, { type: "reservation_refused", step: step.id, resource: result.resource, need: result.need, left: result.left, held_by: result.held_by });
+    const by = result.held_by.map((h) => `case ${h.case} (${h.to}) holds ${h.amount}`).join(", ");
+    await this.say(state, `Not holding it: this decision needs ${result.need} ${result.resource}, and ${result.left} are left${by ? `: ${by}` : ""}. Checking again with that hold counted.`);
+    const order = this.flowOf(state).steps.map((s) => s.id);
+    const first = order.findIndex((id) => { const s = this.stepOf(state, id); return s !== undefined && isVerify(s) && s.verify.check === "commitments"; });
+    const steps = order.slice(first).filter((id) => state.finished.has(id));
+    this.store.append(state.id, { type: "rewound", step: step.id, steps, docs: { reservations: [`${result.need} ${result.resource} needed`, `${result.left} left`] } });
+    await this.advance(state.id);
+    return false;
   }
 
   async cancel(caseId: string, by: string): Promise<boolean> {

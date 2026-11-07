@@ -24,6 +24,22 @@ function positions(c, flow) {
 
 // Each objection's status, as the log now stands: open, then answered for
 // by whoever chose to go ahead with it open.
+// Capacity safety: the hold this decision took when it was chosen, or the
+// hold another open decision had that this one could not take.
+function holdBanner(c) {
+  const refused = c.events.findLast((e) => e.type === "reservation_refused");
+  const held = c.events.findLast((e) => e.type === "reserved");
+  if (held && (!refused || held.seq > refused.seq)) {
+    const live = c.status === "open";
+    return `<div class="banner ${live ? "agent" : "neutral"}">${icon("lock")}<span><b>${live ? "Holding" : "Held"}</b> ${esc(held.holds.map((h) => `${h.amount} ${h.resource} until ${h.until}`).join(", "))}, taken in one transaction when ${esc(c.events.find((e) => e.type === "gate_answered" && e.step === held.step)?.answeredBy ?? "the decider")} chose. ${live ? "Every other decision counts it until this one is carried out or ends." : "It became the commitments this decision wrote."}</span></div>`;
+  }
+  if (refused) {
+    const by = refused.held_by.map((h) => `<a class="caselink" href="#decisions/${esc(h.case)}">case ${esc(h.case)}</a> (${esc(h.to)}) holds ${esc(h.amount)}`).join(", ");
+    return `<div class="banner stop">${icon("lock")}<span><b>Capacity held by another decision.</b> When this was chosen it needed ${esc(refused.need)} ${esc(refused.resource)}, and ${esc(refused.left)} were left: ${by}. The answer did not count; the checks ran again with that hold counted, and only what passes is offered.</span></div>`;
+  }
+  return "";
+}
+
 function ledgerRows(c, dissent) {
   const decided = c.events.find((e) => e.type === "gate_answered" && e.step === "decide" && e.approved);
   return (dissent?.ledger ?? []).map((l) => ({ ...l, status: l.status === "open" && decided ? `open when ${decided.answeredBy} chose "${decided.answer}": answerable for it` : l.status }));
@@ -96,6 +112,7 @@ function room(c, state) {
       <div class="pf-actions"><span class="pill ${esc(c.outcome.tone)}">${esc(c.outcome.label)}</span>
         <a class="btn small" href="#${esc(c.id)}">${icon("doc")} Case</a><a class="btn small" href="#replay/${esc(c.id)}">${icon("reroute")} Walk through</a><a class="btn small accent" href="#proofs/${esc(c.id)}">${icon("lock")} Decision proof</a></div>
     </div>
+    ${holdBanner(c)}
     ${waiting ? `<div class="banner person">${icon("hand")}<span>Waiting on <b>${esc(waiting.approver ?? "a person")}</b> on a Switch card: ${esc(String(waiting.step).replace(/_/g, " "))}.</span></div>` : ""}
     <section class="dr-sec"><h3>${icon("code")} The alternatives, as code checked them</h3>
       <p class="fine">The margin is for the first contract year: a year of revenue after the discount, against a year of the GPU-hours and the one-off rollout team. Margins, capacity and rules are computed by code from the room's <code>policy</code>, <code>commitments</code> and <code>capacity</code> documents. Nothing an agent estimated is used. A proposal that breaks a rule is never offered on a card; only an alternative that passes is.</p>
