@@ -32,7 +32,7 @@ npm run switchyard up                      # terminal 2, :4100; check "min year-
 | 4 | `npm run switchyard demo send rival-proposal`, wait, **B** clicks **counter** on Fourth Coffee | Slack: "Not holding it: … 0 are left" (if the counteroffers overlap) · Console: Decisions → Fourth Coffee, red banner |
 | 5 | **B** clicks **approve** on co-sign → refused; **A** clicks **approve** | Slack: "a different person must decide", then four "Done:" lines · Mailpit: the counteroffer · Console: Commitments + timeline |
 | 6 | `npm run switchyard demo send capacity-drop` | Slack: "Assumption broken" within about 15 s · Console: "At risk · decided again" |
-| 7 | `npm run switchyard proof <case>` then `npm run switchyard verify-proof data/proofs/<case>.proof.json --fingerprint <hex>` | Terminal: every ✓ · Console: Proofs |
+| 7 | `npm run switchyard proof <case>` then `npm run switchyard verify-proof data/proofs/<case>.proof.json -- --fingerprint <hex>` | Terminal: every ✓ · Console: Proofs |
 
 ## If something goes wrong
 

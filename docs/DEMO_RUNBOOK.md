@@ -146,10 +146,10 @@ npm run switchyard demo send capacity-drop
 
 ```bash
 npm run switchyard proof <Tailspin case id>
-npm run switchyard verify-proof data/proofs/<Tailspin case id>.proof.json
+npm run switchyard verify-proof data/proofs/<Tailspin case id>.proof.json -- --fingerprint <hex>
 ```
 
-The case id is in the thread ("Case … opened") and in the console. `proof` prints the key fingerprint. Pass `--fingerprint <hex>` to `verify-proof`, or set `proof.fingerprint` in `switchyard.yaml`, so the signer is pinned.
+The case id is in the thread ("Case … opened") and in the console. `proof` prints the key fingerprint. Pass it after `--` (`-- --fingerprint <hex>`): without the `--`, npm takes `--fingerprint` as its own option and the verifier reports the signer as unpinned. Or set `proof.fingerprint` in `switchyard.yaml`.
 
 **Say:** "Every decision leaves a signed proof. It is checked with no model, no Switch and no bank. The verifier runs the commitments, policy and dissent checks again on the documents they read, and an edited record fails."
 
