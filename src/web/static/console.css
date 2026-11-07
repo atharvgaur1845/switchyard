@@ -444,3 +444,5 @@ h3 .ico, h4 .ico { width: 14px; height: 14px; vertical-align: -2px; }
 .cc-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 620px) { .cc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cc-ctas { justify-content: flex-start; } }
 a.btn { text-decoration: none; }
+.demo-mode { margin-left: auto; font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--person); background: var(--person-soft); border: 1px solid color-mix(in srgb, var(--person) 40%, transparent); padding: 6px 9px; border-radius: 6px; white-space: nowrap; }
+.demo-mode:not([hidden]) + .live { margin-left: 12px; }

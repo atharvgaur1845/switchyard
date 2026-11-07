@@ -285,7 +285,7 @@ export async function demoSend(what: string, config: Config): Promise<void> {
 // in memory (seeded from the templates), payments go to a sandbox bank
 // started in this process, and other outlets only print what they would do.
 // Everything else is the real engine: contracts, gates, hashes, re-checks.
-export async function demoOffline(root = process.cwd(), options: { serve?: number } = {}): Promise<void> {
+export async function demoOffline(root = process.cwd(), options: { serve?: number; public?: boolean } = {}): Promise<void> {
   const flows = readdirSync(join(root, "flows")).map((f) => loadFlow(readFileSync(join(root, "flows", f), "utf8")));
   const replies = parse(readFileSync(join(root, "fixtures", "replies.yaml"), "utf8"));
   const color = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -491,7 +491,7 @@ export async function demoOffline(root = process.cwd(), options: { serve?: numbe
     const { startServer } = await import("./server.ts");
     // Proofs from this dashboard are signed with a key made for this run only.
     const proofKey = (await import("./proof.ts")).loadOrCreateKey(join(mkdtempSync(join(tmpdir(), "switchyard-proof-")), "demo-key.pem"));
-    startServer({ port: options.serve, flows, runner, store, proofKey });
+    startServer({ port: options.serve, flows, runner, store, proofKey, demo: { public: options.public === true } });
     console.log(`\n${bold(`Dashboard of this offline run: http://localhost:${options.serve}`)} ${dim("(Ctrl-C to stop)")}`);
     return;
   }

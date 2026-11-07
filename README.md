@@ -80,7 +80,7 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 10. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the invoice is held, with no pay button.
 11. **The proofs.** The run writes the paid invoice's signed proof and checks it: 32 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself. The decision's proof, with its dissent ledger and the assumption that broke, holds all 34 of its checks.
 
-The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep the console of the run's cases open at `http://localhost:4101`.
+The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep the console of the run's cases open at `http://localhost:4101`. The same run can be hosted read-only (`demo offline --serve --public`, on `$PORT`); `deploy/hf-space/` is a Hugging Face Space that does that.
 
 ## The console
 
@@ -447,6 +447,7 @@ src/outlets/   bank payment, room document, csv, email, webhook, room post, visi
 src/sandbox/   the sandbox bank
 src/web/       the console (command, decisions, commitments, cases, investigations, agents, proofs, attack lab, walkthrough, flows) and the chat widget
 src/proof.ts   signed proofs of a case, and their verifier
+deploy/hf-space/  a Hugging Face Space (Docker) that serves the offline run's console, read-only
 lab/           the held-out scenarios, the brief they were written from, and their first run
 flows/         the flows; templates/ has a Switch template for each
 ```

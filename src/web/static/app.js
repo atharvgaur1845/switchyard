@@ -557,6 +557,7 @@ async function refresh() {
     const signature = JSON.stringify([overview, cases, investigations]);
     if (signature === state.signature) return;
     state.signature = signature;
+    document.getElementById("demo-mode").hidden = !overview.demo;
     Object.assign(state, { flows: overview.flows, schedules: overview.schedules, vendors: overview.vendors, people: overview.people, proof: overview.proof, cases, investigations, loaded: true });
     if (!state.selected && cases.length) state.selected = hero(cases) ?? visibleCases()[0]?.id ?? null;
     render();

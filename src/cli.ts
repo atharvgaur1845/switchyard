@@ -58,7 +58,8 @@ switch (command) {
     await up();
     break;
   case "demo": {
-    if (args[0] === "offline") await demoOffline(process.cwd(), { serve: args.includes("--serve") ? 4101 : undefined });
+    // --public: a hosted read-only demo (a Hugging Face Space), on $PORT.
+    if (args[0] === "offline") await demoOffline(process.cwd(), { serve: args.includes("--serve") ? Number(process.env.PORT ?? 4101) : undefined, public: args.includes("--public") });
     else if (args[0] === "send" && args[1]) await demoSend(args[1], config);
     else if (args[0] === "reset") await demoReset(config);
     else throw new Error(`usage: switchyard demo offline [--serve] | demo reset | demo send <${DEMO_INPUTS.join("|")}>`);

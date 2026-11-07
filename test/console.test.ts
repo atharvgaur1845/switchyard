@@ -99,3 +99,27 @@ describe("the dashboard's attack lab", () => {
     expect((await post("/api/lab", JSON.stringify({ id: "../../etc" }))).status).toBe(400);
   });
 });
+
+describe("the hosted public demo", () => {
+  it("opens the console behind a proxy, and opens no case", async () => {
+    const store = new Store();
+    const runner = new Runner(store, new FakeSwitch(), new LiveOutlets({ dataDir: tmpdir(), smtp: { host: "127.0.0.1", port: 1, from: "x@y" } }, new FakeSwitch(), store), flows);
+    const open = startServer({ port: 0, flows, runner, store, demo: { public: true } });
+    const closed = startServer({ port: 0, flows, runner, store });
+    await Promise.all([open, closed].map((s) => new Promise((r) => s.once("listening", r))));
+    const at = (s: Server) => `http://127.0.0.1:${(s.address() as { port: number }).port}`;
+    const proxied = { headers: { "X-Forwarded-For": "203.0.113.9" } };
+    try {
+      const overview = await fetch(`${at(open)}/api/overview`, proxied);
+      expect(overview.status).toBe(200);
+      expect((await overview.json()).demo).toEqual({ public: true });
+      expect((await fetch(`${at(open)}/in/invoice-check`, { ...proxied, method: "POST", body: "{}" })).status).toBe(403);
+      expect(store.caseIds()).toEqual([]);
+      // Without the demo flag, the console stays on this machine.
+      expect((await fetch(`${at(closed)}/api/overview`, proxied)).status).toBe(403);
+    } finally {
+      open.close();
+      closed.close();
+    }
+  });
+});

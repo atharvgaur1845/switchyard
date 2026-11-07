@@ -54,6 +54,10 @@ export function startServer(opts: {
   // The key fingerprint proofs are checked against (proof.fingerprint in
   // switchyard.yaml); this Switchyard's own key when none is pinned.
   proofFingerprint?: string;
+  // Serving `demo offline`: its sandbox cases, labelled so on every page.
+  // `public` opens the console to anyone (a hosted demo behind a proxy) and
+  // makes it read-only: nothing can open a case, only look and check.
+  demo?: { public: boolean };
 }): Server {
   const flows = new Map(opts.flows.map((f) => [f.flow, f]));
   const frontDesk = opts.flows.find((f) => f.inlet?.frontdesk);
@@ -80,7 +84,10 @@ export function startServer(opts: {
     // Forms, webhooks and the chat widget are for outsiders. The dashboard
     // and its API show case data, so they answer only on this machine or to
     // someone holding the dashboard token.
-    if ((kind === "api" || url.pathname === "/" || (kind === "static" && name === "app.js")) && !mayView(req, url, env)) {
+    if (opts.demo?.public && (kind === "f" || kind === "in" || (kind === "chat" && req.method === "POST"))) {
+      return send(res, 403, "text/plain", "This is a read-only public demo of an offline run: nothing here opens a case. Run it yourself with `npm run demo:offline`.");
+    }
+    if ((kind === "api" || url.pathname === "/" || (kind === "static" && name === "app.js")) && !opts.demo?.public && !mayView(req, url, env)) {
       return send(res, 403, "text/plain", "The dashboard is only served on localhost or with ?token=.");
     }
 
@@ -214,7 +221,7 @@ export function startServer(opts: {
     }
 
     if (kind === "api" && name === "overview" && req.method === "GET") {
-      return send(res, 200, "application/json", JSON.stringify({ ...overview(opts.flows, opts.available, opts.extras), proof: pinned ?? null }));
+      return send(res, 200, "application/json", JSON.stringify({ ...overview(opts.flows, opts.available, opts.extras), proof: pinned ?? null, demo: opts.demo ?? null }));
     }
 
     if (kind === "static" && name && STATIC[name] && req.method === "GET") {
