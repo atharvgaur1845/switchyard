@@ -127,8 +127,25 @@ export const Flow = z.object({
   // each tick, a closed case that carried out an action has each `recheck`
   // step run again on the room's documents as they are now; when `holds` is
   // false, the case is marked and a new case decides again.
+  //
+  // A hard fact (capacity revoked, a contract cancelled) breaks the
+  // assumption on the first failing re-check: `confirm: 1`, the default.
+  // For a noisy measurement, `confirm: n` waits for n failing re-checks in a
+  // row (the assumption is suspect meanwhile, and no new capacity is held in
+  // the room), and `recover: m` clears a suspect assumption only after m
+  // passing re-checks in a row: hysteresis, so a reading that flaps around
+  // the line neither reopens the decision nor clears it each tick.
   assumptions: z
-    .array(z.object({ id: z.string(), title: z.string(), recheck: z.string(), holds: z.string().optional() }))
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        recheck: z.string(),
+        holds: z.string().optional(),
+        confirm: z.number().int().min(1).default(1),
+        recover: z.number().int().min(1).default(1),
+      }),
+    )
     .default([]),
 });
 export type Flow = z.infer<typeof Flow>;

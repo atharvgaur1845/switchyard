@@ -65,6 +65,18 @@ switch (command) {
     else throw new Error(`usage: switchyard demo offline [--serve] | demo reset | demo send <${DEMO_INPUTS.join("|")}>`);
     break;
   }
+  case "chaos": {
+    const { runChaos } = await import("./chaos.ts");
+    const at = args.indexOf("--seed");
+    const seed = at >= 0 ? Number(args[at + 1]) || 1 : 1;
+    const results = await runChaos(seed);
+    for (const r of results) {
+      console.log(`${r.ok ? "✓" : "✗"} ${r.id} ${r.title} (${r.ms} ms)\n    injected: ${r.injected}\n    observed: ${r.observed}`);
+      for (const i of r.invariants) console.log(`    ${i.ok ? "✓" : "✗"} ${i.name}: ${i.detail}`);
+    }
+    console.log(`\nseed ${seed}: ${results.filter((r) => r.ok).length} of ${results.length} scenarios hold, with every invariant`);
+    process.exit(results.every((r) => r.ok) ? 0 : 1);
+  }
   case "lab": {
     if (process.argv.includes("--heldout")) {
       const { heldOutLab, heldOutTable } = await import("./lab-heldout.ts");

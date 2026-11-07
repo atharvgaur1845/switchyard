@@ -77,6 +77,12 @@ export type CaseEvent =
   // A company decision's hold on finite resources, taken atomically when the
   // decision is chosen (Store.reserve), or refused because another open
   // decision already holds what it needs.
+  // Assumption Watch with hysteresis: a failing re-check short of `confirm`
+  // (suspect), a passing one while suspect, and the suspicion cleared after
+  // `recover` passes in a row.
+  | { type: "assumption_suspect"; assumption: string; detail: string; at: number }
+  | { type: "assumption_ok"; assumption: string; at: number }
+  | { type: "assumption_cleared"; assumption: string; at: number }
   | { type: "reserved"; step: string; holds: Hold[]; expires: string }
   | { type: "reservation_refused"; step: string; resource: string; need: number; left: number; held_by: Hold[] }
   // Evidence for other cases (links.ts): a person blocked a request for this
@@ -295,6 +301,9 @@ export class Store {
 
   constructor(path = ":memory:") {
     this.db = new DatabaseSync(path);
+    // A second engine on the same file waits for the write lock instead of
+    // failing at once (Store.reserve takes it with BEGIN IMMEDIATE).
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS events (
         seq     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -437,9 +446,21 @@ export class Store {
   // or did not, and then holds nothing.
   holds(now: Date, except: string[] = []): Hold[] {
     const rows = this.db.prepare("SELECT case_id, resource, amount, start, until, to_whom FROM reservations WHERE expires > ? ORDER BY at").all(now.toISOString());
+    // Open: the case has events and none of them ends it. One query, not a
+    // fold of every case's log.
+    const open = new Set(
+      this.db
+        .prepare(
+          `SELECT DISTINCT r.case_id AS id FROM reservations r
+           WHERE EXISTS (SELECT 1 FROM events e WHERE e.case_id = r.case_id)
+             AND NOT EXISTS (SELECT 1 FROM events e WHERE e.case_id = r.case_id AND json_extract(e.body, '$.type') IN ('done', 'failed', 'cancelled'))`,
+        )
+        .all()
+        .map((r) => r.id as string),
+    );
     return rows
       .map((r) => ({ case: r.case_id as string, resource: r.resource as string, amount: r.amount as number, start: r.start as string, until: r.until as string, to: r.to_whom as string }))
-      .filter((h) => !except.includes(h.case) && this.caseIds().includes(h.case) && this.load(h.case).status === "open");
+      .filter((h) => !except.includes(h.case) && open.has(h.case));
   }
 
   // Capacity safety, in one SQLite transaction: for each resource, what is
@@ -476,6 +497,12 @@ export class Store {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  // A decision whose approval no longer counts holds nothing until it is
+  // chosen again.
+  release(caseId: string): void {
+    this.db.prepare("DELETE FROM reservations WHERE case_id = ?").run(caseId);
   }
 
   close(): void {

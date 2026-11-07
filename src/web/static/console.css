@@ -544,3 +544,15 @@ h1, h2, .brand, .cc-hero h1, .pf-top h2, .dr-top h2, .lab-head h1, .rp-head h1, 
 .topbar { flex-wrap: nowrap; }
 .tabs { flex: 1 1 auto; min-width: 0; }
 @media (max-width: 1280px) { .topbar { flex-wrap: wrap; } .tabs { order: 3; flex-basis: 100%; } }
+
+/* Chaos lab */
+.chaos { padding: 18px 20px; margin-bottom: 16px; }
+.chaos-head { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+.chaos-head h2 { margin: 0 0 6px; font-size: 18px; display: flex; gap: 8px; align-items: center; }
+.chaos-head p { max-width: 820px; margin: 0; }
+.chaos-run { display: flex; gap: 10px; align-items: center; }
+.chaos-run input { width: 64px; margin-left: 4px; }
+.chaos-table { margin-top: 14px; }
+.chaos-table td { vertical-align: top; }
+.chaos-inv { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.chaos-inv .pill { font-size: 11px; }

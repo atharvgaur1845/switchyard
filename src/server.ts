@@ -184,6 +184,18 @@ export function startServer(opts: {
       }
     }
 
+    if (kind === "api" && name === "chaos" && req.method === "GET") {
+      if (labBusy) return send(res, 409, "application/json", JSON.stringify({ error: "a lab run is in progress" }));
+      const seed = Math.max(1, Math.min(1_000_000, Math.floor(Number(url.searchParams.get("seed") ?? 1)) || 1));
+      labBusy = true;
+      try {
+        const { runChaos } = await import("./chaos.ts");
+        return send(res, 200, "application/json", JSON.stringify(await runChaos(seed)));
+      } finally {
+        labBusy = false;
+      }
+    }
+
     if (kind === "api" && name === "lab" && req.method === "GET") {
       const { loadHeldOut } = await import("./lab-heldout.ts");
       return send(res, 200, "application/json", JSON.stringify(loadHeldOut().map(({ steps, ...s }) => ({ ...s, steps: steps.map((st) => Object.keys(st)[0]) }))));

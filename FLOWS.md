@@ -146,3 +146,8 @@ Placeholders `{like.this}` work in `ask`, gate titles and outlet fields. Conditi
 - Every action that leaves the company sits behind a gate. Use `auto_approve` only for cases cheap enough that a mistake doesn't matter.
 - Give every agent step an `sla` and a `bench` agent on a different vendor.
 - Ship a Switch template next to the flow (`templates/<flow>.template.yaml`) that creates the room and its agents.
+
+## Holding capacity, and noisy assumptions
+
+- A gate can name a commitments check in `reserve:`. When the gate's first option is chosen, what that check found the decision needs is held in one SQLite transaction against the capacity, the commitments already written and every other open decision's hold. If it no longer fits, the answer does not count and the checks run again with the hold counted. A hold lapses when its decision ends or after two days, and is released when the decision's approval is voided. Lint checks that `reserve:` names an earlier commitments check.
+- An assumption takes `confirm` (failing re-checks in a row before it breaks, default 1: a hard fact breaks at once) and `recover` (passing re-checks in a row before a suspect assumption clears, default 1). While an assumption is suspect, no new capacity is held in its room.

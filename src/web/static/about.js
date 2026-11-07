@@ -195,7 +195,8 @@ export const SECTIONS = [
     diagram: "watch",
     open: ["commitments", "See it on the graph"],
     body: `<p>A decision rests on facts that can change after it is made. Before it is carried out, a change to the capacity voids the approval: the checks run again on the new figure. After it is carried out, every tick of the engine checks each declared assumption again, by code, on the room's documents as they are now.</p>
-      <p>When operations reports GPU capacity down from 1,000 to 700, the counteroffer's 400 GPU-hours no longer fit next to Northwind's 600. The decision is marked at risk, its thread says why, and a new case decides again on the current facts; there, the finance desk offers a smaller tier and code passes it. The first decision and what it did stay exactly as they were.</p>`,
+      <p>When operations reports GPU capacity down from 1,000 to 700, the counteroffer's 400 GPU-hours no longer fit next to Northwind's 600. The decision is marked at risk, its thread says why, and a new case decides again on the current facts; there, the finance desk offers a smaller tier and code passes it. The first decision and what it did stay exactly as they were.</p>
+      <p><b>Hard facts and noisy readings.</b> A capacity report is a hard fact, so the first failing re-check breaks the assumption. For a noisy measurement, a flow can set <code>confirm: 3</code> and <code>recover: 2</code>: the assumption is suspect after one bad reading, breaks only after three in a row, and clears only after two good ones in a row, so a reading that flaps around the line neither reopens the decision nor clears it each tick. While anything in the room is suspect, no new capacity is held there: uncertain capacity authorizes nothing.`,
   },
   {
     id: "bankchange",
@@ -235,6 +236,19 @@ export const SECTIONS = [
     open: ["proofs", "Open the Proof Explorer"],
     body: `<p>One file per case answers "why did we do this?". It holds the case's event log, the evidence drawn from it in sections, the flow it ran under, a digest of each part, a root over the digests and an Ed25519 signature made with a key kept outside the log.</p>
       <p><code>npm run switchyard verify-proof &lt;file&gt;</code> checks it with no model, no Switch and no bank: 32 checks for the demo payment, 49 for the demo decision. It evaluates the payment rule again on the log rather than trusting it, and runs each decision check (commitments, policy, dissent) again on the documents it read, which the log keeps, with the arguments the flow makes from the log. An edited log, a moved quote, or a rewritten amount signed again with another key each fails. What a signature cannot prove: that the record is true.</p>`,
+  },
+  {
+    id: "chaos",
+    title: "Five guarantees, and a Chaos Lab that tries to break them",
+    open: ["lab", "Open the Chaos lab"],
+    body: `<p>Switchyard makes five guarantees, and <code>src/engine/invariants.ts</code> checks each one on the event log and the reservation ledger as they stand:</p>
+      <ul><li><b>Capacity safety.</b> What the commitments document holds plus every open decision's hold never exceeds the capacity, in any hold's window.</li>
+      <li><b>Approval integrity.</b> Every action a person approved was sent with exactly the hash they approved.</li>
+      <li><b>Authority separation.</b> No one answered two gates the flow keeps apart.</li>
+      <li><b>Idempotent execution.</b> No action was carried out twice in a case.</li>
+      <li><b>Recoverability.</b> An action whose outcome is unknown is in doubt for a person, never sent again blindly.</li></ul>
+      <p>The Chaos Lab (<code>npm run chaos</code>, or the panel at the top of the Attack lab) injects eight failures into the contract decision, deterministic for a seed, and checks all five after each: two decisions competing for one pool of capacity; capacity cut between the CFO's and the CTO's signatures; an agent's provider down mid-investigation; the same card answer delivered twice; the counteroffer email hanging past the timeout; the engine crashing mid-send and a new one starting on the same database; a capacity reading flapping around the line; and a decision's record rewritten and signed again. Its first run found a real bug: a decision whose approval was voided kept its hold. A voided approval now releases it.</p>
+      <p><b>Measured.</b> <code>npm run bench</code> times the engine alone (no model, no Switch): the commitments check takes under 8 ms on 10,000 promises; a hold takes under 2 ms with 1,000 other decisions holding; eight processes reserving from one pool on the same database file took exactly the holds that fit and never over-allocated; verifying a decision's proof, its checks run again, takes under 3 ms. <code>docs/BENCHMARKS.md</code> has the method and the full output.</p>`,
   },
   {
     id: "lab",

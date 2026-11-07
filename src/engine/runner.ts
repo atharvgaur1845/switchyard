@@ -26,7 +26,7 @@ import {
 } from "./flow-schema.ts";
 import { isApproval, mayAnswer, mention, type People } from "./gates.ts";
 import type { ApprovalCard, ApprovalOutcome, Chat, InboundMessage, Outlets, RoomDocument } from "./ports.ts";
-import type { CaseState, Store } from "./store.ts";
+import type { CaseEvent, CaseState, Store } from "./store.ts";
 import { describeOutlet, hashOutlet, renderOutlet } from "../outlets/payload.ts";
 
 // Each agent gets one corrected retry before the case moves on: to the
@@ -468,6 +468,7 @@ export class Runner {
       const first = Math.min(...Object.keys(drift).map((doc) => order.indexOf(open.basis[doc].step)));
       const steps = order.slice(first).filter((id) => open.finished.has(id) || id === open.pending?.step);
       this.store.append(open.id, { type: "rewound", step: at?.id ?? order[first], steps, docs: drift });
+      this.store.release(open.id);
       const changes = Object.entries(drift).map(([doc, [was, now]]) => `${doc.slice("links:".length)}: ${was} → ${now}`).join(", ");
       await this.say(open, `${what} (${changes}). Checking again; the open card no longer counts.`);
       await this.advance(open.id);
@@ -639,6 +640,9 @@ export class Runner {
     const first = Math.min(...Object.keys(drift).map((doc) => order.indexOf(state.basis[doc].step)));
     const steps = order.slice(first).filter((id) => state.finished.has(id));
     this.store.append(state.id, { type: "rewound", step: at.id, steps, docs: drift });
+    // The approval is void, so is the capacity it held: other decisions may
+    // use it until this one is chosen again on the new facts.
+    this.store.release(state.id);
     const links = Object.entries(drift).filter(([doc]) => doc.startsWith("links:"));
     const changed = Object.entries(drift).filter(([doc]) => !doc.startsWith("links:"));
     const what = [
@@ -840,6 +844,16 @@ export class Runner {
     const capacity = docs.find((d) => d.name === (args.capacity ?? "capacity"))?.content;
     if (commitments === undefined || capacity === undefined) {
       await this.say(state, `Could not hold the capacity for "${step.id}": the room's documents could not be read. Nothing was decided; answer the card again.`);
+      return false;
+    }
+    // Uncertain capacity authorizes nothing: while a decision in this room
+    // has a suspect assumption, no new hold is taken.
+    const suspect = this.store.caseIds().find((id) => {
+      const other = this.store.load(id);
+      return other.room === state.room && (this.flows.get(other.flow)?.assumptions ?? []).some((a) => watchState(this.store.events(id), a.id).state === "suspect");
+    });
+    if (suspect) {
+      await this.say(state, `Not holding capacity for "${step.id}" yet: an assumption of case ${suspect} is suspect, so what is free is uncertain. Nothing was decided; answer the card again once it is confirmed or cleared.`);
       return false;
     }
     const exclude = String(args.exclude ?? "").split(/[\s,]+/).filter(Boolean);
@@ -1098,7 +1112,21 @@ export class Runner {
         }
         const args = renderArgs(raw, scopeOf(state));
         const value = spec.runAsync ? await spec.runAsync(args, docs, {}) : spec.run(args, docs, this.now());
-        if (compile(a.holds ?? `${step.id}.ok == true`)({ ...scopeOf(state), [step.id]: value })) continue;
+        const holds = Boolean(compile(a.holds ?? `${step.id}.ok == true`)({ ...scopeOf(state), [step.id]: value }));
+        const watch = watchState(events, a.id);
+        if (holds) {
+          if (watch.state !== "suspect") continue;
+          if (watch.passes + 1 >= a.recover) {
+            this.store.append(id, { type: "assumption_cleared", assumption: a.id, at: this.now() });
+            await this.say(state, `✓ Assumption holds again: ${a.title}, ${a.recover} re-check${a.recover === 1 ? "" : "s"} in a row. No longer suspect.`);
+          } else this.store.append(id, { type: "assumption_ok", assumption: a.id, at: this.now() });
+          continue;
+        }
+        if (watch.fails + 1 < a.confirm) {
+          this.store.append(id, { type: "assumption_suspect", assumption: a.id, detail: value.detail, at: this.now() });
+          if (watch.state !== "suspect") await this.say(state, `? Assumption suspect: ${a.title}. Checked again by code: ${value.detail}. It breaks only after ${a.confirm} failing re-checks in a row; until then no new capacity is held in this room.`);
+          continue;
+        }
         const reopened = await this.open(state.flow, { ...state.data, reconsider: id, reconsider_reason: `${a.title}: ${value.detail}` }, `assumption watch on case ${id}`);
         this.store.append(id, { type: "assumption_broken", assumption: a.id, title: a.title, detail: value.detail, value, reopened, at: this.now() });
         await this.say(state, `✗ Assumption broken: ${a.title}. Checked again by code: ${value.detail}. This decision was carried out on it; case ${reopened} decides again on the facts as they are now.`);
@@ -1191,3 +1219,26 @@ function onceKey(flow: Flow, data: Record<string, unknown>): string | undefined 
 
 // Row hashes are stored as "row:<hash>"; people read just the hash.
 const shortHash = (h: string) => short(h).replace(/^row:/, "").slice(0, 12);
+
+// Where an assumption stands, from the log: healthy, or suspect with the
+// failing re-checks since it last passed and the passing ones since it last
+// failed. Kept in the log, so it survives a restart.
+export function watchState(events: CaseEvent[], assumption: string): { state: "healthy" | "suspect"; fails: number; passes: number } {
+  let state: "healthy" | "suspect" = "healthy";
+  let fails = 0;
+  let passes = 0;
+  for (const e of events) {
+    if (!("assumption" in e) || e.assumption !== assumption) continue;
+    if (e.type === "assumption_suspect") {
+      state = "suspect";
+      fails = passes > 0 ? 1 : fails + 1;
+      passes = 0;
+    } else if (e.type === "assumption_ok") passes += 1;
+    else if (e.type === "assumption_cleared") {
+      state = "healthy";
+      fails = 0;
+      passes = 0;
+    }
+  }
+  return { state, fails, passes };
+}

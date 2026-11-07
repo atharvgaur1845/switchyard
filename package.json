@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit",
     "switchyard": "node --disable-warning=ExperimentalWarning src/cli.ts",
     "lint": "node --disable-warning=ExperimentalWarning src/cli.ts lint",
+    "chaos": "node scripts/check-node.mjs && node --disable-warning=ExperimentalWarning src/cli.ts chaos",
+    "bench": "node scripts/check-node.mjs && node --expose-gc --disable-warning=ExperimentalWarning scripts/bench.ts",
     "lab": "node scripts/check-node.mjs && node --disable-warning=ExperimentalWarning src/cli.ts lab",
     "bank": "node --disable-warning=ExperimentalWarning src/cli.ts bank",
     "preswitchyard": "node scripts/check-node.mjs",

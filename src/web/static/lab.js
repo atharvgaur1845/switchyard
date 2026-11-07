@@ -123,6 +123,24 @@ function result(r, label) {
     <h5>Trace: every case this run opened</h5>${trace(r)}</div>`;
 }
 
+// The Chaos Lab: the company-decision flow under eight injected failures
+// (src/chaos.ts), run on demand for a seed, each ending with the engine's
+// invariants asserted on what it left behind.
+function chaos(ui) {
+  const c = ui.chaos ?? {};
+  const rows = (c.results ?? [])
+    .map((r) => `<tr><td class="mono">${esc(r.id)}</td><td><b>${esc(r.title)}</b><div class="fine">${esc(r.injected)}</div></td><td class="fine">${esc(r.expected)}</td><td>${esc(r.observed)}<div class="chaos-inv">${r.invariants.map((i) => `<span class="pill ${i.ok ? "act" : "stop"}" title="${esc(i.detail)}">${i.ok ? "✓" : "✗"} ${esc(i.name)}</span>`).join("")}</div></td><td><span class="pill ${r.ok ? "act" : "stop"}">${r.ok ? "holds" : "fails"}</span><div class="fine">${esc(r.ms)} ms</div></td></tr>`)
+    .join("");
+  const passed = (c.results ?? []).filter((r) => r.ok).length;
+  return `<section class="card chaos">
+    <div class="chaos-head"><div><h2>${icon("fork")} Chaos lab · company decisions under injected failure</h2>
+      <p class="fine">Eight failures injected into the contract-decision flow, in memory, deterministic for a seed: competing decisions, a capacity change between signatures, an agent outage, a duplicated card answer, a hung outlet, a crash mid-send, a noisy capacity reading, a rewritten record. After each, five invariants are checked on what the engine left behind: capacity safety, approval integrity, authority separation, idempotent execution, recoverability.</p></div>
+      <div class="chaos-run"><label class="fine">seed <input type="number" min="1" value="${esc(c.seed ?? 1)}" data-chaos-seed></label><button class="btn accent" data-chaos-run ${c.running ? "disabled" : ""}>${icon("send")} ${c.running ? "Running…" : "Run all 8"}</button>${c.results ? `<span class="pill ${passed === c.results.length ? "act" : "stop"}">${passed}/${c.results.length} hold</span>` : ""}</div></div>
+    ${c.error ? `<div class="notice error">${esc(c.error)}</div>` : ""}
+    ${rows ? `<table class="pf-table chaos-table"><thead><tr><th></th><th>injected</th><th>expected</th><th>observed, and the invariants after</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+  </section>`;
+}
+
 export function renderLab(ui, rerender) {
   init(ui, rerender);
   if (ui.error && !ui.scenarios) return `<div class="notice error">Could not load the scenarios: ${esc(ui.error)}</div>`;
@@ -138,6 +156,7 @@ export function renderLab(ui, rerender) {
   const busy = ui.running ? `<span class="lab-progress"><i style="width:${(ui.running.done / ui.running.total) * 100}%"></i></span><span class="fine">${ui.running.done}/${ui.running.total} runs</span>` : "";
   const expect = Object.entries(s.expect).map(([k, v]) => `<li><b>${esc(k)}</b> ${esc(typeof v === "object" ? Object.entries(v).map(([a, b]) => `${a} ${b}`).join(", ") : `${v}`)}</li>`).join("");
   return `
+  ${chaos(ui)}
   <section class="lab-head">
     <div><h1>${icon("alert")} Attack lab · 20 held-out scenarios</h1>
       <p class="fine">Simulated: fixture agents answer what each scenario says the model read, the bank is the sandbox, and people are scripted to do their job (the first option on each card; the callback reaches the real supplier, who confirms only their own account, unless every callback is fooled). The scenarios were written blind from <code>lab/FORMAT.md</code> and frozen (<code>lab/heldout/FROZEN.sha256</code>) before their first run. That run found two bugs, now fixed, so these are regression results, not a detection rate.</p></div>
@@ -171,6 +190,20 @@ export function renderLab(ui, rerender) {
 }
 
 export function labClick(e, ui, rerender) {
+  if (e.type === "input" && e.target.matches("[data-chaos-seed]")) {
+    ui.chaos = { ...(ui.chaos ?? {}), seed: Math.max(1, Number(e.target.value) || 1) };
+    return;
+  }
+  if (e.type === "click" && e.target.closest("[data-chaos-run]")) {
+    const seed = ui.chaos?.seed ?? 1;
+    ui.chaos = { seed, running: true, results: ui.chaos?.results };
+    rerender();
+    api(`/api/chaos?seed=${seed}`)
+      .then((results) => (ui.chaos = { seed, results }))
+      .catch((err) => (ui.chaos = { seed, error: err.message }))
+      .finally(rerender);
+    return;
+  }
   if (e.type === "input") {
     if (e.target.matches("[data-lab-query]")) {
       ui.query = e.target.value;

@@ -6,7 +6,7 @@
 
 **Live demo:** [huggingface.co/spaces/atharvgaur18/switchyard](https://huggingface.co/spaces/atharvgaur18/switchyard) (the offline run's console, read-only, no sign-in)
 
-**Contents:** [See it in one minute](#see-it-in-one-minute-with-no-accounts) · [The console](#the-console) · [How it works, in diagrams](#how-it-works-in-diagrams) · [How Switch is used](#how-switch-is-used-and-what-breaks-without-it) · [What makes it hard to fool](#what-makes-it-hard-to-fool) · [Proofs](#every-decisions-and-payments-proof) · [Attacks](#attacks-and-what-stops-each) · [Run it live](#run-it-live-on-switch-and-slack) · [Real and simulated](#what-is-real-and-what-is-simulated) · [Known limits](#known-limits)
+**Contents:** [See it in one minute](#see-it-in-one-minute-with-no-accounts) · [The console](#the-console) · [How it works, in diagrams](#how-it-works-in-diagrams) · [How Switch is used](#how-switch-is-used-and-what-breaks-without-it) · [What makes it hard to fool](#what-makes-it-hard-to-fool) · [Proofs](#every-decisions-and-payments-proof) · [Attacks](#attacks-and-what-stops-each) · [Benchmarks](docs/BENCHMARKS.md) · [Run it live](#run-it-live-on-switch-and-slack) · [Real and simulated](#what-is-real-and-what-is-simulated) · [Known limits](#known-limits)
 
 Two applications run on the same engine:
 
@@ -228,6 +228,8 @@ A decision rests on facts that can change after it is made. Before it is carried
 
 When operations reports GPU capacity down from 1,000 to 700, the counteroffer's 400 GPU-hours no longer fit next to Northwind's 600. The decision is marked at risk, its thread says why, and a new case decides again on the current facts; there, the finance desk offers a smaller tier and code passes it. The first decision and what it did stay exactly as they were.
 
+**Hard facts and noisy readings.** A capacity report is a hard fact, so the first failing re-check breaks the assumption. For a noisy measurement, a flow can set `confirm: 3` and `recover: 2`: the assumption is suspect after one bad reading, breaks only after three in a row, and clears only after two good ones in a row, so a reading that flaps around the line neither reopens the decision nor clears it each tick. While anything in the room is suspect, no new capacity is held there: uncertain capacity authorizes nothing.
+
 ```mermaid
 stateDiagram-v2
   [*] --> Checked: code reads commitments, capacity and policy
@@ -353,7 +355,22 @@ flowchart TB
 
 ![The Proof Explorer: a paid invoice's proof, its quotes marked in the invoice text, the rule and the values it read, and a copy with the amount changed failing three checks](docs/img/console-proof.png)
 
-### 12. Measured, not claimed
+### 12. Five guarantees, and a Chaos Lab that tries to break them
+
+Switchyard makes five guarantees, and `src/engine/invariants.ts` checks each one on the event log and the reservation ledger as they stand:
+
+
+- **Capacity safety.** What the commitments document holds plus every open decision's hold never exceeds the capacity, in any hold's window.
+- **Approval integrity.** Every action a person approved was sent with exactly the hash they approved.
+- **Authority separation.** No one answered two gates the flow keeps apart.
+- **Idempotent execution.** No action was carried out twice in a case.
+- **Recoverability.** An action whose outcome is unknown is in doubt for a person, never sent again blindly.
+
+The Chaos Lab (`npm run chaos`, or the panel at the top of the Attack lab) injects eight failures into the contract decision, deterministic for a seed, and checks all five after each: two decisions competing for one pool of capacity; capacity cut between the CFO's and the CTO's signatures; an agent's provider down mid-investigation; the same card answer delivered twice; the counteroffer email hanging past the timeout; the engine crashing mid-send and a new one starting on the same database; a capacity reading flapping around the line; and a decision's record rewritten and signed again. Its first run found a real bug: a decision whose approval was voided kept its hold. A voided approval now releases it.
+
+**Measured.** `npm run bench` times the engine alone (no model, no Switch): the commitments check takes under 8 ms on 10,000 promises; a hold takes under 2 ms with 1,000 other decisions holding; eight processes reserving from one pool on the same database file took exactly the holds that fit and never over-allocated; verifying a decision's proof, its checks run again, takes under 3 ms. `docs/BENCHMARKS.md` has the method and the full output.
+
+### 13. Measured, not claimed
 
 The Attack lab runs 20 scenarios written blind by a separate author from a one-page brief and frozen before their first run, on the real engine, under two configurations side by side. Their first run found two real bugs, both fixed, so the numbers now are regression results, not a detection rate.
 
@@ -361,7 +378,7 @@ With people doing their job, every attack is stopped with or without links betwe
 
 ![The Attack lab: all 20 held-out scenarios under links off and on, and H05, the factoring company, held with links on](docs/img/console-lab.png)
 
-### 13. What is real and what is simulated
+### 14. What is real and what is simulated
 
 - **Real:** Switch (rooms, threads, cards, documents) on Slack; the agents (Claude Haiku and Gemini through their CLIs, with tools switched off); the emails through Mailpit; the engine, its event log and its checks; two people deciding.
 - **Sandbox:** the bank and its answers about who holds an account; the suppliers and their `.test` domains; Tailspin, the commitments, the capacity and the policy. No CRM, HR or ERP is connected.
@@ -651,6 +668,8 @@ In the room, `@yard help` lists the commands: `cases`, `status`, `docs`, `cancel
 - **Decisions: a card carries options, not reasons.** Choosing the counteroffer with objections open is recorded as answering for them, by name and time; Switch cards have no free-text field for why.
 - **Decisions: grounded is not right.** Code checks that an objection's quote is in the proposal and where; it does not check that the objection is correct. The Decision Room says so above the ledger.
 - **Decisions: the margin is a year-1 figure.** A year of revenue after the discount against a year of GPU-hours and the one-off rollout team. It is not an accounting gross margin, and it does not model later years or other costs.
+- **Holds are per engine database.** Capacity safety across decisions holds for engines sharing one SQLite file (the benchmark runs eight processes on one file). Two engines with separate databases on the same room would each hold capacity unaware of the other.
+- **The Chaos Lab runs in memory.** Its eight failures are injected into the real engine and flow with fixture agents and an in-memory room; it does not inject faults into Switch or a real network.
 - **Decisions: promises have an end date and no start date.** The commitments check counts every promise not yet ended as holding its resource, which is cautious: a promise that starts later still counts now.
 - **Assumption Watch runs on the engine's tick** and re-checks only the assumptions a flow declares (here, the capacity a decision reserved). It opens a new case; it never undoes what the first decision did.
 
@@ -693,7 +712,9 @@ Flows are YAML files (see [FLOWS.md](FLOWS.md)), checked by `npm run lint`:
 ## Tests
 
 ```bash
-npm test             # 321 tests
+npm test             # 326 tests
+npm run chaos        # eight injected failures, five invariants checked after each
+npm run bench        # the engine alone, timed (docs/BENCHMARKS.md)
 npm run lab          # the attack lab, links off and on
 npm run lab -- --heldout   # the 20 held-out scenarios
 npm run typecheck
