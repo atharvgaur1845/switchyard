@@ -33,6 +33,8 @@ const STATIC: Record<string, string> = {
   "lab.js": "text/javascript",
   "replay.js": "text/javascript",
   "views.js": "text/javascript",
+  "decisions.js": "text/javascript",
+  "commitments.js": "text/javascript",
   "logo.svg": "image/svg+xml",
 };
 

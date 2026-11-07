@@ -26,6 +26,7 @@ export function flowSummaries(flows: Flow[], running: Set<string> = new Set(flow
     room: flow.room,
     description: flow.description ?? flow.flow,
     inlets: Object.entries(flow.inlet ?? {}).map(([kind, spec]) => ({ kind, spec })),
+    assumptions: flow.assumptions,
     steps: flow.steps.map((step) => ({
       id: step.id,
       label: step.id.replace(/_/g, " "),
@@ -124,6 +125,7 @@ function outcomeOf(state: CaseState, events: CaseEvent[], flow: Flow | undefined
     return { label: "Agents working", tone: "agent" };
   }
   const executed = events.filter((e) => e.type === "executed");
+  if (events.some((e) => e.type === "assumption_broken")) return { label: "At risk · decided again", tone: "person" };
   const declined = events.find((e) => e.type === "gate_answered" && !e.approved);
   // A "block" is a decision against the request even though it approves an
   // action (warning the real supplier); the decision is the outcome.
@@ -142,6 +144,10 @@ function outcomeOf(state: CaseState, events: CaseEvent[], flow: Flow | undefined
   if (duplicate && !executed.some((e) => kindOf(e) === "pay")) return { label: "Held · PO already invoiced", tone: "stop" };
   // The controller held a request linked to another case.
   if (events.some((e) => e.type === "gate_answered" && e.answer === "hold")) return { label: "Held · linked to another case", tone: "stop" };
+  // A decision carried out: it wrote the company's commitments.
+  if (executed.some((e) => e.type === "executed" && (e.payload as { document?: { name?: string } } | undefined)?.document?.name === "commitments")) {
+    return { label: "Decided · commitments written", tone: "act" };
+  }
   if (executed.length > 0) {
     return { label: DONE_BY_OUTLET[kindOf(executed.at(-1)!)] ?? "Done", tone: "act" };
   }

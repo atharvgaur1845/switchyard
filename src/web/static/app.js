@@ -5,6 +5,8 @@
 
 import { renderAgents } from "./agents.js";
 import { renderCommand } from "./command.js";
+import { commitmentClick, renderCommitments } from "./commitments.js";
+import { decisionClick, renderDecisions } from "./decisions.js";
 import { diagram, left } from "./diagram.js";
 import { esc, icon, INLET_ICON, STEP_ICON, hx, sameHash } from "./icons.js";
 import { renderInvestigations, wireInvestigations } from "./investigations.js";
@@ -14,7 +16,7 @@ import { renderReplay, replayChange, replayClick } from "./replay.js";
 import { api, receiptsOf as receipts, token } from "./views.js";
 
 // Every view, by the hash that opens it. A bare case id opens that case.
-const VIEWS = ["command", "cases", "investigations", "agents", "proofs", "lab", "flows", "replay"];
+const VIEWS = ["command", "decisions", "commitments", "cases", "investigations", "agents", "proofs", "lab", "flows", "replay"];
 const routeOf = (hash) => {
   const [view, arg] = hash.replace(/^#/, "").split("/");
   return VIEWS.includes(view) ? { view, arg } : view ? { view: "cases", arg: view } : { view: "command" };
@@ -48,7 +50,7 @@ const state = {
   investigations: { clusters: [], totals: {} },
   ig: { cluster: null, edge: null, node: null, query: "", tone: "all", zoom: null },
   // Per-view state the views keep between redraws.
-  ui: { command: {}, agents: {}, proofs: {}, lab: {}, replay: {} },
+  ui: { command: {}, decisions: {}, commitments: {}, agents: {}, proofs: {}, lab: {}, replay: {} },
   proof: null,
   loaded: false,
   view: "command",
@@ -523,6 +525,10 @@ function render() {
   } else if (state.view === "command") {
     state.ui.command.hero = hero(state.cases);
     view("command").innerHTML = renderCommand(state, state.ui.command);
+  } else if (state.view === "decisions") {
+    view("decisions").innerHTML = renderDecisions(state, state.ui.decisions);
+  } else if (state.view === "commitments") {
+    view("commitments").innerHTML = renderCommitments(state, state.ui.commitments);
   } else if (state.view === "investigations") {
     view("investigations").innerHTML = renderInvestigations(state.investigations, state.ig, state.cases);
   } else if (state.view === "agents") {
@@ -631,6 +637,7 @@ function showView(view, arg) {
     history.replaceState(null, "", state.selected ? `#${state.selected}${location.search}` : `#cases${location.search}`);
   } else history.replaceState(null, "", `#${view}${arg ? `/${arg}` : ""}${location.search}`);
   if (view === "proofs" && arg) state.ui.proofs.id = arg;
+  if (view === "decisions" && arg) state.ui.decisions.id = arg;
   if (view === "replay") state.ui.replay.id = arg ?? state.ui.replay.id ?? hero(state.cases);
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view || (view === "replay" && b.dataset.view === "command"))));
   for (const v of VIEWS) document.getElementById(`view-${v}`).hidden = v !== view;
@@ -658,6 +665,8 @@ document.getElementById("view-command").addEventListener("click", (e) => {
   state.ui.command.stream = chip.dataset.stream;
   render();
 });
+document.getElementById("view-decisions").addEventListener("click", (e) => decisionClick(e, state.ui.decisions, render));
+document.getElementById("view-commitments").addEventListener("click", (e) => commitmentClick(e, state.ui.commitments, render));
 document.getElementById("view-proofs").addEventListener("click", (e) => proofClick(e, state, state.ui.proofs, render));
 document.getElementById("view-proofs").addEventListener("change", (e) => proofDrop(e, state.ui.proofs, render));
 document.getElementById("view-proofs").addEventListener("drop", (e) => proofDrop(e, state.ui.proofs, render));

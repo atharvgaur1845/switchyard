@@ -9,10 +9,10 @@ import { api, checksOf, describe, mask, money, plural, seconds, stamp, tree } fr
 const STAGES = [
   { k: "Arrives", icon: "mail", what: "An email or an invoice opens a case", has: (e) => e.type === "opened" },
   { k: "Agents investigate", icon: "bot", what: "Agents read it, each in its own job", has: (e) => ["asked", "fanned_out", "partial", "answered", "reply_rejected", "failed_over"].includes(e.type) },
-  { k: "Evidence extracted", icon: "doc", what: "Their quotes are found in the source, at offsets", has: (e) => e.type === "verified" && e.check === "agent_evidence" },
-  { k: "Code checks", icon: "code", what: "Code checks every claim against the room's documents", has: (e) => e.type === "verified" && !["agent_evidence", "payee", "links"].includes(e.check) },
+  { k: "Evidence extracted", icon: "doc", what: "Their quotes are found in the source, at offsets", has: (e) => e.type === "verified" && (e.check === "agent_evidence" || e.check === "dissent") },
+  { k: "Code checks", icon: "code", what: "Code checks every claim against the room's documents and the company's rules", has: (e) => e.type === "verified" && !["agent_evidence", "dissent", "payee", "links", "commitments"].includes(e.check) },
   { k: "Bank names the holder", icon: "user", what: "The bank says who holds the account", has: (e) => e.type === "verified" && e.check === "payee" },
-  { k: "Across cases", icon: "link", what: "Other cases' facts about the same account", has: (e) => (e.type === "verified" && e.check === "links") || ["rewound", "flagged", "cleared"].includes(e.type) },
+  { k: "Promises and other cases", icon: "link", what: "What the company already promised, and other cases' facts", has: (e) => (e.type === "verified" && (e.check === "links" || e.check === "commitments")) || ["rewound", "flagged", "cleared", "assumption_broken"].includes(e.type) },
   { k: "People authorize", icon: "hand", what: "A named person decides on a Switch card", has: (e) => ["gate_opened", "gate_answered", "card_reopened", "reminded", "escalated"].includes(e.type) },
   { k: "Payment decision", icon: "send", what: "The engine does exactly what was approved, or stops", has: (e) => ["executed", "failed", "in_doubt", "done", "cancelled"].includes(e.type) },
   { k: "Proof generated", icon: "lock", what: "The whole record, digested and signed", live: true },
@@ -57,6 +57,20 @@ function stageBody(i, c, events, ui) {
         return `<li><div class="rp-agent-head"><b>${esc(a.agent)}</b>${roles(a.step, a.agent) ? `<span class="pill agent">${esc(roles(a.step, a.agent))}</span>` : `<span class="pill neutral">${esc(a.step)}</span>`}<span class="fine">${ans ? `answered after ${seconds(new Date(ans.at_iso) - new Date(a.at_iso))}` : "no answer recorded"}</span></div>${ans ? tree(ans.value) : ""}</li>`;
       })
       .join("")}</ul>${events.filter((e) => e.type === "reply_rejected" || e.type === "failed_over").map((e) => `<p class="rp-warn">${icon("alert")} ${esc(describe(e).text)}</p>`).join("")}`;
+  }
+  if (i === 2 && checks.dissent) {
+    const v = checks.dissent;
+    const text = typeof c.data.text === "string" ? c.data.text : "";
+    const spans = v.ledger.filter((l) => l.grounded).map((l) => l.grounded).sort((a, b) => a.start - b.start);
+    let html = "";
+    let at = 0;
+    for (const g of spans) {
+      if (g.start < at) continue;
+      html += esc(text.slice(at, g.start)) + `<mark>${esc(text.slice(g.start, g.end))}</mark>`;
+      at = g.end;
+    }
+    html += esc(text.slice(at));
+    return `<blockquote class="pf-text">${html}</blockquote><ul class="rp-lines">${v.ledger.map((l) => `<li class="t-${l.from === "code" ? "stop" : l.status.startsWith("open") ? "person" : "neutral"}"><span class="who">${esc(l.from)}</span><span>${esc(l.claim)}</span><span class="docs">${esc(l.status)}</span></li>`).join("")}</ul>`;
   }
   if (i === 2) {
     const v = checks.agent_evidence;

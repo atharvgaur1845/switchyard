@@ -34,6 +34,14 @@ export function checksOf(c) {
   return out;
 }
 
+// The latest value each verify step recorded, by step id: two steps can run
+// the same check (the proposal and its alternative).
+export function stepsOf(c) {
+  const out = {};
+  for (const e of c.events) if (e.type === "verified") out[e.step] = e.value ?? {};
+  return out;
+}
+
 // What was approved, and what was done, in order: an action counts as
 // matched only when every hash recorded for it agrees.
 export function receiptsOf(c, stepOf) {

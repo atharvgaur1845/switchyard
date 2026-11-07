@@ -15,8 +15,10 @@ const SECTIONS = [
   ["beneficiary", "Who the bank says holds the account", "user", "the payee check's answer (sandbox bank)"],
   ["links", "Links to other cases", "link", "accounts this case shares with blocked or other-vendor cases"],
   ["stale_approvals", "Approvals that stopped counting", "reroute", "re-checks after a document the checks read changed"],
+  ["dissent", "Dissent ledger", "flag", "a decision's objections, each with its quote and status, and what code found binding"],
   ["decisions", "People's decisions", "hand", "each answer on a Switch card, with the person, role and action hashes"],
   ["executions", "Actions and the bank's receipts", "send", "what was sent, its hash, the bank's read-back, the rule it ran on"],
+  ["assumptions", "Assumptions that broke", "alert", "Assumption Watch: what a carried-out decision rested on that stopped holding, and the case deciding again"],
   ["flow", "The flow it ran under", "fork", "the flow file as it was when the proof was made"],
   ["log", "The event log", "clock", "every event of the case, in recorded order"],
 ];
@@ -89,6 +91,11 @@ function sectionBody(key, value, proof) {
       .map((c) => `<tr><td class="mono">${esc(c.step)}</td><td class="mono">${esc(c.check)}</td><td>${c.ok ? icon("check", "t-act") : icon("x", "t-stop")}</td><td>${esc(c.detail ?? "")}</td><td>${Object.entries(c.documents ?? {}).map(([d, h]) => `<span class="docref">${esc(d)} ${hx(h, 10)}</span>`).join(" ")}</td></tr>`)
       .join("")}</tbody></table>`;
   }
+  if (key === "dissent") {
+    return `<p class="fine">${esc(value.detail ?? "")}</p><table class="pf-table"><thead><tr><th>from</th><th>objection</th><th>quote</th><th>weight</th><th>status</th></tr></thead><tbody>${(value.ledger ?? [])
+      .map((l) => `<tr><td>${esc(l.from)}</td><td>${esc(l.claim)}</td><td>${l.quote ? `<code>${esc(l.quote)}</code> ${l.grounded ? `<span class="mono">${l.grounded.start}–${l.grounded.end}</span>` : ""}` : ""}</td><td>${esc(l.materiality)}</td><td>${esc(l.status)}</td></tr>`)
+      .join("")}</tbody></table>`;
+  }
   if (key === "decisions") {
     return `<table class="pf-table"><thead><tr><th>who</th><th>as</th><th>answer</th><th>when</th><th>approves</th></tr></thead><tbody>${value
       .map((d) => `<tr><td>${esc(d.by)}</td><td>${esc(d.role ?? "")}</td><td><span class="pill ${d.approved ? "act" : "stop"}">${esc(d.answer)}</span></td><td>${esc(stamp(d.at))}</td><td>${Object.entries(d.approves ?? {}).map(([s, h]) => `<span class="docref">${esc(s)} ${hx(h, 12)}</span>`).join(" ")}</td></tr>`)
@@ -119,6 +126,7 @@ const count = (key, value) => {
   if (value === undefined || value === null) return "none";
   if (key === "evidence") return plural((value.quotes?.length ?? 0) + (value.findings?.length ?? 0), "quote");
   if (key === "beneficiary") return esc(value.result ?? "");
+  if (key === "dissent") return plural(value.ledger?.length ?? 0, "entry", "entries");
   if (key === "links") return plural(value.links?.length ?? 0, "link");
   if (key === "flow") return plural(value.steps?.length ?? 0, "step");
   if (Array.isArray(value)) return plural(value.length, key === "log" ? "event" : "item");

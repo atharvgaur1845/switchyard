@@ -38,7 +38,7 @@ export function commandFacts(state) {
       { k: "Quotes grounded", icon: "doc", n: evidence.reduce((n, e) => n + (e.value?.quotes?.length ?? 0) + (e.value?.findings?.length ?? 0), 0), sub: `quotes at their offsets · ${evidence.reduce((n, e) => n + (e.value?.dropped?.length ?? 0), 0)} dropped`, view: "#agents" },
       { k: "Code checks", icon: "code", n: verified.length, sub: `${verified.filter((e) => e.value?.ok === false).length} failed`, view: "#agents" },
       { k: "Bank names holder", icon: "user", n: payee.length, sub: `${payee.filter((x) => x.v.result === "match" || x.v.result === "mandate").length} confirmed · ${payee.length - payee.filter((x) => x.v.result === "match" || x.v.result === "mandate").length} not`, view: "#investigations", sandbox: true },
-      { k: "Across cases", icon: "link", n: verified.filter((e) => e.check === "links" && e.value?.ok === false).length, sub: `linked · ${events.filter((e) => e.type === "rewound").length} approvals voided`, view: "#investigations" },
+      { k: "Promises and other cases", icon: "link", n: verified.filter((e) => (e.check === "links" || e.check === "commitments") && e.value?.ok === false).length, sub: `conflicts found · ${events.filter((e) => e.type === "rewound").length} approvals voided`, view: "#commitments" },
       { k: "People decide", icon: "hand", n: events.filter((e) => e.type === "gate_answered").length, sub: `answers on Switch cards · ${events.filter((e) => e.type === "card_reopened").length} refused`, view: "#cases" },
       { k: "Bank executes", icon: "send", n: payments.length, sub: `payments · ${payments.filter((p) => p.proven).length} read back equal`, view: "#proofs", sandbox: true },
       { k: "Signed proof", icon: "lock", n: cases.filter((c) => c.events.some((e) => e.type === "executed")).length, sub: "cases with actions, each with a proof", view: "#proofs" },
@@ -56,9 +56,14 @@ export function renderCommand(state, ui) {
   const ig = state.investigations.totals ?? {};
   const paidSum = f.payments.reduce((n, p) => n + p.amount, 0);
   const byResult = (r) => f.payee.filter((x) => x.v.result === r).length;
+  const decisions = f.cases.filter((c) => c.events.some((e) => e.type === "verified" && e.check === "dissent"));
+  const openObjections = decisions.filter((c) => c.status === "open").reduce((n, c) => n + (checksOf(c).dissent?.open ?? 0), 0);
+  const broken = f.events.filter((e) => e.type === "assumption_broken");
   const tiles = [
+    tile("Waiting on a person", f.waiting.length, "person", f.waiting.length ? f.waiting.slice(0, 2).map((c) => esc(c.waiting.approver ?? "a person")).join(", ") + (f.waiting.length > 2 ? "…" : "") : "nobody is waiting", "#cases"),
+    tile("Open objections", openObjections, openObjections ? "person" : "act", `on ${plural(decisions.filter((c) => c.status === "open").length, "open decision")}`, "#decisions"),
+    tile("Broken assumptions", broken.length, broken.length ? "person" : "act", broken.length ? `decided again in ${broken.map((e) => esc(e.reopened)).join(", ")}` : "every carried-out decision still holds", "#commitments"),
     tile("Active investigations", ig.clusters ?? 0, "stop", `${plural(ig.open ?? 0, "open case")} touching them`, "#investigations"),
-    tile("Pending approvals", f.waiting.length, "person", f.waiting.length ? f.waiting.slice(0, 2).map((c) => esc(c.waiting.approver ?? "a person")).join(", ") + (f.waiting.length > 2 ? "…" : "") : "nobody is waiting", "#cases"),
     tile("Beneficiary mismatches", f.mismatches.length, f.mismatches.length ? "person" : "act", `${byResult("close_match")} close · ${byResult("no_match")} no match · ${byResult("unavailable")} no answer`, "#investigations"),
     tile("Stopped before money moved", f.stopped.length, "stop", "blocked, held, refused or disputed", "#cases"),
     tile("Verified payments", `${f.proven.length}<small>/${f.payments.length}</small>`, "act", `${money(paidSum)} EUR · bank copy = approved action`, "#proofs"),
@@ -93,7 +98,7 @@ export function renderCommand(state, ui) {
   const legend = sorted.map(([label, o]) => `<li><i class="tone-${o.tone}"></i>${esc(label)}<b>${o.n}</b><span>${Math.round((o.n / total) * 100)}%</span></li>`).join("");
   const flows = [...new Set(f.cases.map((c) => c.flow))].map((fl) => `<li><span class="mono">${esc(fl)}</span><b>${f.cases.filter((c) => c.flow === fl).length}</b></li>`).join("");
 
-  const decisions = f.events
+  const answers = f.events
     .filter((e) => e.type === "gate_answered")
     .sort((a, b) => (b.at_iso ?? "").localeCompare(a.at_iso ?? ""))
     .slice(0, 8)
@@ -114,12 +119,15 @@ export function renderCommand(state, ui) {
   return `
   <section class="cc-hero">
     <div>
-      <h1>Supplier payments, released only with proof.</h1>
-      <p>Agents read each invoice and bank-change request and quote it; code checks every claim against the room's documents and the bank; people decide on Switch cards; the engine pays exactly what was approved, reads it back from the bank, and signs the whole record.</p>
-      <p class="fine">${icon("alert")} The bank, its payee answers and the suppliers are a local sandbox. Switch, the agents and the people are real when this runs live.</p>
+      <h1>Company decisions and payments, carried out only with proof.</h1>
+      <p>Agents investigate and argue, each with its own job. Code checks every claim against the company's rules, what it has already promised, and the bank. Named people decide on Switch cards, and the engine does exactly what they signed. It checks again when the facts a decision rested on change, and signs the whole record.</p>
+      <p class="fine">${icon("alert")} The bank, its payee answers, the suppliers, the customer and the company's capacity are sandbox data. Switch, the agents and the people are real when this runs live.</p>
     </div>
     <div class="cc-hero-side">
-      <a class="btn accent" href="#replay/${esc(ui.hero ?? "")}" ${ui.hero ? "" : 'aria-disabled="true"'}>${icon("reroute")} Walk through a payment</a>
+      <div class="cc-ctas">${(() => {
+        const d = decisions.find((c) => c.events.some((e) => e.type === "executed"));
+        return d ? `<a class="btn accent" href="#replay/${esc(d.id)}">${icon("reroute")} Walk through a decision</a>` : "";
+      })()}<a class="btn" href="#replay/${esc(ui.hero ?? "")}" ${ui.hero ? "" : 'aria-disabled="true"'}>${icon("reroute")} Walk through a payment</a></div>
       <div class="cc-key">${state.proof ? `<span>${icon("lock")} Proofs signed by key <code title="${esc(state.proof.fingerprint)}">${esc(state.proof.fingerprint.slice(0, 16))}…</code></span><span class="fine">pinned: ${esc(state.proof.from)}</span>` : `<span>${icon("lock")} No signing key loaded: proofs are unsigned</span>`}</div>
     </div>
   </section>
@@ -138,7 +146,7 @@ export function renderCommand(state, ui) {
       <section class="card cc-panel"><h3>${icon("fork")} Case outcomes</h3>
         <div class="cc-bar">${bar}</div><ul class="cc-legend">${legend}</ul>
         <h4>By flow</h4><ul class="cc-flows">${flows}</ul></section>
-      <section class="card cc-panel"><h3>${icon("hand")} Recent decisions</h3>${decisions ? `<ul class="cc-decisions">${decisions}</ul>` : '<p class="fine">No one has answered a card yet.</p>'}</section>
+      <section class="card cc-panel"><h3>${icon("hand")} Recent answers on cards</h3>${answers ? `<ul class="cc-decisions">${answers}</ul>` : '<p class="fine">No one has answered a card yet.</p>'}</section>
       <section class="card cc-panel"><h3>${icon("check")} Operational health</h3>
         <ul class="cc-health">${health.map(([l, v, t]) => `<li><span>${esc(l)}</span><b class="t-${t}">${v}</b></li>`).join("")}
           <li><span>Last event</span><b>${esc(last ? stamp(last) : "none")}</b></li></ul>
