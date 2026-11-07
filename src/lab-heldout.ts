@@ -10,6 +10,7 @@ import { Store } from "./engine/store.ts";
 import { compactIban } from "./engine/verifiers.ts";
 import { LiveOutlets } from "./outlets/index.ts";
 import { startBank } from "./sandbox/bank.ts";
+import { caseSummaries } from "./web/api.ts";
 
 // `npm run lab -- --heldout`: the scenarios in lab/heldout/, written from
 // lab/FORMAT.md alone by an author who had not read the code, with what a
@@ -50,6 +51,8 @@ export interface HeldOutRun {
   // Answers refused: the wrong person, or the same person twice where four eyes is required.
   refused: number;
   outcomes: Record<string, string>;
+  // Every case the run opened, with its events: the trace behind the numbers.
+  cases: { id: string; label?: string; title: string; flow: string; outcome: { label: string; tone: string }; events: unknown[] }[];
 }
 
 export interface HeldOutResult {
@@ -285,16 +288,30 @@ async function runOne(root: string, flows: Flow[], given: HeldOut, crossCase: bo
       stale: all.filter((e) => e.type === "rewound").length,
       refused: all.filter((e) => e.type === "card_reopened").length,
       outcomes,
+      cases: caseSummaries(store, flows).map((c) => ({ id: c.id, label: [...labels].find(([, v]) => v === c.id)?.[0], title: c.title, flow: c.flow, outcome: c.outcome, events: c.events })),
     };
   } finally {
     bank.close();
   }
 }
 
-export async function heldOutLab(root = process.cwd()): Promise<HeldOutResult[]> {
-  const flows = readdirSync(join(root, "flows"))
+const labFlows = (root: string) =>
+  readdirSync(join(root, "flows"))
     .filter((f) => f === "bank-change.flow.yaml" || f === "invoice-check.flow.yaml")
     .map((f) => loadFlow(readFileSync(join(root, "flows", f), "utf8")));
+
+// One held-out scenario under the controls chosen on the dashboard's lab:
+// the same run as `npm run lab -- --heldout`, with its trace and its time.
+export async function runHeldOut(id: string, controls: { links: boolean; fooled: boolean; bank: "unavailable" | "oracle" }, root = process.cwd()) {
+  const scenario = loadHeldOut(root).find((s) => s.id === id);
+  if (!scenario) throw new Error(`no scenario ${id}`);
+  const started = performance.now();
+  const run = await runOne(root, labFlows(root), scenario, controls.links, controls.fooled, controls.bank === "oracle" ? oracleRegistry(scenario) : undefined);
+  return { id, controls, run, ms: Math.round(performance.now() - started) };
+}
+
+export async function heldOutLab(root = process.cwd()): Promise<HeldOutResult[]> {
+  const flows = labFlows(root);
   const results: HeldOutResult[] = [];
   for (const scenario of loadHeldOut(root)) {
     results.push({

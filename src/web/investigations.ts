@@ -15,7 +15,7 @@ type Node = { kind: "case" | "account" | "vendor"; id: string; label: string };
 export interface Evidence {
   id: string;
   from: Node;
-  relation: "requested" | "pays" | "paid" | "printed" | "on-file" | "blocked" | "cleared" | "other-vendor";
+  relation: "requested" | "pays" | "paid" | "printed" | "on-file" | "blocked" | "cleared" | "other-vendor" | "bank-match" | "bank-mandate" | "bank-close" | "bank-no-match" | "bank-unknown";
   to: Node;
   source: string;
   caseId?: string;
@@ -66,6 +66,8 @@ export function investigations(store: Store, flows: Flow[]): { clusters: Cluster
   };
   const signal = new Set<string>();
   const decisions: Touch[] = [];
+  // What the bank said about who holds each account (payee checks), per case.
+  const holders: { iban: string; vendor: string; holder?: string; result: string; detail: string; caseId: string; at: string }[] = [];
 
   for (const [id, c] of summaries) {
     const events = c.events;
@@ -76,6 +78,8 @@ export function investigations(store: Store, flows: Flow[]): { clusters: Cluster
       touches.push({ caseId: id, iban: String(bc.new_iban), relation: "requested", at, vendor: String(bc.vendor ?? ""), source: `bank-change email from ${String(bc.sender_domain || "an unknown sender")}`, status: "requested, not yet on file" });
     }
     if (bc?.current_iban && bc.vendor) putOnFile(String(bc.current_iban), String(bc.vendor), at, id);
+    const payee = checks.payee;
+    if (payee?.iban && payee.vendor) holders.push({ iban: String(payee.iban), vendor: String(payee.vendor), holder: payee.holder ? String(payee.holder) : undefined, result: String(payee.result), detail: String(payee.detail ?? ""), caseId: id, at });
     const vb = checks.vendor_bank;
     if (vb?.iban) {
       touches.push({ caseId: id, iban: String(vb.iban), relation: "pays", at, vendor: String(vb.vendor ?? ""), source: "vendor master, read by the bank check", status: "the account this invoice would pay" });
@@ -178,6 +182,28 @@ export function investigations(store: Store, flows: Flow[]): { clusters: Cluster
           status: others.length ? `on file for ${vendor}, and also for ${others.join(", ")}: shared (a factoring company is one legitimate reason)` : `on file for ${vendor}`,
         });
       }
+    }
+
+    // The bank's answer about each account (sandbox registry): a confirmed
+    // holder is verified; a similar name or no answer is not; "no match" is
+    // the bank saying the vendor does not hold it.
+    const BANK: Record<string, { relation: Evidence["relation"]; status: string }> = {
+      match: { relation: "bank-match", status: "verified: the bank confirms the holder" },
+      mandate: { relation: "bank-mandate", status: "verified holder, paid on the vendor's behalf under an attested mandate" },
+      close_match: { relation: "bank-close", status: "unverified: held under a similar but different name" },
+      no_match: { relation: "bank-no-match", status: "the bank says the vendor does not hold it" },
+    };
+    // One line per answer: the same answer in several cases is one fact,
+    // with every case that asked named in its source.
+    const answers = new Map<string, (typeof holders)[number][]>();
+    for (const h of holders.filter((h) => accounts.has(h.iban) && g.cases.has(h.caseId))) {
+      const key = `${h.iban}|${h.result}|${h.holder ?? h.vendor}`;
+      answers.set(key, [...(answers.get(key) ?? []), h]);
+    }
+    for (const [h, ...more] of answers.values()) {
+      const b = BANK[h.result] ?? { relation: "bank-unknown" as const, status: "unverified: the bank could not say who holds it" };
+      const asked = more.length ? ` (asked in case ${h.caseId} and ${more.map((m) => `case ${m.caseId}`).join(", ")})` : "";
+      add({ from: node.account(h.iban), relation: b.relation, to: node.vendor(h.result === "match" || h.result === "no_match" || !h.holder ? h.vendor : h.holder), source: `the bank's payee check (sandbox): ${h.detail}${asked}`, caseId: h.caseId, at: h.at, status: b.status });
     }
 
     const timeline: Cluster["timeline"] = [];

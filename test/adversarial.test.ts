@@ -617,6 +617,11 @@ describe("attacks across cases", () => {
     // Every line says where it came from and when.
     for (const e of group.evidence) expect(e.source && e.at && e.status).toBeTruthy();
     expect(totals).toMatchObject({ clusters: 1, blocked: 1 });
+    // What the bank said about the account: one line however many cases asked, never "verified".
+    const bank = group.evidence.filter((e) => e.relation.startsWith("bank-") && e.from.id === "DE88500700100175526303");
+    expect(bank).toHaveLength(1);
+    expect(bank[0]).toMatchObject({ relation: "bank-close", to: { id: "Fabrikam Print Services s.r.o." }, status: "unverified: held under a similar but different name" });
+    expect(bank[0].source).toMatch(new RegExp(`asked in case ${fake} and case ${real}`));
     expect(group.timeline.map((t) => t.seq)).toEqual([...group.timeline.map((t) => t.seq)].sort((a, b) => a - b));
   });
 

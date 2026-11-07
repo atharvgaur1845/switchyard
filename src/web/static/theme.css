@@ -21,23 +21,38 @@
   --yard: #3d4a5c;       /* @yard itself */
   --yard-soft: #e9edf2;
   --on-act: #ffffff;     /* ink on a green fill */
+  --surface-3: #f1efe9;
+  --accent: #0b7fa3;     /* selection, links, focus */
+  --accent-soft: #e2f3f8;
 
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 1px 2px rgba(20, 20, 30, .04), 0 4px 16px rgba(20, 20, 30, .04);
-  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --font: "Inter", "SF Pro Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   color-scheme: light;
 }
+/* Dark: graphite and deep navy. Cyan is the accent (focus, selection,
+   links); amber is uncertainty and a person's turn; red a violation; green
+   verified. The dashboard is always dark (data-theme="dark" on its page);
+   forms and the widget follow the visitor's setting. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #111114; --surface: #18181c; --surface-2: #1d1d22; --ink: #ededf0; --ink-2: #b9b9c2;
-    --muted: #7d7d88; --line: #2a2a31; --line-strong: #383840; --focus: #8ea5ff;
-    --agent: #a993ff; --agent-soft: #241e3d; --person: #f0b44c; --person-soft: #33270f;
-    --act: #4fd18a; --act-soft: #10291c; --on-act: #0b2a18; --stop: #ff7a5c; --stop-soft: #331611; --yard: #aab6c8; --yard-soft: #1f252e;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
+    --bg: #0a0e16; --surface: #0f1520; --surface-2: #141b28; --surface-3: #1a2333; --ink: #e4e9f2; --ink-2: #a9b4c6;
+    --muted: #76839a; --line: #1f2939; --line-strong: #2c384c; --focus: #38d0f0; --accent: #38d0f0; --accent-soft: #0c2a35;
+    --agent: #a594ff; --agent-soft: #1c1838; --person: #f2b544; --person-soft: #2e2410;
+    --act: #3ccf8e; --act-soft: #0c2a1d; --on-act: #062014; --stop: #ff6b5b; --stop-soft: #34130f; --yard: #9fb0c8; --yard-soft: #18202d;
+    --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 8px 24px rgba(0, 0, 0, .35);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0a0e16; --surface: #0f1520; --surface-2: #141b28; --surface-3: #1a2333; --ink: #e4e9f2; --ink-2: #a9b4c6;
+  --muted: #76839a; --line: #1f2939; --line-strong: #2c384c; --focus: #38d0f0; --accent: #38d0f0; --accent-soft: #0c2a35;
+  --agent: #a594ff; --agent-soft: #1c1838; --person: #f2b544; --person-soft: #2e2410;
+  --act: #3ccf8e; --act-soft: #0c2a1d; --on-act: #062014; --stop: #ff6b5b; --stop-soft: #34130f; --yard: #9fb0c8; --yard-soft: #18202d;
+  --shadow: 0 1px 0 rgba(255, 255, 255, .02) inset, 0 8px 24px rgba(0, 0, 0, .35);
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }

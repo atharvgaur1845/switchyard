@@ -9,11 +9,13 @@ import { mapPayload, verifySignature, webhookInlet } from "./inlets/webhook.ts";
 import { readFile } from "node:fs/promises";
 import { caseSummaries, type Extras, overview } from "./web/api.ts";
 import { investigations } from "./web/investigations.ts";
-import { buildProof, signProof } from "./proof.ts";
-import type { KeyObject } from "node:crypto";
+import { buildProof, fingerprint, signProof, verifyProof } from "./proof.ts";
+import { createPublicKey, type KeyObject } from "node:crypto";
 import { widgetPage } from "./web/widget.ts";
 
 const MAX_BODY = 256 * 1024;
+// A proof carries its whole event log.
+const MAX_PROOF = 4 * 1024 * 1024;
 const STARTED = Date.now().toString(36);
 
 // The only files served from disk, by exact name.
@@ -24,6 +26,13 @@ const STATIC: Record<string, string> = {
   "diagram.js": "text/javascript",
   "icons.js": "text/javascript",
   "investigations.js": "text/javascript",
+  "console.css": "text/css",
+  "command.js": "text/javascript",
+  "agents.js": "text/javascript",
+  "proofs.js": "text/javascript",
+  "lab.js": "text/javascript",
+  "replay.js": "text/javascript",
+  "views.js": "text/javascript",
   "logo.svg": "image/svg+xml",
 };
 
@@ -40,10 +49,17 @@ export function startServer(opts: {
   env?: NodeJS.ProcessEnv;
   // Signs the proofs the dashboard hands out (proof.ts); unsigned without it.
   proofKey?: KeyObject;
+  // The key fingerprint proofs are checked against (proof.fingerprint in
+  // switchyard.yaml); this Switchyard's own key when none is pinned.
+  proofFingerprint?: string;
 }): Server {
   const flows = new Map(opts.flows.map((f) => [f.flow, f]));
   const frontDesk = opts.flows.find((f) => f.inlet?.frontdesk);
   const env = opts.env ?? process.env;
+  const ownFingerprint = opts.proofKey ? fingerprint(createPublicKey(opts.proofKey).export({ type: "spki", format: "pem" }).toString()) : undefined;
+  const pinned = opts.proofFingerprint ? { fingerprint: opts.proofFingerprint, from: "proof.fingerprint in switchyard.yaml" } : ownFingerprint ? { fingerprint: ownFingerprint, from: "this Switchyard's signing key" } : undefined;
+  // One lab run at a time: each starts its own sandbox bank and engine.
+  let labBusy = false;
 
   const server = createServer(async (req, res) => {
     try {
@@ -140,6 +156,48 @@ export function startServer(opts: {
       return send(res, 200, "application/json", JSON.stringify(caseSummaries(opts.store, opts.flows)));
     }
 
+    // Checks a proof file, as `verify-proof` does: nothing but the file and
+    // the pinned fingerprint. The dashboard sends the proof it downloaded, or
+    // one a person dropped in (an edited copy fails).
+    if (kind === "api" && name === "verify-proof" && req.method === "POST") {
+      let proof: unknown;
+      try {
+        proof = JSON.parse(await readBody(req, MAX_PROOF));
+      } catch {
+        return send(res, 400, "application/json", JSON.stringify({ error: "not a JSON proof file" }));
+      }
+      try {
+        const findings = verifyProof(proof as Parameters<typeof verifyProof>[0], pinned?.fingerprint);
+        return send(res, 200, "application/json", JSON.stringify({ findings, pinned }));
+      } catch (error) {
+        return send(res, 200, "application/json", JSON.stringify({ findings: [{ ok: false, what: `the file is a proof Switchyard can read (${(error as Error).message})` }], pinned }));
+      }
+    }
+
+    if (kind === "api" && name === "lab" && req.method === "GET") {
+      const { loadHeldOut } = await import("./lab-heldout.ts");
+      return send(res, 200, "application/json", JSON.stringify(loadHeldOut().map(({ steps, ...s }) => ({ ...s, steps: steps.map((st) => Object.keys(st)[0]) }))));
+    }
+
+    if (kind === "api" && name === "lab" && req.method === "POST") {
+      if (labBusy) return send(res, 409, "application/json", JSON.stringify({ error: "a lab run is in progress" }));
+      let body: { id?: unknown; links?: unknown; fooled?: unknown; bank?: unknown };
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return send(res, 400, "application/json", JSON.stringify({ error: "body is not JSON" }));
+      }
+      if (typeof body.id !== "string" || !/^H\d{2}$/.test(body.id)) return send(res, 400, "application/json", JSON.stringify({ error: "id must be a held-out scenario, H01-H20" }));
+      labBusy = true;
+      try {
+        const { runHeldOut } = await import("./lab-heldout.ts");
+        const result = await runHeldOut(body.id, { links: body.links === true, fooled: body.fooled === true, bank: body.bank === "oracle" ? "oracle" : "unavailable" });
+        return send(res, 200, "application/json", JSON.stringify(result));
+      } finally {
+        labBusy = false;
+      }
+    }
+
     if (kind === "api" && name === "proof" && req.method === "GET") {
       const id = decodeURIComponent(url.pathname.split("/")[3] ?? "");
       if (!opts.store.caseIds().includes(id)) return send(res, 404, "application/json", "{}");
@@ -154,7 +212,7 @@ export function startServer(opts: {
     }
 
     if (kind === "api" && name === "overview" && req.method === "GET") {
-      return send(res, 200, "application/json", JSON.stringify(overview(opts.flows, opts.available, opts.extras)));
+      return send(res, 200, "application/json", JSON.stringify({ ...overview(opts.flows, opts.available, opts.extras), proof: pinned ?? null }));
     }
 
     if (kind === "static" && name && STATIC[name] && req.method === "GET") {
@@ -184,13 +242,13 @@ function mayView(req: IncomingMessage, url: URL, env: NodeJS.ProcessEnv): boolea
   return !forwarded && (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1");
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage, max = MAX_BODY): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_BODY) {
+      if (size > max) {
         reject(new Error("request body too large"));
         req.destroy();
       } else chunks.push(chunk);

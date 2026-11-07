@@ -3,16 +3,22 @@
 // comes from outside the company, so every value is escaped before it
 // touches the page.
 
+import { renderAgents } from "./agents.js";
+import { renderCommand } from "./command.js";
 import { diagram, left } from "./diagram.js";
 import { esc, icon, INLET_ICON, STEP_ICON, hx, sameHash } from "./icons.js";
-import { renderInvestigations } from "./investigations.js";
+import { renderInvestigations, wireInvestigations } from "./investigations.js";
+import { labClick, renderLab } from "./lab.js";
+import { proofClick, proofDrop, renderProofs } from "./proofs.js";
+import { renderReplay, replayChange, replayClick } from "./replay.js";
+import { api, receiptsOf as receipts, token } from "./views.js";
 
-const token = new URLSearchParams(location.search).get("token");
-const api = (path) =>
-  fetch(path + (token ? `?token=${encodeURIComponent(token)}` : "")).then((r) => {
-    if (!r.ok) throw new Error(`${r.status}`);
-    return r.json();
-  });
+// Every view, by the hash that opens it. A bare case id opens that case.
+const VIEWS = ["command", "cases", "investigations", "agents", "proofs", "lab", "flows", "replay"];
+const routeOf = (hash) => {
+  const [view, arg] = hash.replace(/^#/, "").split("/");
+  return VIEWS.includes(view) ? { view, arg } : view ? { view: "cases", arg: view } : { view: "command" };
+};
 
 // ---------- state ----------
 
@@ -32,10 +38,14 @@ const state = {
   vendors: {},
   filter: "all",
   query: "",
-  selected: ["#flows", "#investigations"].includes(location.hash) ? null : location.hash.slice(1) || null,
+  selected: routeOf(location.hash).view === "cases" ? (routeOf(location.hash).arg ?? null) : null,
   investigations: { clusters: [], totals: {} },
-  ig: { cluster: null, edge: null },
-  view: "cases",
+  ig: { cluster: null, edge: null, node: null, query: "", tone: "all", zoom: null },
+  // Per-view state the views keep between redraws.
+  ui: { command: {}, agents: {}, proofs: {}, lab: {}, replay: {} },
+  proof: null,
+  loaded: false,
+  view: "command",
   tab: "story",
   signature: "",
 };
@@ -413,28 +423,7 @@ function linkedHtml(c) {
   return `<section class="linked" aria-label="Linked cases"><h4>${icon("link")} Linked across cases, by code</h4><ul>${items.join("")}</ul><p class="fine">A link never blocks a payment by itself: it sends the case to a person, and an approval given before a link appeared no longer counts.</p></section>`;
 }
 
-function receiptsOf(c) {
-  const out = [];
-  const approvals = {};
-  let gate = null;
-  for (const e of c.events) {
-    if (e.type === "gate_opened") gate = e;
-    if (e.type === "rewound") for (const step of e.steps) delete approvals[step];
-    if (e.type === "gate_answered" && gate) {
-      for (const [step, hash] of Object.entries(gate.hashes)) approvals[step] = { hash, by: e.answeredBy, answer: e.answer, approved: e.approved, gate: e.step, payload: gate.payloads?.[step] };
-      if (!e.approved) for (const [step, hash] of Object.entries(gate.hashes)) out.push({ kind: "declined", step, hash, ...approvals[step] });
-    }
-    if (e.type === "executed") {
-      const a = approvals[e.step];
-      // true: every hash we have agrees; false: one differs; undefined: a rule ran it and nothing was read back.
-      const agrees = (!a || sameHash(a.hash, e.hash)) && (e.readback === undefined || sameHash(e.readback, e.hash));
-      const match = !agrees ? false : a || e.readback ? true : undefined;
-      out.push({ kind: "executed", step: e.step, approval: a, hash: e.hash, receipt: e.receipt, payload: e.payload, readback: e.readback, match, rule: stepOf(c, e.step)?.autoRule });
-    }
-    if (e.type === "failed" && /approved/.test(e.reason)) out.push({ kind: "blocked", step: e.step, reason: e.reason });
-  }
-  return out;
-}
+const receiptsOf = (c) => receipts(c, stepOf);
 
 function receiptsHtml(c) {
   const cards = receiptsOf(c).map((r) => {
@@ -516,14 +505,27 @@ function renderFlows() {
 // ---------- wiring ----------
 
 function render() {
-  renderKpis();
   renderIgCount();
+  const view = (id) => document.getElementById(`view-${id}`);
   if (state.view === "cases") {
+    renderKpis();
     renderFilters();
     renderList();
     renderDetail();
+  } else if (state.view === "command") {
+    state.ui.command.hero = hero(state.cases);
+    view("command").innerHTML = renderCommand(state, state.ui.command);
   } else if (state.view === "investigations") {
-    document.getElementById("view-investigations").innerHTML = renderInvestigations(state.investigations, state.ig);
+    view("investigations").innerHTML = renderInvestigations(state.investigations, state.ig, state.cases);
+  } else if (state.view === "agents") {
+    view("agents").innerHTML = renderAgents(state, state.ui.agents);
+  } else if (state.view === "proofs") {
+    view("proofs").innerHTML = renderProofs(state, state.ui.proofs, render);
+  } else if (state.view === "lab") {
+    view("lab").innerHTML = renderLab(state.ui.lab, render);
+  } else if (state.view === "replay") {
+    state.ui.replay.id ??= hero(state.cases);
+    view("replay").innerHTML = renderReplay(state, state.ui.replay, render);
   } else {
     renderFlows();
   }
@@ -541,7 +543,7 @@ async function refresh() {
     const signature = JSON.stringify([overview, cases, investigations]);
     if (signature === state.signature) return;
     state.signature = signature;
-    Object.assign(state, { flows: overview.flows, schedules: overview.schedules, vendors: overview.vendors, people: overview.people, cases, investigations });
+    Object.assign(state, { flows: overview.flows, schedules: overview.schedules, vendors: overview.vendors, people: overview.people, proof: overview.proof, cases, investigations, loaded: true });
     if (!state.selected && cases.length) state.selected = hero(cases) ?? visibleCases()[0]?.id ?? null;
     render();
   } catch (error) {
@@ -568,6 +570,7 @@ function select(id) {
   if (!id) return;
   state.selected = id;
   history.replaceState(null, "", `#${id}${location.search}`);
+  if (state.view !== "cases") return showView("cases");
   render();
   if (matchMedia("(max-width: 900px)").matches) document.getElementById("detail").scrollIntoView({ block: "start" });
 }
@@ -613,14 +616,16 @@ document.getElementById("flow-grid").addEventListener("click", (e) => {
   showView("cases");
 });
 
-function showView(view) {
+function showView(view, arg) {
   state.view = view;
-  if (view === "flows" || view === "investigations") history.replaceState(null, "", `#${view}${location.search}`);
-  else if (location.hash === "#flows" || location.hash === "#investigations") history.replaceState(null, "", state.selected ? `#${state.selected}${location.search}` : location.pathname + location.search);
-  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
-  document.getElementById("view-cases").hidden = view !== "cases";
-  document.getElementById("view-flows").hidden = view !== "flows";
-  document.getElementById("view-investigations").hidden = view !== "investigations";
+  if (view === "cases") {
+    if (arg) state.selected = arg;
+    history.replaceState(null, "", state.selected ? `#${state.selected}${location.search}` : `#cases${location.search}`);
+  } else history.replaceState(null, "", `#${view}${arg ? `/${arg}` : ""}${location.search}`);
+  if (view === "proofs" && arg) state.ui.proofs.id = arg;
+  if (view === "replay") state.ui.replay.id = arg ?? state.ui.replay.id ?? hero(state.cases);
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view || (view === "replay" && b.dataset.view === "command"))));
+  for (const v of VIEWS) document.getElementById(`view-${v}`).hidden = v !== view;
   document.getElementById("kpis").hidden = view !== "cases";
   render();
 }
@@ -628,30 +633,41 @@ document.querySelector(".tabs").addEventListener("click", (e) => {
   const tab = e.target.closest("[data-view]");
   if (tab) showView(tab.dataset.view);
 });
-// A link to #<case id> opens that case.
+// A link to #<case id> opens that case; #<view>/<arg> opens a view on a case.
 window.addEventListener("hashchange", () => {
-  const id = location.hash.slice(1);
-  if (id === "flows" || id === "investigations") showView(id);
-  else if (id) select(id) || showView("cases");
+  const { view, arg } = routeOf(location.hash);
+  showView(view, arg);
 });
 
-if (location.hash === "#flows" || location.hash === "#investigations") showView(location.hash.slice(1));
+{
+  const { view, arg } = routeOf(location.hash);
+  showView(view, arg);
+}
 
-// Investigations: pick a group, or a line in its graph or evidence table.
-const igView = document.getElementById("view-investigations");
-igView.addEventListener("click", (e) => {
-  const pick = e.target.closest("[data-cluster]");
-  if (pick) state.ig = { cluster: pick.dataset.cluster, edge: null };
-  const ev = e.target.closest("[data-ev]");
-  if (ev) state.ig = { cluster: state.ig.cluster ?? state.investigations.clusters[0]?.id ?? null, edge: state.ig.edge === ev.dataset.ev ? null : ev.dataset.ev };
-  if (pick || ev) render();
+document.getElementById("view-command").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-stream]");
+  if (!chip) return;
+  state.ui.command.stream = chip.dataset.stream;
+  render();
 });
-igView.addEventListener("keydown", (e) => {
-  if ((e.key === "Enter" || e.key === " ") && e.target.closest?.("[data-ev]")) {
-    e.preventDefault();
-    e.target.closest("[data-ev]").dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  }
+document.getElementById("view-proofs").addEventListener("click", (e) => proofClick(e, state, state.ui.proofs, render));
+document.getElementById("view-proofs").addEventListener("change", (e) => proofDrop(e, state.ui.proofs, render));
+document.getElementById("view-proofs").addEventListener("drop", (e) => proofDrop(e, state.ui.proofs, render));
+document.getElementById("view-proofs").addEventListener("dragover", (e) => e.preventDefault());
+document.getElementById("view-lab").addEventListener("click", (e) => labClick(e, state.ui.lab, render));
+document.getElementById("view-lab").addEventListener("input", (e) => labClick(e, state.ui.lab, render));
+document.getElementById("view-replay").addEventListener("click", (e) => replayClick(e, state, state.ui.replay, render));
+document.getElementById("view-replay").addEventListener("change", (e) => replayChange(e, state.ui.replay, render));
+document.getElementById("view-agents").addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-ag]");
+  const job = e.target.closest("[data-job]");
+  if (tab) state.ui.agents.tab = tab.dataset.ag;
+  if (job) state.ui.agents.job = job.dataset.job;
+  if (tab || job) render();
 });
+
+// Investigations: groups, nodes, lines, search, filters, zoom and pan.
+wireInvestigations(document.getElementById("view-investigations"), state, render);
 
 function renderIgCount() {
   const n = state.investigations.clusters.length;

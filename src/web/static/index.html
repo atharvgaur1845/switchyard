@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,38 +7,30 @@
 <link rel="icon" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/console.css">
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="/"><img src="/static/logo.svg" alt="" width="22" height="22" class="logo"> Switchyard</a>
-  <nav class="tabs" role="tablist">
-    <button role="tab" data-view="cases" aria-selected="true">Cases</button>
+  <a class="brand" href="#command"><img src="/static/logo.svg" alt="" width="22" height="22" class="logo"> Switchyard <span class="brand-sub">payment integrity</span></a>
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button role="tab" data-view="command" aria-selected="true">Command</button>
+    <button role="tab" data-view="cases" aria-selected="false">Cases</button>
     <button role="tab" data-view="investigations" aria-selected="false">Investigations <span class="n" id="ig-count" hidden></span></button>
+    <button role="tab" data-view="agents" aria-selected="false">Agents</button>
+    <button role="tab" data-view="proofs" aria-selected="false">Proofs</button>
+    <button role="tab" data-view="lab" aria-selected="false">Attack lab</button>
     <button role="tab" data-view="flows" aria-selected="false">Flows</button>
   </nav>
   <span class="live" id="live"><span class="dot"></span><span id="live-text">Connecting…</span></span>
 </header>
 
-<section class="intro" aria-label="What this is">
-  <p><b>A back office that runs in your Switch rooms.</b> Work arrives from forms, email, schedules and webhooks. Agents draft, people decide on Switch cards, and Switchyard executes only the exact action a named person approved.</p>
-  <ul class="legend" aria-label="Legend">
-    <li><i class="sw agent"></i>agent</li>
-    <li><i class="sw person"></i>a person decides</li>
-    <li><i class="sw act"></i>executed</li>
-    <li><i class="sw stop"></i>stopped or refused</li>
-    <li><i class="sw code"></i>checked by code</li>
-    <li><i class="sw cond"></i>condition</li>
-    <li><i class="sw arc"></i>approval bound to an exact action</li>
-  </ul>
-</section>
+<main id="view-command" class="cc-view" aria-live="polite">
+  <div class="cc-loading"><div class="skeleton" style="height:120px"></div><div class="skeleton" style="height:320px"></div></div>
+</main>
 
-<section class="kpis" id="kpis" aria-label="Summary">
-  <div class="kpi card"><div class="skeleton" style="height:48px"></div></div><div class="kpi card"><div class="skeleton" style="height:48px"></div></div>
-  <div class="kpi card"><div class="skeleton" style="height:48px"></div></div><div class="kpi card"><div class="skeleton" style="height:48px"></div></div>
-  <div class="kpi card"><div class="skeleton" style="height:48px"></div></div><div class="kpi card"><div class="skeleton" style="height:48px"></div></div>
-</section>
+<section class="kpis" id="kpis" aria-label="Summary" hidden></section>
 
-<main id="view-cases" class="cases-view">
+<main id="view-cases" class="cases-view" hidden>
   <aside class="list card" aria-label="Cases">
     <div class="list-tools">
       <div class="chips" id="filters" role="radiogroup" aria-label="Show"></div>
@@ -54,6 +46,10 @@
 </main>
 
 <main id="view-investigations" class="ig-view" hidden aria-live="polite"></main>
+<main id="view-agents" class="ag-view" hidden></main>
+<main id="view-proofs" class="pf-view" hidden></main>
+<main id="view-lab" class="lab-view" hidden></main>
+<main id="view-replay" class="rp-view" hidden></main>
 
 <main id="view-flows" class="flows-view" hidden>
   <div id="flow-grid" class="flow-grid"></div>

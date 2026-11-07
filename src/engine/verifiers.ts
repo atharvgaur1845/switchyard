@@ -194,29 +194,8 @@ export const CHECKS: Record<string, { needsDoc: boolean; history?: boolean; basi
     async runAsync(args, docs, ctx) {
       const iban = compactIban(String(args.iban ?? ""));
       const vendor = String(args.vendor ?? "");
-      if (!ibanValid(iban) || !vendor) return { ok: false, result: "unavailable", detail: "there is no valid account and vendor to verify" };
-      if (!ctx.payee) return { ok: false, result: "unavailable", detail: `no bank was asked who holds ${maskIban(iban)}` };
-      const first = await ctx.payee(iban, vendor);
-      if (first.result === "match") return { ok: true, result: "match", holder: vendor, detail: `the bank confirms ${maskIban(iban)} is held by ${vendor}` };
-      const doc = docs.find((d) => d.name === args.doc);
-      const mandates = doc ? tableRows(doc.content).filter(([v = ""]) => sameName(v, vendor)) : [];
-      for (const [key = "", holder = ""] of mandates) {
-        if (!holder) continue;
-        const through = await ctx.payee(iban, holder);
-        if (through.result === "match") {
-          return {
-            ok: true,
-            result: "mandate",
-            holder,
-            rows: { [doc!.name]: key },
-            watch: { [doc!.name]: { hash: basisHash(doc!.content, key), row: key } },
-            detail: `the bank confirms ${maskIban(iban)} is held by ${holder}, who is paid on ${vendor}'s behalf under a mandate in ${doc!.name}`,
-          };
-        }
-      }
-      if (first.result === "close_match") return { ok: false, result: "close_match", holder: first.holder, detail: `the bank holds ${maskIban(iban)} under a similar but different name: ${first.holder ?? "not given"}, not ${vendor}` };
-      if (first.result === "no_match") return { ok: false, result: "no_match", detail: `the bank says ${maskIban(iban)} is not held by ${vendor}${mandates.length ? " or anyone it is paid through" : ""}` };
-      return { ok: false, result: "unavailable", detail: `the bank could not say who holds ${maskIban(iban)}${first.reason ? ` (${first.reason})` : ""}` };
+      // Which account and vendor the bank was asked about, kept with its answer.
+      return { ...(await payeeAnswer(iban, vendor, args, docs, ctx)), iban, vendor };
     },
   },
 
@@ -531,3 +510,31 @@ export function basisHash(content: string, key?: string): string {
   return `row:${docHash(lines.join("\n"))}`;
 }
 const fmt = (n: number | undefined) => (n === undefined ? "?" : n.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+// What the bank says about who holds `iban`: the vendor itself, or someone
+// paid on its behalf under an attested mandate row.
+async function payeeAnswer(iban: string, vendor: string, args: Record<string, unknown>, docs: RoomDocument[], ctx: CheckContext): Promise<VerifyResult> {
+  if (!ibanValid(iban) || !vendor) return { ok: false, result: "unavailable", detail: "there is no valid account and vendor to verify" };
+  if (!ctx.payee) return { ok: false, result: "unavailable", detail: `no bank was asked who holds ${maskIban(iban)}` };
+  const first = await ctx.payee(iban, vendor);
+  if (first.result === "match") return { ok: true, result: "match", holder: vendor, detail: `the bank confirms ${maskIban(iban)} is held by ${vendor}` };
+  const doc = docs.find((d) => d.name === args.doc);
+  const mandates = doc ? tableRows(doc.content).filter(([v = ""]) => sameName(v, vendor)) : [];
+  for (const [key = "", holder = ""] of mandates) {
+    if (!holder) continue;
+    const through = await ctx.payee(iban, holder);
+    if (through.result === "match") {
+      return {
+        ok: true,
+        result: "mandate",
+        holder,
+        rows: { [doc!.name]: key },
+        watch: { [doc!.name]: { hash: basisHash(doc!.content, key), row: key } },
+        detail: `the bank confirms ${maskIban(iban)} is held by ${holder}, who is paid on ${vendor}'s behalf under a mandate in ${doc!.name}`,
+      };
+    }
+  }
+  if (first.result === "close_match") return { ok: false, result: "close_match", holder: first.holder, detail: `the bank holds ${maskIban(iban)} under a similar but different name: ${first.holder ?? "not given"}, not ${vendor}` };
+  if (first.result === "no_match") return { ok: false, result: "no_match", detail: `the bank says ${maskIban(iban)} is not held by ${vendor}${mandates.length ? " or anyone it is paid through" : ""}` };
+  return { ok: false, result: "unavailable", detail: `the bank could not say who holds ${maskIban(iban)}${first.reason ? ` (${first.reason})` : ""}` };
+}

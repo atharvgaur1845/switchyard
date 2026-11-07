@@ -266,6 +266,7 @@ async function up(): Promise<void> {
     available: all.filter((f) => !flows.includes(f)),
     extras: { vendors, people: config.people },
     proofKey,
+    proofFingerprint: config.proof.fingerprint,
   });
   new MailpitInbox(config.mailpit.url, flows, runner, store).start();
   startSchedules(flows, runner, store);
