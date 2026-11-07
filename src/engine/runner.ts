@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { readReply, stepRequest, stepToken } from "./contracts.ts";
-import { compile, lookup, render, type Scope } from "./expr.ts";
+import { compile, inputsOf, lookup, render, type Scope } from "./expr.ts";
 import { basisHash, CHECKS, docHash, LEGACY, normalizeName, rowHash, sameHash, short, tableRows, type VerifyResult } from "./verifiers.ts";
 import { type Blocked, blockedAccount, findLinks, linkDigest } from "./links.ts";
 import {
@@ -269,7 +269,8 @@ export class Runner {
         await this.openDoubt(this.store.load(state.id), step, hash, payload, `read back ${short(readback)}, approved ${short(hash)}`);
         return true;
       }
-      this.store.append(state.id, { type: "executed", step: step.id, hash, receipt, payload, ...(readback ? { readback } : {}) });
+      const ruled = autoApproved ? { rule: { when: String(rule), inputs: typeof rule === "string" ? inputsOf(rule, scopeOf(state)) : {} } } : {};
+      this.store.append(state.id, { type: "executed", step: step.id, hash, receipt, payload, ...(readback ? { readback } : {}), ...ruled });
       this.attestWrite(state, payload);
       this.inFlight.delete(key);
       const by = autoApproved ? `rule "${rule === true ? "always" : rule}"` : state.approved[step.id].by;

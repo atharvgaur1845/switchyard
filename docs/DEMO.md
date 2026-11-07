@@ -116,7 +116,7 @@ On the paid invoice's case: **Download signed proof**. In the terminal:
 npm run switchyard verify-proof ~/Downloads/<case>.proof.json -- --fingerprint <printed by up or proof>
 ```
 
-27 checks hold, from the signature to each quote's place in the invoice text. Then change one character of the amount in the file and run it again: it fails.
+31 checks hold, from the signature to each quote's place in the invoice text, including the payment rule evaluated again on the log. Then change one character of the amount in the file and run it again: it fails.
 
 ## 3:50 – Close (10 s)
 

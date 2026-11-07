@@ -126,6 +126,13 @@ export function compile(source: string): Compiled {
   return expression;
 }
 
+// The values a condition reads, by name: what a rule was decided on, recorded
+// next to the action so anyone can evaluate the rule again.
+export function inputsOf(source: string, scope: Scope): Record<string, unknown> {
+  const names = tokenize(source).filter((t) => t.kind === "name" && !(t.value in KEYWORDS) && !["and", "or", "not"].includes(t.value));
+  return Object.fromEntries(names.map((t) => [String(t.value), lookup(scope, String(t.value).split("."))]));
+}
+
 export function lookup(scope: unknown, path: string[]): unknown {
   let value: unknown = scope;
   for (const key of path) {

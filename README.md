@@ -51,7 +51,7 @@ This is the real engine, with three stand-ins: canned agent replies, approval ca
 5. **The controller now clicks "pay" on the old invoice card.** Switchyard refuses to act, because the vendor master changed after the checks read it. It re-runs the checks on the new version and opens a new card. The old card, and any escalation or re-opened copy of it, no longer counts. Once approved, it marks PO-1043 as invoiced in the room, pays the new account through the bank and reads the payment back. All three hashes match: the approved one, the one sent and the bank's copy.
 6. **Someone edits the vendor master in the room directly**, swapping Northwind's account and leaving the old date and the word "callback". The next Northwind invoice would have been paid by the rule. Instead it is held: the row is not the one Switchyard first saw, and no pay card is offered.
 7. **A second Fabrikam invoice for the same order, under a new number.** PO-1043 now reads "invoiced FP-0912 (case …)", so the invoice is held, with no pay button.
-8. **The payment's proof.** The run writes the paid invoice's signed proof and checks it: 27 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself.
+8. **The payment's proof.** The run writes the paid invoice's signed proof and checks it: 31 checks, from the signature to each quote's place in the invoice text. It prints the command to check it again yourself.
 
 The same run also shows an expense refused when the wrong person clicks, and a prompt-injection attempt at a website chat held for a person. Add `-- --serve` to keep a dashboard of the run's cases open at `http://localhost:4101`. Its Investigations tab shows the blocked account and the three cases it connects.
 
@@ -134,13 +134,15 @@ The signing key lives in its own file (`proof.key`, by default `keys/proof-ed255
 - that the sections are exactly what the log says;
 - that the log is in recorded order;
 - that each action hashes to what was recorded;
-- that what was sent is what a person approved, or was allowed by the flow's rule;
+- that each action is what the flow makes from the log: the case is rebuilt from the log as it stood when the engine acted, and the action is rendered again from it;
+- that the step's condition held on that rebuilt case;
+- that what was sent is what a person approved, or, with no approval, that the flow's rule holds on the rebuilt case. The rule is evaluated again, not taken on trust, and the values it read, recorded with the payment, must be what the log says;
 - that the bank's copy hashes the same;
 - that each quote is at its offsets in the invoice text.
 
-Editing the log, moving a quote, or rewriting the amount and signing again with another key each fails a check. The dashboard has a "Download signed proof" link on every case, and `demo:offline` ends by writing and checking one.
+Editing the log, moving a quote, or rewriting the amount and signing again with another key each fails a check. So does a log signed by the right key on which the payment rule did not hold (the bank's answer rewritten to a close match). The dashboard has a "Download signed proof" link on every case, and `demo:offline` ends by writing and checking one.
 
-What a proof does not show: that the record is true. It shows that this is what Switchyard recorded and signed, and that it holds together. A holder of the signing key could sign a false log, and a proof is made when it is exported, not as each event happens. Tests: "holds every check for a payment made by the rule, and carries its evidence", "fails when its log is edited after signing", "fails when someone rewrites the payment and signs it again with another key", "fails when a quote's offsets do not point at it".
+What a proof does not show: that the record is true. It shows that this is what Switchyard recorded and signed, and that it holds together. A holder of the signing key could sign a false log whose facts hold together, and a proof is made when it is exported, not as each event happens. Tests: "holds every check for a payment made by the rule, and carries its evidence", "fails when its log is edited after signing", "fails when someone rewrites the payment and signs it again with another key", "fails when a quote's offsets do not point at it", "fails when the key holder signs a log on which the rule did not hold".
 
 ## Links between cases
 

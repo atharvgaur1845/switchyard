@@ -50,7 +50,17 @@ export type CaseEvent =
   // after. One without the other means the process stopped in between, and
   // nobody knows whether the action happened: the case is "in doubt".
   | { type: "executing"; step: string; hash: string; payload: unknown }
-  | { type: "executed"; step: string; hash: string; receipt: string; payload?: unknown; readback?: string }
+  | {
+      type: "executed";
+      step: string;
+      hash: string;
+      receipt: string;
+      payload?: unknown;
+      readback?: string;
+      // Sent on the flow's rule, not a person's approval: the rule, and the
+      // values it read when it held.
+      rule?: { when: string; inputs: Record<string, unknown> };
+    }
   // A room document a check read changed before an action ran. The listed
   // steps are run again, from the check on, with the new version.
   | { type: "rewound"; step: string; steps: string[]; docs: Record<string, [string, string]> }

@@ -3,9 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Flow } from "./engine/flow-schema.ts";
 import { isGate, isOutlet } from "./engine/flow-schema.ts";
-import type { Store } from "./engine/store.ts";
+import { compile, inputsOf } from "./engine/expr.ts";
+import { scopeOf } from "./engine/runner.ts";
+import { type CaseEvent, fold, type Store } from "./engine/store.ts";
 import { LEGACY, sameHash } from "./engine/verifiers.ts";
-import { canonical, hashOutlet } from "./outlets/payload.ts";
+import { canonical, hashOutlet, renderOutlet } from "./outlets/payload.ts";
 import type { Outlet } from "./engine/flow-schema.ts";
 
 // A payment's proof: one file that says why the money moved, checkable by
@@ -15,8 +17,10 @@ import type { Outlet } from "./engine/flow-schema.ts";
 // made with a key kept outside the event log. `verifyProof` checks the
 // signature against a pinned key fingerprint, recomputes every digest,
 // re-derives the sections from the log, and checks the evidence itself:
-// each executed action hashes to what was approved and to what the bank
-// read back, and each quote is at its offsets in the invoice text.
+// each executed action is what the flow makes from the log, its condition
+// and rule hold on the log as it stood (evaluated again, not taken on trust),
+// it hashes to what was approved and to what the bank read back, and each
+// quote is at its offsets in the invoice text.
 //
 // What it proves: that this file is what Switchyard recorded and signed, and
 // that the record is consistent. Not that the record is true: a proof is as
@@ -76,7 +80,7 @@ export function sections(log: Event[], flow: Flow | undefined): Record<string, u
     decisions,
     executions: log.filter((e) => e.type === "executed").map((e) => {
       const s = step(String(e.step));
-      return { step: e.step, kind: s && isOutlet(s) ? Object.keys(s.outlet)[0] : undefined, rule: s && isOutlet(s) && s.auto_approve !== false ? s.auto_approve : undefined, payload: e.payload, hash: e.hash, receipt: e.receipt, readback: e.readback, at: e.at_iso };
+      return { step: e.step, kind: s && isOutlet(s) ? Object.keys(s.outlet)[0] : undefined, rule: s && isOutlet(s) && s.auto_approve !== false ? s.auto_approve : undefined, rule_inputs: (e.rule as { inputs?: unknown } | undefined)?.inputs, payload: e.payload, hash: e.hash, receipt: e.receipt, readback: e.readback, at: e.at_iso };
     }),
   };
 }
@@ -87,11 +91,16 @@ export function buildProof(store: Store, flows: Flow[], caseId: string): Proof {
   const log = structuredClone(store.timeline(caseId)) as unknown as Event[];
   const flow = flows.find((f) => f.flow === state.flow);
   if (!flow) throw new Error(`no flow ${state.flow}`);
+  return seal({ id: caseId, flow: state.flow, room: state.room, opened_at: log[0]?.at_iso }, flow, log);
+}
+
+// The sections, digests and root for a log, unsigned.
+export function seal(c: Proof["case"], flow: Flow, log: Event[]): Proof {
   // A copy: the sections must not share objects with the log, or an edit to
   // one would silently edit the other.
   const s = structuredClone(sections(log, flow));
   const digests = digestsOf(s, flow, log);
-  return { format: FORMAT, case: { id: caseId, flow: state.flow, room: state.room, opened_at: log[0]?.at_iso }, sections: s, flow, log, digests, root: sha(digests) };
+  return { format: FORMAT, case: c, sections: s, flow, log, digests, root: sha(digests) };
 }
 
 function digestsOf(s: Record<string, unknown>, flow: Flow, log: Event[]): Record<string, string> {
@@ -160,19 +169,31 @@ export function verifyProof(proof: Proof, pinned?: string): Finding[] {
   }
   let approvals: Record<string, string> = {};
   let gate: Record<string, string> = {};
-  for (const e of proof.log) {
+  let started: Record<string, number> = {};
+  proof.log.forEach((e, i) => {
+    if (e.type === "executing") started = { ...started, [String(e.step)]: i };
     if (e.type === "gate_opened") gate = (e.hashes as Record<string, string>) ?? {};
     if (e.type === "rewound") for (const step of e.steps as string[]) delete approvals[step];
     if (e.type === "gate_answered" && e.approved) approvals = { ...approvals, ...gate };
-    if (e.type === "executed") {
-      const step = String(e.step);
-      const payload = e.payload as Outlet | undefined;
-      if (payload) add(sameHash(String(e.hash), hashOutlet(payload), LEGACY.action), `${step}: the action recorded hashes to ${String(e.hash).slice(0, 16)}`);
-      const rule = flow?.steps.find((s) => s.id === step);
-      if (approvals[step]) add(sameHash(approvals[step], String(e.hash), LEGACY.action), `${step}: what was sent is what a person approved`);
-      else add(Boolean(rule && isOutlet(rule) && rule.auto_approve !== false), `${step}: sent under the flow's rule, with no approval needed`);
-      if (e.readback !== undefined) add(sameHash(String(e.readback), String(e.hash), LEGACY.action), `${step}: the bank's copy hashes the same as what was sent`);
-    }
-  }
+    if (e.type !== "executed") return;
+    const step = String(e.step);
+    const payload = e.payload as Outlet | undefined;
+    if (payload) add(sameHash(String(e.hash), hashOutlet(payload), LEGACY.action), `${step}: the action recorded hashes to ${String(e.hash).slice(0, 16)}`);
+    const spec = flow?.steps.find((s) => s.id === step);
+    if (!spec || !isOutlet(spec)) return add(false, `${step}: is an action in the flow`);
+    // The case as it stood when the engine decided to act, rebuilt from the
+    // log: the condition, the rule and the action are all evaluated on it.
+    const scope = scopeOf(fold(proof.case.id, proof.log.slice(0, started[step] ?? i) as unknown as CaseEvent[]));
+    if (spec.when !== undefined) add(Boolean(compile(spec.when)(scope)), `${step}: its condition holds on the log (${spec.when})`);
+    add(sameHash(String(e.hash), hashOutlet(renderOutlet(spec.outlet, scope)), LEGACY.action), `${step}: the action is what the flow makes from the log`);
+    if (approvals[step]) add(sameHash(approvals[step], String(e.hash), LEGACY.action), `${step}: what was sent is what a person approved`);
+    else if (spec.auto_approve === true) add(true, `${step}: the flow sends it with no approval once its condition holds`);
+    else if (typeof spec.auto_approve === "string") {
+      add(Boolean(compile(spec.auto_approve)(scope)), `${step}: no person approved it, and its rule holds on the log (${spec.auto_approve})`);
+      const recorded = (e.rule as { inputs?: unknown } | undefined)?.inputs;
+      if (recorded !== undefined) add(sha(recorded) === sha(inputsOf(spec.auto_approve, scope)), `${step}: the values the rule read, as recorded, are what the log says`);
+    } else add(false, `${step}: a person approved it, or the flow has a rule for it`);
+    if (e.readback !== undefined) add(sameHash(String(e.readback), String(e.hash), LEGACY.action), `${step}: the bank's copy hashes the same as what was sent`);
+  });
   return out;
 }

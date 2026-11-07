@@ -9,7 +9,7 @@ import { loadFlow } from "../src/engine/flow-schema.ts";
 import { Runner } from "../src/engine/runner.ts";
 import { Store } from "../src/engine/store.ts";
 import { LiveOutlets } from "../src/outlets/index.ts";
-import { buildProof, loadOrCreateKey, type Proof, signProof, verifyProof } from "../src/proof.ts";
+import { buildProof, loadOrCreateKey, type Proof, seal, signProof, verifyProof } from "../src/proof.ts";
 import { sandboxPayees, startBank } from "../src/sandbox/bank.ts";
 import { attestRooms, FakeSwitch, invoiceReader, investigatorSays } from "./fake-switch.ts";
 
@@ -64,6 +64,28 @@ describe("a payment's proof", () => {
     const findings = verifyProof(JSON.parse(JSON.stringify(proof)), proof.signature!.fingerprint).map((f) => f.what);
     expect(findings).toContain("schedule_payment: the bank's copy hashes the same as what was sent");
     expect(findings).toContain(`"PO-1043" is at ${TEXT.indexOf("PO-1043")}–${TEXT.indexOf("PO-1043") + 7} in the invoice text`);
+    // The rule is evaluated again on the log, not taken on trust.
+    const rule = flows[1].steps.find((st) => st.id === "schedule_payment")! as { auto_approve: string };
+    expect(findings).toContain(`schedule_payment: no person approved it, and its rule holds on the log (${rule.auto_approve})`);
+    expect(findings).toContain("schedule_payment: the values the rule read, as recorded, are what the log says");
+    expect(findings).toContain("schedule_payment: the action is what the flow makes from the log");
+    expect(findings).toContain("reserve_po: the flow sends it with no approval once its condition holds");
+    expect(paid.rule_inputs).toMatchObject({ "payee.ok": true, "case.amount": 3150 });
+  });
+
+  it("fails when the key holder signs a log on which the rule did not hold", async () => {
+    // A signature proves who signed, not that the record is true. But a log
+    // whose own facts do not allow the payment fails, even signed by the
+    // right key: here the bank's answer is rewritten to a close match.
+    const { store, id } = await paidInvoice();
+    const genuine = buildProof(store, flows, id);
+    const log = structuredClone(genuine.log);
+    const payee = log.find((e) => e.type === "verified" && e.check === "payee") as any;
+    payee.value = { ...payee.value, ok: false, result: "close_match" };
+    const resealed = signProof(seal(genuine.case, genuine.flow, log), key);
+    const problems = failed(resealed, resealed.signature!.fingerprint);
+    expect(problems).toEqual(expect.arrayContaining([expect.stringMatching(/^schedule_payment: no person approved it, and its rule holds on the log/), "schedule_payment: the values the rule read, as recorded, are what the log says"]));
+    expect(problems).not.toContain("the Ed25519 signature over the root is valid");
   });
 
   it("is not trusted without a pinned key", async () => {
